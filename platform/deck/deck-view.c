@@ -39,7 +39,7 @@ static void* setter(TacDeckView* v,void* klass,const char* name,int valueType){
   void* property=v->mono.mono_class_get_property_from_name(klass,name);if(!property)continue;
   void* m=v->mono.mono_property_get_set_method(property);if(!m)return NULL;
   void* signature=v->mono.mono_method_signature(m);void* it=NULL;
-  if(!signature||v->mono.mono_signature_get_param_count(signature)!=1||type(v,v->mono.mono_signature_get_return_type(signature))!=1)return NULL;
+  if((v->mono.mono_method_get_flags(m,NULL)&16)||!signature||v->mono.mono_signature_get_param_count(signature)!=1||type(v,v->mono.mono_signature_get_return_type(signature))!=1)return NULL;
   if(valueType>=0&&type(v,v->mono.mono_signature_get_params(signature,&it))!=valueType)return NULL;return m;
  }return NULL;
 }
@@ -67,6 +67,7 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
  void* pui=image(v,"Sce.PlayStation.PUI.dll"),*core=image(v,"Sce.PlayStation.Core.dll"),*app=image(v,"Sce.Vsh.ShellUI.AppSystem.dll");
  if(!pui||!core||!app)goto done;
  v->label=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Label");
+ v->panel=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Panel");
  v->widget=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Widget");
  v->font=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","UIFont");
  v->color=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI","UIColor");
@@ -74,7 +75,10 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
  void* gamepad=v->mono.mono_class_from_name(core,"Sce.PlayStation.Core.Input","GamePad");
  void* layer=v->mono.mono_class_from_name(app,"Sce.Vsh.ShellUI.AppSystem","LayerManager");
  void* scene=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Scene");
- if(!v->label||!v->widget||!v->font||!v->color||!application||!gamepad||!layer||!scene)goto done;
+ if(!v->label||!v->panel||!v->widget||!v->font||!v->color||!application||!gamepad||!layer||!scene)goto done;
+ void* parent=v->panel;unsigned depth=0;
+ while(parent&&parent!=v->widget&&depth++<12)parent=v->mono.mono_class_get_parent(parent);
+ if(parent!=v->widget)goto done;
  int i32[]={8},str[]={0x0e},fontTypes[]={8,-2,-2},colorTypes[]={0x0c,0x0c,0x0c,0x0c};
  void* tick=method(v,application,"Update",0,0,1,NULL);
  void* get=method(v,gamepad,"GetData",1,1,0x11,i32);
@@ -85,16 +89,22 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
  v->append=method(v,v->widget,"AppendChild",1,0,1,NULL);
  v->remove=method(v,v->widget,"RemoveFromParent",0,0,1,NULL);
  v->labelCtor=method(v,v->label,".ctor",0,0,1,NULL);
+ v->panelCtor=method(v,v->panel,".ctor",0,0,1,NULL);
+ v->panelWidth=setter(v,v->panel,"Width",0x0c);v->panelHeight=setter(v,v->panel,"Height",0x0c);
+ v->panelColor=setter(v,v->panel,"BackgroundColor",0x11);v->panelVisible=setter(v,v->panel,"Visible",2);
  v->fontCtor=method(v,v->font,".ctor",3,0,1,fontTypes);
  v->colorCtor=method(v,v->color,".ctor",4,0,1,colorTypes);
- v->text=setter(v,v->label,"Text",0x0e);v->name=setter(v,v->label,"Name",0x0e);
- v->x=setter(v,v->label,"X",0x0c);v->y=setter(v,v->label,"Y",0x0c);
+ v->text=setter(v,v->label,"Text",0x0e);v->name=setter(v,v->widget,"Name",0x0e);
+ v->x=setter(v,v->widget,"X",0x0c);v->y=setter(v,v->widget,"Y",0x0c);
  v->width=setter(v,v->label,"FitWidthToText",2);v->height=setter(v,v->label,"FitHeightToText",2);
  v->textColor=setter(v,v->label,"TextColor",0x11);v->labelFont=setter(v,v->label,"Font",0x11);
  uint32_t alignment=0;
  if(!v->mono.mono_class_is_valuetype(v->font)||!v->mono.mono_class_is_valuetype(v->color)||v->mono.mono_class_value_size(v->color,&alignment)!=16)goto done;
  if(!v->findScene||!v->getRoot||!v->append||!v->remove||!v->labelCtor||!v->fontCtor||!v->colorCtor||!v->text||!v->name||
   !v->x||!v->y||!v->width||!v->height||!v->textColor||!v->labelFont)goto done;
+ if(!v->panelCtor||!v->panelWidth||!v->panelHeight||!v->panelColor||!v->panelVisible)goto done;
+ void* colorSignature=v->mono.mono_method_signature(v->panelColor),*colorIterator=NULL;
+ if(v->mono.mono_class_from_mono_type(v->mono.mono_signature_get_params(colorSignature,&colorIterator))!=v->color)goto done;
  *update=v->mono.mono_compile_method(tick);*input=v->mono.mono_compile_method(get);ok=*update&&*input;
 done:v->mono.mono_thread_detach(thread);return ok;
 }
@@ -112,15 +122,30 @@ static int styles(TacDeckView* v){
   call(v,v->fontCtor,v->mono.mono_object_unbox(target(v,v->fonts[i])),fa,&ok);
   float r=tac_deck_ink[i][0],g=tac_deck_ink[i][1],b=tac_deck_ink[i][2],a=tac_deck_ink[i][3];
   void* ca[]={&r,&g,&b,&a};call(v,v->colorCtor,v->mono.mono_object_unbox(target(v,v->colors[i])),ca,&ok);
- }return ok;
+ }
+ for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++){
+  v->backgrounds[i]=object(v,v->color);if(!v->backgrounds[i])return 0;
+  float r=tac_deck_background[i][0],g=tac_deck_background[i][1],b=tac_deck_background[i][2],a=tac_deck_background[i][3];
+  void* ca[]={&r,&g,&b,&a};call(v,v->colorCtor,v->mono.mono_object_unbox(target(v,v->backgrounds[i])),ca,&ok);
+ }
+ return ok;
 }
 static void release_labels(TacDeckView* v){
  int ok=1;for(unsigned i=0;i<TAC_DECK_LABELS;i++)if(v->labels[i]){set_text(v,v->labels[i],"",&ok);call(v,v->remove,target(v,v->labels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->labels[i]);v->labels[i]=0;}
+ for(unsigned i=0;i<TAC_DECK_PANELS;i++)if(v->panels[i]){uint8_t hidden=0;set(v,v->panelVisible,target(v,v->panels[i]),&hidden,&ok);call(v,v->remove,target(v,v->panels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->panels[i]);v->panels[i]=0;}
  if(v->root)v->mono.mono_gchandle_free(v->root);v->root=0;v->paintedValid=0;
 }
 static int labels(TacDeckView* v,uint32_t root){
  v->root=root;if(!v->root)return 0;int ok=1;
  TacDeckFrame empty={0};TacDeckLayout layout;tac_deck_layout(&empty,0,0,&layout);
+ // Backgrounds are appended before labels. Create them hidden to avoid a flash
+ // of partially constructed UI; visibility is published with the first frame.
+ for(unsigned i=0;i<TAC_DECK_PANELS&&ok;i++){
+  v->panels[i]=object(v,v->panel);void* p=target(v,v->panels[i]);if(!p)return 0;
+  call(v,v->panelCtor,p,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenPanel_%u",i);
+  set(v,v->name,p,v->mono.mono_string_new(v->domain,name),&ok);uint8_t hidden=0;
+  set(v,v->panelVisible,p,&hidden,&ok);void* args[]={p};call(v,v->append,target(v,v->root),args,&ok);
+ }
  for(unsigned i=0;i<TAC_DECK_LABELS&&ok;i++){
   v->labels[i]=object(v,v->label);void* label=target(v,v->labels[i]);if(!label)return 0;
   call(v,v->labelCtor,label,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenDeck_%u",i);
@@ -157,6 +182,16 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
    void* color=v->mono.mono_object_unbox(target(v,v->colors[current->ink]));
    set(v,v->textColor,target(v,v->labels[i]),color,&ok);
   }
+ }
+ for(unsigned i=0;i<TAC_DECK_PANELS;i++){
+  const TacDeckPanel* current=&layout.panels[i];const TacDeckPanel* previous=&v->painted.panels[i];void* p=target(v,v->panels[i]);
+  if(!p){ok=0;break;}
+  if(!v->paintedValid||current->x!=previous->x){float x=current->x;set(v,v->x,p,&x,&ok);}
+  if(!v->paintedValid||current->y!=previous->y){float y=current->y;set(v,v->y,p,&y,&ok);}
+  if(!v->paintedValid||current->width!=previous->width){float width=current->width;set(v,v->panelWidth,p,&width,&ok);}
+  if(!v->paintedValid||current->height!=previous->height){float height=current->height;set(v,v->panelHeight,p,&height,&ok);}
+  if(!v->paintedValid||current->ink!=previous->ink)set(v,v->panelColor,p,v->mono.mono_object_unbox(target(v,v->backgrounds[current->ink])),&ok);
+  if(!v->paintedValid||current->visible!=previous->visible){uint8_t visible=(uint8_t)current->visible;set(v,v->panelVisible,p,&visible,&ok);}
  }
  if(!ok){release_labels(v);v->failed=1;return 0;}
  v->painted=layout;v->paintedValid=1;

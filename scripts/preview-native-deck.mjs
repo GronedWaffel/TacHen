@@ -29,16 +29,20 @@ await fs.mkdir(path.join(root,'.local'),{recursive:true});
 const input=path.join(root,'.local/deck-preview-frame.bin');await fs.writeFile(input,encodeDeck(frame));
 const views=[];
 for(let selected=0;selected<=labels.length;selected++){
-  const result=spawnSync(exe,[input,selected===labels.length?'0':'1',String(selected%labels.length)],{encoding:'utf8'});
-  if(result.status!==0)throw Error(result.stderr||'Native layout preview failed');views.push(JSON.parse(result.stdout));
+  const args=[input,selected===labels.length?'0':'1',String(selected%labels.length)];
+  const result=spawnSync(exe,args,{encoding:'utf8'}),panels=spawnSync(exe,[...args,'panels'],{encoding:'utf8'});
+  if(result.status!==0||panels.status!==0)throw Error(result.stderr||panels.stderr||'Native layout preview failed');
+  views.push({labels:JSON.parse(result.stdout),panels:JSON.parse(panels.stdout)});
 }
 const escape=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
-const svgs=views.map(view=>'<svg viewBox="0 0 1920 1080" role="img" aria-label="Native TacHen text layout">'+
-  view.filter(item=>item.text).map(item=>`<text x="${item.x}" y="${item.y+item.size}" font-size="${item.size}" fill="rgb(${item.color.slice(0,3).map(x=>Math.round(x*255)).join(' ')})">${escape(item.text)}</text>`).join('')+'</svg>');
+const color=item=>`rgb(${item.color.slice(0,3).map(x=>Math.round(x*255)).join(' ')})`;
+const svgs=views.map(view=>'<svg viewBox="0 0 1920 1080" role="img" aria-label="Native TacHen panel and text layout">'+
+  view.panels.filter(item=>item.visible).map(item=>`<rect x="${item.x}" y="${item.y}" width="${item.width}" height="${item.height}" fill="${color(item)}" fill-opacity="${item.color[3]}"/>`).join('')+
+  view.labels.filter(item=>item.text).map(item=>`<text x="${item.x}" y="${item.y+item.size}" font-size="${item.size}" fill="${color(item)}">${escape(item.text)}</text>`).join('')+'</svg>');
 const html=`<!doctype html><meta charset="utf-8"><title>TacHen native layout preview</title>
 <style>body{margin:0;background:#070e15;color:#c2d1da;font:14px system-ui}header{padding:15px 24px;display:flex;align-items:center;gap:20px}b{color:#75ffd0}select{font:inherit;background:#13202b;color:white;border:1px solid #405263;padding:8px}#screen{background:#101d29}svg{width:100%;display:block;font-family:Arial,sans-serif}svg text{white-space:pre}footer{padding:14px 24px;color:#95a6b5}</style>
 <header><b>Native layout · PC preview</b><label>Focus <select id="focus">${labels.map((row,i)=>`<option value="${i}">${escape(row[0])}</option>`).join('')}<option value="8">Deck closed</option></select></label></header>
-<main id="screen">${svgs[0]}</main><footer>Production C layout with example data. Browser fonts and neutral backdrop; console backdrop/compositing remain unfinished. No PS5 connection.</footer>
+<main id="screen">${svgs[0]}</main><footer>Production C panel and text layout with example data. Browser fonts approximate native text; console compositing and input still need hardware acceptance. No PS5 connection.</footer>
 <script>const views=${JSON.stringify(svgs).replaceAll('<','\\u003c')};document.querySelector('#focus').addEventListener('change',event=>{document.querySelector('#screen').innerHTML=views[Number(event.target.value)]});</script>`;
 await fs.writeFile(path.join(root,'.local/native-deck-preview.html'),html);
 if(!process.argv.includes('--write-only')){

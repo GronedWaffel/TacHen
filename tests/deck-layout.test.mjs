@@ -21,10 +21,10 @@ function frame(extra={}){
       {token:'2'.repeat(32),label:'Enable game autostart',detail:'Wait for the exact target game and version. Disabling autostart does not unload code.',enabled:true,on:true},
       {token:'3'.repeat(32),label:'Load into game',detail:'Startup recovery is holding native operations.',enabled:false}],...extra};
 }
-async function render(t,frame,open=1,selected=0){
+async function render(t,frame,open=1,selected=0,panels=false){
   const file=path.join(root,'build','layout-'+crypto.randomUUID()+'.bin');
   await fs.writeFile(file,encodeDeck(frame));t.after(()=>fs.unlink(file));
-  const result=spawnSync(exe,[file,String(open),String(selected)],{encoding:'utf8'});
+  const result=spawnSync(exe,[file,String(open),String(selected),...(panels?['panels']:[])],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);
 }
 test('native focus layout keeps section navigation, selection details and live metrics in separate areas',async t=>{
@@ -37,6 +37,18 @@ test('native focus layout keeps section navigation, selection details and live m
   for(const item of view)assert.ok(item.x>=0&&item.x<1920&&item.y>=0&&item.y+item.size<=1080);
   const updated=await render(t,frame({metrics:'59.8 FPS',metricsSequence:2}),1,1);
   assert.deepEqual(updated.filter((_,i)=>i!==42),view.filter((_,i)=>i!==42),'metric refresh does not change action presentation');
+});
+
+test('native panels follow selection and are hidden with stale UI while independent overlays retain their opt-ins',async t=>{
+  const panels=await render(t,frame(),1,1,true);
+  assert.equal(panels.length,12);assert(panels.slice(0,9).every(p=>p.visible));
+  assert.equal(panels[5].y,334);assert.equal(panels[6].y,344);assert.equal(panels[9].visible,0);
+  for(const p of panels)assert(p.x>=0&&p.y>=0&&p.width>0&&p.height>0&&p.x+p.width<=1920&&p.y+p.height<=1080);
+  const empty=await render(t,frame({rows:[]}),1,999,true);assert.equal(empty[5].visible,0);assert.equal(empty[8].visible,0);
+  const closed=await render(t,frame(),0,0,true);assert(closed.slice(0,10).every(p=>!p.visible));assert(closed[10].visible&&closed[11].visible);
+  const notice=await render(t,frame({notices:{sequence:1,current:{level:'attention',remainingMs:1200,count:1,title:'Check Activity',detail:'Review before retrying.'}}}),0,0,true);
+  assert.equal(notice[9].visible,1);
+  const stale=await render(t,frame({ready:false,ipVisible:false}),0,0,true);assert(stale.every(p=>!p.visible));
 });
 test('disabled and empty native views explain their state without inventing actions',async t=>{
   const held=await render(t,frame(),1,2);

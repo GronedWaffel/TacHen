@@ -383,10 +383,13 @@ The native command deck now separates a six-section rail, eight action rows and
 an in-focus explanation. Wrapped labels preserve UTF-8 boundaries; selected
 unavailable actions keep their reason visible. Metrics/notices/IP remain separate
 from controller action identities. Circle goes back from nested Home views and
-closes only at the Home root (wire version five). This is the text layout stage;
-a native background/compositing layer and final visual design are still needed.
+closes only at the Home root (wire version five). Native panels provide the game
+dimmer, navigation rail, focused action, selection highlight and separate overlay
+backplates. Managed methods are resolved and checked before hooks are published;
+unknown panel metadata prevents startup. Console compositing, appearance and
+controller behavior still need hardware acceptance.
 
 `node scripts/preview-native-deck.mjs` starts a loopback-only layout preview on
 port 8797. It compiles the production C layout and uses example frames with browser
-fonts and a neutral backdrop. It neither connects to a console nor proves PUI
+fonts and production panel geometry/colors. It neither connects to a console nor proves PUI
 appearance. Close it with Ctrl+C; `--write-only` just writes the preview HTML.

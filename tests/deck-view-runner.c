@@ -6,10 +6,10 @@
 #include <string.h>
 #include <stdint.h>
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);return 1;}}while(0)
-enum { FIND=1,ROOT,APPEND,REMOVE,CTOR,FONTCTOR,COLORCTOR,TEXT,NAME,X,Y,WIDTH,HEIGHT,COLOR,FONT };
-typedef struct {char text[256];unsigned removed;} Obj;
+enum { FIND=1,ROOT,APPEND,REMOVE,CTOR,FONTCTOR,COLORCTOR,TEXT,NAME,X,Y,WIDTH,HEIGHT,COLOR,FONT,PWIDTH,PHEIGHT,PCOLOR,VISIBLE,PCTOR };
+typedef struct {char text[256];unsigned removed,visible;float x,y,width,height;} Obj;
 static Obj objects[256],roots[2];static void* handles[512];static char strings[512][256];
-static unsigned allocated,nextHandle,stringCount,invocations,textCalls,removed,rootIndex,failText;
+static unsigned allocated,nextHandle,stringCount,invocations,textCalls,removed,rootIndex,failText,failPanel;
 static int sceneAvailable=1;
 int tac_mono_load(TacMono* unused){(void)unused;return 0;}
 static void* object_new(void* domain,void* klass){(void)domain;(void)klass;return &objects[allocated++];}
@@ -25,6 +25,12 @@ static void* invoke(void* method,void* object,void** args,void** exception){
   case ROOT:return &roots[rootIndex];
   case TEXT:textCalls++;if(failText){failText=0;*exception=(void*)1;break;}snprintf(((Obj*)object)->text,256,"%s",(char*)args[0]);break;
   case REMOVE:((Obj*)object)->removed=1;removed++;break;
+  case VISIBLE:((Obj*)object)->visible=*(uint8_t*)args[0];break;
+  case X:((Obj*)object)->x=*(float*)args[0];break;
+  case Y:((Obj*)object)->y=*(float*)args[0];break;
+  case PWIDTH:((Obj*)object)->width=*(float*)args[0];break;
+  case PHEIGHT:((Obj*)object)->height=*(float*)args[0];break;
+  case PCTOR:if(failPanel){failPanel=0;*exception=(void*)1;}break;
   default:break;
  }return NULL;
 }
@@ -37,11 +43,15 @@ int main(void){
  view.labelCtor=(void*)CTOR;view.fontCtor=(void*)FONTCTOR;view.colorCtor=(void*)COLORCTOR;
  view.text=(void*)TEXT;view.name=(void*)NAME;view.x=(void*)X;view.y=(void*)Y;view.width=(void*)WIDTH;
  view.height=(void*)HEIGHT;view.textColor=(void*)COLOR;view.labelFont=(void*)FONT;
+ view.panel=(void*)3;view.panelCtor=(void*)PCTOR;view.panelWidth=(void*)PWIDTH;view.panelHeight=(void*)PHEIGHT;
+ view.panelColor=(void*)PCOLOR;view.panelVisible=(void*)VISIBLE;
  for(unsigned i=0;i<TAC_DECK_STYLES;i++){view.fonts[i]=handle_new(object_new(NULL,NULL),1);view.colors[i]=handle_new(object_new(NULL,NULL),1);}
+ for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++)view.backgrounds[i]=handle_new(object_new(NULL,NULL),1);
  TacDeckFrame frame={.flags=3,.sequence=1,.metricsSequence=1,.count=2,.page=1};
  strcpy(frame.title,"TacHen / Plugins");strcpy(frame.rows[0].label,"Start watcher");strcpy(frame.rows[0].detail,"Ready to start.");frame.rows[0].flags=1;
  strcpy(frame.rows[1].label,"Load game module");strcpy(frame.rows[1].detail,"Open the target game first.");strcpy(frame.metrics,"60 FPS");
- CHECK(tac_deck_view_render(&view,&frame,1,0,1000));CHECK(allocated==TAC_DECK_STYLES*2+TAC_DECK_LABELS);
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1000));CHECK(allocated==TAC_DECK_STYLES*2+TAC_DECK_BACKGROUNDS+TAC_DECK_PANELS+TAC_DECK_LABELS);
+ CHECK(((Obj*)handle_target(view.panels[0]))->visible);CHECK(((Obj*)handle_target(view.panels[5]))->y==268);
  CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
  unsigned calls=invocations,allocations=stringCount;
  CHECK(tac_deck_view_render(&view,&frame,1,0,1001));CHECK(invocations==calls&&stringCount==allocations);
@@ -49,15 +59,24 @@ int main(void){
  CHECK(tac_deck_view_render(&view,&frame,1,0,1002));CHECK(textCalls==writes+1);
  CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
  CHECK(tac_deck_view_render(&view,&frame,1,1,1003));CHECK(!strcmp(((Obj*)handle_target(view.labels[39]))->text,"Currently unavailable"));
+ CHECK(((Obj*)handle_target(view.panels[5]))->y==334);
  CHECK(tac_deck_view_render(&view,&frame,0,1,1004));
  for(unsigned i=0;i<41;i++)CHECK(!((Obj*)handle_target(view.labels[i]))->text[0]);
  CHECK(!strcmp(((Obj*)handle_target(view.labels[42]))->text,"59.8 FPS"));
+ for(unsigned i=0;i<9;i++)CHECK(!((Obj*)handle_target(view.panels[i]))->visible);
+ CHECK(((Obj*)handle_target(view.panels[10]))->visible);
  frame.flags=0;CHECK(tac_deck_view_render(&view,&frame,0,1,1005));CHECK(!((Obj*)handle_target(view.labels[42]))->text[0]);
- sceneAvailable=0;CHECK(!tac_deck_view_render(&view,&frame,0,0,1300));CHECK(!view.root&&!view.paintedValid);CHECK(removed==TAC_DECK_LABELS);
+ for(unsigned i=0;i<TAC_DECK_PANELS;i++)CHECK(!((Obj*)handle_target(view.panels[i]))->visible);
+ sceneAvailable=0;CHECK(!tac_deck_view_render(&view,&frame,0,0,1300));CHECK(!view.root&&!view.paintedValid);CHECK(removed==TAC_DECK_LABELS+TAC_DECK_PANELS);
  sceneAvailable=1;rootIndex=1;frame.flags=3;
  CHECK(tac_deck_view_render(&view,&frame,1,0,1600));CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
  failText=1;frame.sequence++;strcpy(frame.rows[0].label,"Changed");
- CHECK(!tac_deck_view_render(&view,&frame,1,0,1601));CHECK(view.failed&&!view.root);CHECK(removed==TAC_DECK_LABELS*2);
+ CHECK(!tac_deck_view_render(&view,&frame,1,0,1601));CHECK(view.failed&&!view.root);CHECK(removed==(TAC_DECK_LABELS+TAC_DECK_PANELS)*2);
  calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,1602));CHECK(invocations==calls);
+ // A constructor exception must not leave a half-created backplate or roots.
+ view.failed=0;failPanel=1;
+ CHECK(!tac_deck_view_render(&view,&frame,1,0,2000));CHECK(view.failed&&!view.root);
+ for(unsigned i=0;i<TAC_DECK_PANELS;i++)CHECK(!view.panels[i]);
+ CHECK(removed==(TAC_DECK_LABELS+TAC_DECK_PANELS)*2+1);
  puts("Production native view cache, metric isolation, scene replacement and failure release passed");return 0;
 }

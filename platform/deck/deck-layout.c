@@ -7,6 +7,15 @@ const float tac_deck_ink[TAC_DECK_STYLES][4]={
  {0.36f,1.0f,0.77f,1},{0.95f,0.97f,1,1},{0.67f,0.74f,0.79f,1},
  {0.47f,0.54f,0.60f,1},{1,0.76f,0.38f,1}
 };
+const float tac_deck_background[TAC_DECK_BACKGROUNDS][4]={
+ {0.015f,0.025f,0.035f,0.78f}, // game dimmer
+ {0.035f,0.055f,0.075f,0.98f}, // deck body
+ {0.025f,0.040f,0.055f,1.0f},  // navigation rail
+ {0.060f,0.095f,0.115f,1.0f},  // focus card
+ {0.080f,0.195f,0.170f,1.0f},  // selection
+ {0.36f,1.0f,0.77f,1.0f},     // accent line
+ {0.20f,0.29f,0.33f,1.0f}     // quiet divider
+};
 // Conservative display-cell accounting; CJK/emoji occupy two cells. Native
 // UIFont remains responsible for shaping. Input comes from UTF-8 checked frames.
 static unsigned glyph(const char* s,unsigned* cells){
@@ -44,8 +53,25 @@ static void lines(TacDeckLayout* l,unsigned first,unsigned count,unsigned width,
 static void place(TacDeckLayout* l,unsigned index,float x,float y,unsigned font,unsigned ink){
  l->labels[index].x=x;l->labels[index].y=y;l->labels[index].font=font;l->labels[index].ink=ink;
 }
+static void panel(TacDeckLayout* l,unsigned index,float x,float y,float width,float height,unsigned ink,int visible){
+ l->panels[index]=(TacDeckPanel){x,y,width,height,ink,!!visible};
+}
 void tac_deck_layout(const TacDeckFrame* f,int open,unsigned selected,TacDeckLayout* l){
  memset(l,0,sizeof *l);
+ int menu=open&&(f->flags&1),focus=menu&&selected<f->count&&selected<8;
+ unsigned selectedRow=selected<8?selected:0,page=f->page<6?f->page:0;
+ panel(l,0,0,0,1920,1080,0,menu);
+ panel(l,1,64,52,1792,912,1,menu);
+ panel(l,2,64,52,328,912,2,menu);
+ panel(l,3,424,205,1380,1,6,menu);
+ panel(l,4,1080,250,724,560,3,menu);
+ panel(l,5,424,268+selectedRow*66,624,60,4,focus);
+ panel(l,6,78,278+page*66,4,40,5,menu);
+ panel(l,7,390,80,1,850,6,menu);
+ panel(l,8,424,278+selectedRow*66,3,40,5,focus);
+ panel(l,9,72,60,1776,112,1,!open&&(f->flags&1)&&f->notice.kind&&f->notice.remainingMs);
+ panel(l,10,80,970,1120,44,1,(f->flags&1)&&f->metrics[0]);
+ panel(l,11,1400,1004,430,48,1,(f->flags&2)&&f->ip[0]);
  place(l,0,96,78,0,TAC_INK_ACCENT);place(l,1,440,88,1,TAC_INK_TEXT);
  place(l,2,440,146,3,TAC_INK_MUTED);place(l,3,440,178,3,TAC_INK_MUTED);
  place(l,4,96,224,4,TAC_INK_QUIET);

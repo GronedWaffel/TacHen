@@ -1953,3 +1953,37 @@ Runtime **9,121,496 bytes**, SHA-256 `f4cb1c79e722b7fc8997a32fca8494569875dd4b87
 Launcher **9,282,624 bytes**, SHA-256 `7b1aa5034d976a5e5622cf92d284d01980866c8f47dce0ba645ff964fb10a0fb`.
 Update package **9,121,752 bytes**, SHA-256 `43709d9abd76278767f04fbe0ac664de670b0d0de580fd8d892892dab24fa685`.
 Source fingerprint `bde5de9655a6c78418f2b8ca63825fde382f1e11a6d40dbe04f2b5843135b8a5`.
+
+
+## Checkpoint 38 — native command-deck panels
+
+An existing private ShellUI IL capture supplied the missing Panel/UINode
+contracts. The original renderer now creates twelve GC-rooted backgrounds,
+selection highlights, separators and overlay backplates before its text labels.
+Runtime preparation checks exact method/property types and Widget ancestry before
+publishing hooks. No Sony implementation or assembly is distributed; interface
+evidence and private capture fingerprints are in NATIVE-UI-EVIDENCE.md.
+
+The pure C layout controls all panel geometry, colors and visibility. Scene
+replacement and constructor/render failures remove and unroot widgets. Closed
+or stale menus hide the deck; enabled metrics/IP and live notices retain their
+own backplates. Unchanged frames avoid managed mutations. This does not add
+filesystem work, sleeps or kernel calls to the UI callback.
+
+All **355 local tests** passed; the renderer's additional constructor-failure
+case also passed in the focused six-test layout suite. Production ELF build,
+embedded-asset checks and QuickJS checks passed. The process-link audit found
+zero legacy references in all five audited artifacts. Browser visual inspection
+used the production C layout and substitute fonts, including the closed-menu
+state; its console reported no warnings/errors. The loopback preview was stopped.
+These checks establish neither native rendering nor firmware hardware acceptance.
+
+The native panel implementation supersedes the earlier panel-API blocker.
+Firmware installer adapters and remaining compatibility work are still open.
+No console was contacted, and no release/deployment occurred. Console testing
+remains last; the full goal remains active.
+
+Runtime **9,121,496 bytes**, SHA-256 `e4e39cd2bfe41d4f3716fa7b694277e56c233cc9b095cf1fe1220e883c12c1e9`.
+Launcher **9,282,624 bytes**, SHA-256 `59a284c1949904386fc9a271b4cf5af721204b0c1c181ccede05651578dfda05`.
+Update package **9,121,752 bytes**, SHA-256 `c7708115eafd1d008258a0bf7974ef456fb9ba91b0a31af79d2806b44cf98933`.
+Source fingerprint `a421ee81c316cdcddce863c5e302cd8321a7fb681a41c27cf35e9b12eadefff9`.
