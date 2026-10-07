@@ -2131,3 +2131,22 @@ tails after partial failure, and reject malformed lengths, out-of-bounds spans,
 resolved overlaps and mismatched expected tails. Checkpoint logs are under
 `.local/checkpoint43-*`. No console connection, release or deployment occurred.
 The full goal remains active; console validation is still the final phase.
+
+## Checkpoint 44 — source-bound local review packaging
+
+The local review packager validates the current source fingerprint and all three
+artifact hashes before collecting the launcher, runtime, update package, exact
+Git source archive, credits and deferred hardware instructions. It rejects dirty
+source, stale builds, changed bytes and unsupported completion/verification
+claims. It rereads archive contents, rechecks source identity and atomically
+creates a new local filename without replacing an earlier archive. Python tools
+now participate in source identity; canonical LF text keeps Windows checkouts
+and Git source archives consistent.
+
+All **363 local tests** pass. The production build passes with embedded-asset
+verification. Package generation and archive readback results are retained under
+`.local/checkpoint44-*` after the clean source checkpoint is committed. This is
+a development review bundle, not a public release. No console contact or hardware
+testing occurred. HARDWARE-ACCEPTANCE.md records the final attended test sequence,
+with every console result explicitly untested. The lower-firmware native package
+interface evidence gap remains unresolved and the overall goal remains active.

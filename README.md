@@ -388,7 +388,7 @@ The native command deck now separates a six-section rail, eight action rows and
 an in-focus explanation. Wrapped labels preserve UTF-8 boundaries; selected
 unavailable actions keep their reason visible. Metrics/notices/IP remain separate
 from controller action identities. Circle goes back from nested Home views and
-closes only at the Home root (wire version five). Native panels provide the game
+closes only at the Home root (wire version six). Native panels provide the game
 dimmer, navigation rail, focused action, selection highlight and separate overlay
 backplates. Managed methods are resolved and checked before hooks are published;
 unknown panel metadata prevents startup. Console compositing, appearance and
@@ -403,3 +403,15 @@ The accent preference is shared by the phone and native deck. Choose mint, amber
 or ice from either interface; native focus markers, accent text and the IP display
 update together. Attention messages retain their warning color. Theme changes
 reuse existing native widgets and do not repeatedly allocate managed objects.
+
+
+## Local review bundle
+
+After committing the intended source and building, run
+`python scripts/package-review.py`. It verifies the clean source fingerprint and
+artifact checksums, then creates a ZIP under `build/review` with the launcher,
+direct runtime, update package, exact Git source archive, credits and acceptance
+instructions. It rereads the ZIP before publishing the local filename. This is
+an explicitly unverified development bundle; the command does not connect to a
+console, install, deploy or publish a release. Existing archives are retained.
+See [the deferred hardware test sequence](docs/HARDWARE-ACCEPTANCE.md).

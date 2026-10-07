@@ -47,3 +47,13 @@ enabled from that fingerprint. The capture is private and not redistributed.
 The saved ShellUI application IL contains AppInst wrapper references but does
 not supply the required install/status wrapper definitions. No console probe
 or installation was performed for this follow-up.
+
+
+The next local audit considered a read-only managed metadata probe as an
+alternative to fixed layouts. The saved ShellUI application references the
+separate `Sce.Vsh.AppInstUtilWrapper` assembly, but the relevant assembly and
+install/status type definitions are not among the available captures. Managed
+field offsets alone would not establish native marshalled layout for strings,
+arrays or Boolean fields. Without those definitions/marshalling evidence, this
+route cannot currently justify a firmware-wide native adapter. No speculative
+probe or package call was added, and no console was contacted.
