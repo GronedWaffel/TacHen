@@ -222,3 +222,13 @@ that protocol against the actual bridge machine code. The renderer supervisor
 enables capture only for a fresh renderer and observed controller, using the
 console's monotonic clock. Extended/device-specific pad APIs need separate
 adapters; this implementation handles normal scePadRead/scePadReadState.
+
+The Loadouts tab saves exact-version plugin, cheat and overlay selections.
+Review and apply uses the ordinary native job adapters, with all selections
+checked before the first dispatch and each step recorded separately. Automatic
+loadouts own their selected plugins' autostart and run once per game instance.
+Failures stop later steps; already loaded code is not presented as rolled back.
+The controller Games section can review/apply the current loadout, toggle its
+automatic startup and release its temporary overlay choices. Phone editing and
+controller actions share the same checked state. This integration is locally
+tested and cross-built; console acceptance remains pending.

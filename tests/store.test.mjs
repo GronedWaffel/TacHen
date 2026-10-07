@@ -11,8 +11,13 @@ import { checksum, memoryStorage, store } from './helpers.mjs';
 
 test('concurrent state writes preserve every accepted change', async () => {
   const state = await store();
-  await Promise.all(Array.from({ length: 30 }, (_, i) => state.transaction(s => { s.profiles['game' + i] = { enabled: true }; })));
+  await Promise.all(Array.from({ length: 30 }, (_, i) => state.transaction(s => {
+    const titleId = 'PPSA' + String(i).padStart(5, '0');
+    s.profiles[titleId + '@01.000.000'] = { titleId, version: '01.000.000', name: 'Game ' + i,
+      plugins: [], cheats: [], overlay: {}, autostart: false };
+  })));
   assert.equal(state.snapshot().revision, 30); assert.equal(Object.keys(state.snapshot().profiles).length, 30);
+  for (let i = 0; i < 30; i++) assert.equal(state.snapshot().profiles['PPSA' + String(i).padStart(5, '0') + '@01.000.000'].name, 'Game ' + i);
 });
 test('stale phone revisions cannot overwrite newer preferences', async () => {
   const state = await store();

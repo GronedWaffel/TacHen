@@ -4,6 +4,7 @@ import { invariant, TacError } from './errors.mjs';
 const isPs4 = game => /^(CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/.test(game?.titleId || '');
 const same = (a, b) => b && ['pid', 'generation', 'titleId', 'version', 'metadataHash'].every(k => a[k] === b[k]);
 const clean = (code, message) => Object.assign(new TacError(code, message), { noSideEffects: true });
+const enabled = runtime => (runtime.overlaySettings?.() || runtime.store.snapshot().settings.overlay).fps;
 export class Ps4Fps {
   constructor(runtime, native, { delay = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
     this.runtime = runtime;this.native = native;this.delay = delay;this.pending = null;this.timer = null;this.stopped = true;
@@ -13,7 +14,7 @@ export class Ps4Fps {
     const runtime = this.runtime, game = requireGame(runtime.game);
     invariant(isPs4(game), 'FPS_GAME', 'PS4 frame counting requires a verified PS4 game.');
     invariant(/^[a-f0-9]{64}$/.test(game.metadataHash || ''), 'FPS_METADATA', 'The mounted game version has not been verified.');
-    invariant(!runtime.graph.safe && runtime.store.snapshot().settings.overlay.fps, 'FPS_DISABLED', 'FPS preparation is disabled or held during safe startup.');
+    invariant(!runtime.graph.safe && enabled(runtime), 'FPS_DISABLED', 'FPS preparation is disabled or held during safe startup.');
     if (input?.generation) invariant(same(game, input), 'FPS_GAME_CHANGED', 'The game changed before FPS preparation.');
     const probe = this.native.systemProbe();
     invariant(!probe.busy && probe.kstuff?.injectionReady === true && typeof probe.boot === 'string' &&
@@ -36,7 +37,7 @@ export class Ps4Fps {
       async run(input, context) {
         for (;;) {
           if (context.signal.aborted) throw clean('FPS_TIMEOUT', 'FPS preparation expired before native dispatch.');
-          if (!same(input, runtime.game) || runtime.graph.safe || !runtime.store.snapshot().settings.overlay.fps)
+          if (!same(input, runtime.game) || runtime.graph.safe || !enabled(runtime))
             throw clean('FPS_GAME_CHANGED', 'The game or FPS preference changed before dispatch.');
           try { native.bcFpsStart(context.id, input.pid, input.generation, input.titleId, input.metadataHash);break; }
           catch (error) { if (error.code !== 'NATIVE_BUSY') throw error;await self.delay(100); }
@@ -64,7 +65,7 @@ export class Ps4Fps {
   }
   async inspect() {
     const runtime = this.runtime, game = runtime.game;
-    if (!isPs4(game) || runtime.graph.safe || !runtime.store.snapshot().settings.overlay.fps) { this.observation = null;return; }
+    if (!isPs4(game) || runtime.graph.safe || !enabled(runtime)) { this.observation = null;return; }
     const prior = runtime.jobs.snapshot().filter(job => job.kind === 'fps.ps4.prepare' && job.args.generation === game.generation).at(-1);
     if (prior) {
       const receipt = this.native.bcFpsPoll(prior.id, game.generation); // Recover the RAM cache after a coordinator restart.

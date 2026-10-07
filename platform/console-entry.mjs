@@ -26,6 +26,7 @@ import { installTelemetry } from '../src/telemetry.mjs';
 import { installPs4Fps } from '../src/ps4-fps.mjs';
 import { installGameInput } from '../src/game-input.mjs';
 import { installGameInputRelay } from '../src/game-input-relay.mjs';
+import { installLoadouts } from '../src/loadouts.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -57,6 +58,7 @@ globalThis.__ready = (async () => {
       installPs4Fps(runtime, __native);installTelemetry(runtime, __native);
       installGameInput(runtime, __native);
       installGameInputRelay(runtime, __native);
+      installLoadouts(runtime, __native);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });
@@ -72,6 +74,7 @@ globalThis.__ready = (async () => {
   __native.notify(`TacHen development runtime loaded\nPhone: http://${runtime.identity.ip}:8780`);
   runtime.gameLifecycle.start();
   runtime.plugins.start();
+  runtime.loadouts?.start();
   runtime.telemetry?.start();
   runtime.ps4Fps?.start();
   runtime.gameInput?.start();

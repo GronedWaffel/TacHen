@@ -16,3 +16,9 @@ input[type=file]{width:100%;max-width:340px;height:auto;min-width:0;font-size:12
 #developer-panel summary { cursor: pointer; font-weight: 700; }
 .mcp-field { display: grid; gap: 8px; margin: 16px 0; }
 .mcp-field input, .mcp-field textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; padding: 10px; }
+#loadout-items { margin-top: 20px; }
+.storage-dialog fieldset { min-width: 0; margin: 18px 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 9px; }
+.storage-dialog legend { color: var(--accent); padding: 0 6px; }
+.storage-dialog .setting:has(input[type=checkbox]) { display: flex; }
+.storage-dialog .setting input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 22px; padding: 0; }
+.job-row>ul { grid-column: 1/-1; overflow-wrap: anywhere; margin: 0; }

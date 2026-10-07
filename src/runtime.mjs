@@ -49,6 +49,7 @@ export class TacRuntime {
     this.capability('phone', true);
     return this;
   }
+  overlaySettings() { return { ...this.store.snapshot().settings.overlay, ...this.loadouts?.overlay() }; }
   snapshot() {
     const state = this.store.snapshot();
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
@@ -56,7 +57,8 @@ export class TacRuntime {
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       telemetry: this.telemetry ? this.telemetry.snapshot() : null,
       gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
-      settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
+      settings: { ...state.settings, overlay: this.overlaySettings() }, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
+      loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list() : null,
       cheats: this.cheats ? this.cheats.list() : null,
@@ -81,13 +83,23 @@ export class TacRuntime {
       state.history = state.history.slice(-256);
     }, revision);
     if (!this.store.snapshot().settings.developer.enabled) this.mcp?.revoke();
-    if (patch.overlay) this.telemetry?.reset();
+    if (patch.overlay) { this.loadouts?.overrideOverlay(patch.overlay);this.telemetry?.reset(); }
     this.sequence++; return this.snapshot();
   }
   async execute(command, args) {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'loadout.save':
+      case 'loadout.remove':
+      case 'loadout.preview':
+      case 'loadout.overlay.release': {
+        invariant(this.loadouts, 'FEATURE_UNAVAILABLE', 'Loadout service is not installed.');
+        if (command === 'loadout.save') return this.loadouts.save(args);
+        if (command === 'loadout.remove') return this.loadouts.remove(args);
+        if (command === 'loadout.preview') return this.loadouts.preview(args);
+        return this.loadouts.releaseOverlay();
+      }
       case 'developer.connect':
         invariant(this.mcp, 'FEATURE_UNAVAILABLE', 'MCP is not installed.');return this.mcp.issue();
       case 'developer.disconnect': this.mcp?.revoke();return { disconnected: true };
@@ -144,5 +156,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.mcp?.revoke(); this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.mcp?.revoke(); this.loadouts?.stop();this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

@@ -33,7 +33,7 @@ export class GameModules {
   handler() {
     const self = this, { runtime, native, plugins } = this;
     const validate = async input => {
-      invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && ['manual', 'automatic'].includes(input.source), 'MODULE_INPUT', 'Choose a registered game module.');
+      invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && ['manual', 'automatic', 'profile'].includes(input.source), 'MODULE_INPUT', 'Choose a registered game module.');
       const item = plugins.find(input.sha256), configuration = canonical(item), game = clone(runtime.game);
       invariant(moduleFile(item), 'PLUGIN_FORMAT', 'Standalone .plugin files use their own process loader.');
       invariant(!runtime.graph.safe, 'SAFE_STARTUP', 'Game modules are held during safe startup.');
@@ -108,7 +108,7 @@ export class GameModules {
         if (result?.initialized) this.observe(item, 'module-started', 'Module initializer succeeded; it stays resident until the game ends.');
         else this.observe(item, prior.status, prior.error?.message || prior.progress?.phase || 'Module operation is tracked in Activity.');
       } else this.observe(item, item.autostart ? 'armed' : 'stopped', item.autostart ? 'Waiting for the exact game title and version.' : 'Enable autostart before opening the target game, or load it while that game is running.');
-      if (!matches(item, game) || !item.autostart || this.runtime.graph.safe || probe.kstuff?.injectionReady !== true) continue;
+      if (!matches(item, game) || !item.autostart || this.runtime.loadouts?.ownsAutostart(item.sha256) || this.runtime.graph.safe || probe.kstuff?.injectionReady !== true) continue;
       const key = game.generation + ':' + item.sha256;
       if (attempts.some(job => job.args.generation === game.generation) || this.attempts.has(key)) continue;
       this.attempts.add(key);

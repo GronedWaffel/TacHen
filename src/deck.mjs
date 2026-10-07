@@ -56,6 +56,15 @@ export class ConsoleDeck {
     if (this.confirmation) {
       row('Confirm: ' + this.confirmation.label, this.confirmation.detail, '$confirm');
       row('Cancel', 'Return without making changes', '$cancel');
+    } else if (this.loadoutPreview) {
+      const plan = this.loadoutPreview;
+      row(plan.profile.name, `${plan.profile.titleId} · ${plan.profile.version}`);
+      row('Apply loadout', plan.canApply ? 'Run checked steps in order; completed steps remain if a later one fails.' : 'Resolve the listed issues first',
+        plan.canApply && !state.safe ? 'job.enqueue' : null, { kind: 'loadout.apply', input: plan.accepted }, { confirm: true });
+      for (const step of plan.steps) row(step.label, step.existing ? 'Reuse recorded operation' : 'Start after earlier steps succeed');
+      for (const [key, enabled] of Object.entries(plan.profile.overlay)) row(key.toUpperCase() + ' overlay', enabled ? 'On for this game session' : 'Off for this game session');
+      for (const issue of plan.issues) row(issue.label, issue.message);
+      row('Back to games', 'Return without starting anything', '$loadout-back');
     } else if (this.page === 0) {
       row('Your phone is a second controller', `Open http://${state.identity.ip}:8780 on the same network`);
       row(state.game?.name || 'Dashboard', state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || `Firmware ${state.identity.firmware || 'development'}`);
@@ -71,6 +80,13 @@ export class ConsoleDeck {
       }
       if (!items.length) row('Payload inbox is empty', 'Upload from your phone or FTP into /payloads');
     } else if (this.page === 2) {
+      const profile = state.loadouts?.profiles.find(p => p.titleId === state.game?.titleId && p.version === state.game?.version);
+      if (profile) {
+        row('Loadout: ' + profile.name, 'Review plugins, cheats and overlay choices', '$loadout-open', { titleId: profile.titleId, version: profile.version });
+        row('Automatic loadout', profile.autostart ? 'On' : 'Off', 'loadout.save',
+          { profile: { ...profile, autostart: !profile.autostart }, revision: state.revision }, { on: profile.autostart });
+      }
+      if (state.loadouts?.active) row('Use default overlay', 'Release this session’s loadout overlay; native steps remain', 'loadout.overlay.release');
       row('Refresh library', runtime.libraryState?.error?.message || 'Read games from ShadowMount', runtime.library ? 'library.refresh' : null);
       for (const game of runtime.libraryState?.games || []) {
         const usable = feature('shadowmount') && game.sourceAvailable && game.canMount && !game.installedPackage;
@@ -79,7 +95,7 @@ export class ConsoleDeck {
             contentId: game.contentId, mounted: !game.mounted } }, { confirm: true });
       }
     } else if (this.page === 3) {
-      for (const job of [...state.jobs].reverse()) row(job.kind, `${job.status}: ${job.error?.message || job.progress?.message || ''}`);
+      for (const job of [...state.jobs].reverse()) row(job.kind, `${job.result?.phase === 'loadout-stopped' ? 'Stopped; review steps' : job.status}: ${job.error?.message || job.result?.message || job.progress?.phase || ''}`);
       if (!items.length) row('Nothing is running', 'Transfers and payload jobs appear here');
     } else if (this.page === 4) {
       for (const [key, label, capability] of [['ip', 'IP address on screen', 'ip-overlay'], ['fps', 'Game FPS', 'fps'],
@@ -139,14 +155,20 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.notice = ''; return this.frame();
       }
-      if (input.kind === 'back') { this.confirmation = null; if (this.page === 5 && this.cheatPack) this.cheatPack = null; else this.page = 0; this.offset = 0; this.notice = ''; return this.frame(); }
+      if (input.kind === 'back') {
+        if (this.confirmation && this.loadoutPreview) this.confirmation = null;
+        else { this.confirmation = null;if (this.loadoutPreview) this.loadoutPreview = null;else if (this.page === 5 && this.cheatPack) this.cheatPack = null;else this.page = 0; }
+        this.offset = 0;this.notice = '';return this.frame();
+      }
       invariant(input.kind === 'select' && Number.isInteger(input.row) && input.row >= 0 && input.row < frame.rows.length,
         'DECK_ACTION', 'Invalid deck action.', { status: 400 });
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$loadout-open') { this.loadoutPreview = await this.runtime.execute('loadout.preview', selected.args);this.offset = 0; }
+      else if (selected.command === '$loadout-back') { this.loadoutPreview = null;this.offset = 0; }
       else if (selected.command === '$cheat-open') { this.cheatPack = await this.runtime.execute('cheat.inspect', selected.args); this.offset = 0; }
       else if (selected.command === '$cheat-back') { this.cheatPack = null; this.offset = 0; }
       else if (selected.command === '$next') this.offset += 6;

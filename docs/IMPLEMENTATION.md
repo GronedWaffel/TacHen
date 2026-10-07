@@ -979,3 +979,62 @@ Next substantial scope includes save extraction/decryption/export, runtime
 loadouts, remaining cheat formats, recovery/update flows and older-firmware
 installer ABIs. The full TacHen goal remains active. No console connection,
 hardware test, public deployment or release occurred.
+
+## Checkpoint twenty-one — per-game loadouts
+
+Loadouts now have a runtime service and phone editor, rather than only a saved
+schema/planning utility. Each setup binds an exact title/version, up to 32
+registered plugin hashes and 64 imported cheat references, overlay choices and
+an opt-in automatic-start flag. Stored profiles are validated on every state
+commit. Revision checks prevent stale editors from overwriting newer choices.
+The phone supports editing, removal, preflight review and application. The
+controller Games section reviews/applies the same setup, controls automatic
+startup and releases its temporary overlay. Reviewed actions retain the profile
+hash and complete game identity; later changes invalidate the request.
+
+One loadout coordinator occupies at most one queue slot; child operations use
+the other slot and the existing native dispatch/resource exclusions. Multiple
+coordinators cannot deadlock both slots waiting for children. Preflight checks
+all referenced files, targets, adapters and overlay capabilities before any new
+dispatch. Children retain their existing native byte/identity checks. Plugin
+launches, native modules and cheat changes are individually recorded, with a
+durable checkpoint before child enqueue and a deterministic child request key.
+Recovery can identify a child accepted between the two checkpoint writes; it
+does not replay later steps or reapply an overlay after a restart.
+
+Existing successful module/cheat operations may be reused, and standalone
+plugins additionally require the original live process identity. Adoption is
+checked again at its execution step. A clean child failure stops the setup with
+an explicit partial result; an unknown child holds the coordinator until that
+child can be reconciled. This is deliberately not an atomic rollback promise:
+resident plugin code stays resident. Activity distinguishes a stopped loadout
+from a fully applied one and lists its individual operations.
+
+Automatic setups suppress independent autostart for their selected plugins,
+wait for native/overlay readiness, and attempt once per game generation.
+Missing/incompatible selections remain held for review. Game-instance overlay
+choices are RAM-only, feed the same renderer/telemetry/PS4 preparation paths,
+and stop applying after the game identity changes. Explicit preference changes
+override the active overlay. Removing a saved setup does not unload modules,
+reverse cheats, or undo the active session; the user can separately release its
+overlay and use the existing cheat controls.
+
+The full suite passed **222 local tests**, including eleven loadout integration
+checks through the real queue, state store, plugin/module handlers and cheat
+service with mocked native boundaries. They cover preflight rejection, duplicate
+coordinators, partial/unknown outcomes, game changes, adoption, autostart,
+checkpoint recovery, controller confirmation and saved-state validation. The
+actual embedded QuickJS engine also executes a saved overlay loadout through
+the real coordinator/queue. Local browser testing exercised editing, saving,
+review, apply and completed Activity using an in-memory loopback fixture, with
+the editor visually inspected at 390px width. Those are not console tests.
+
+All artifacts cross-built, and the three-ELF process-link audit passed. Runtime
+**8,674,808 bytes**, SHA-256
+`1ad27cedca49fc7f417bec2ab15ef04efacbac7b4a75c46460a25d8136ea1b0e`.
+Hardware acceptance still needs actual plugin/cheat combinations, game changes,
+controller use, phone disconnects and startup timing across supported firmware.
+Save extraction/decryption/export, remaining cheat formats, full presentation,
+recovery/update flows and older-firmware installer ABIs remain outstanding.
+The original full goal is active. No console was contacted, and no deployment
+or public release occurred.

@@ -17,6 +17,8 @@ import { CounterWindow } from '../src/telemetry.mjs';
 import { installPs4Fps } from '../src/ps4-fps.mjs';
 import { installGameInput } from '../src/game-input.mjs';
 import { installGameInputRelay } from '../src/game-input-relay.mjs';
+import { installLoadouts } from '../src/loadouts.mjs';
+import { TacRuntime } from '../src/runtime.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -147,6 +149,17 @@ globalThis.testPassed = false;
   relay.receive({epoch:0,serial:0,open:false,owner:-1,connection:0,ready:true,renderedAt:relayNow});relay.tick();relayNow+=25;relay.tick();
   const inputFrame=encodeDeck({sequence:1,page:0,rows:[],title:'Input',ready:true,input:relay.frame()});
   assert(inputFrame.readUInt32LE(3008)===1&&inputFrame.readBigUInt64LE(3032)===1300n,'QuickJS input relay wire failed');
-  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle and controller wire passed. Native APIs not tested.');
+  let loadoutId = 0;
+  const loadoutRuntime = await new TacRuntime(store, { identity: async () => ({ mode: 'development', ip: '127.0.0.1' }),
+    install(runtime) { installLoadouts(runtime, { systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true } }) }); } },
+    { id: () => (++loadoutId).toString(16).padStart(32, '0') }).start();
+  loadoutRuntime.game = { ...ps4Runtime.game };loadoutRuntime.capability('ip-overlay', true);
+  await loadoutRuntime.execute('loadout.save', { revision: store.snapshot().revision, profile: {
+    titleId: 'CUSA00001', version: '01.00', name: 'QuickJS setup', plugins: [], cheats: [], overlay: { ip: true }, autostart: false } });
+  const loadoutJob = await loadoutRuntime.jobs.enqueue('loadout.apply', {}, 'quickjs-loadout');
+  for (let i = 0; i < 500 && loadoutRuntime.jobs.snapshot().some(j => ['queued', 'running'].includes(j.status)); i++) await Promise.resolve();
+  assert(loadoutRuntime.jobs.snapshot().find(j => j.id === loadoutJob.id)?.result?.fullyApplied && loadoutRuntime.overlaySettings().ip, 'QuickJS loadout application failed');
+  loadoutRuntime.game = null;assert(!loadoutRuntime.overlaySettings().ip, 'QuickJS loadout overlay leaked to dashboard');await loadoutRuntime.close();
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle, loadouts and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

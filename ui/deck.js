@@ -71,8 +71,105 @@ $('#cheat-file').onchange = async event => {
   } catch (error) { $('#cheat-status').textContent = error.message; }
   finally { event.target.value = ''; busy = false; }
 };
+function drawLoadouts() {
+  const library = state.loadouts;
+  $('#loadout-create').disabled = !library || !state.game;
+  $('#loadout-status').textContent = library?.observation?.message || (state.game ? 'Current game: ' + state.game.titleId + ' · ' + state.game.version : 'Open a game to create its first loadout. Saved loadouts can be edited here at any time.');
+  $('#loadout-items').replaceChildren(...(library?.profiles.length ? library.profiles.map(profile => {
+    const matches = state.game?.titleId === profile.titleId && state.game?.version === profile.version;
+    const node = row(profile.name, `${profile.titleId} · ${profile.version} · ${profile.plugins.length} plugins · ${profile.cheats.length} cheats`, profile.autostart ? 'Automatic' : 'Manual');
+    node.classList.add('plugin-row');const actions = el('div', 'actions'), edit = el('button', '', 'Edit'), review = el('button', '', 'Review and apply');
+    edit.onclick = () => loadoutEditor(profile);review.disabled = !matches || state.safe;
+    review.onclick = () => loadoutReview(profile);actions.append(edit, review);
+    if (library.active?.game.titleId === profile.titleId && library.active.game.version === profile.version) {
+      const release = el('button', '', 'Use default overlay');release.onclick = () => command('loadout.overlay.release', {});actions.append(release);
+      node.append(el('p', 'fine', 'This game has temporary overlay choices from ' + library.active.name + '.'));
+    }
+    node.append(actions);return node;
+  }) : [el('p', 'empty', 'No game loadouts saved yet.')]));
+}
+$('#loadout-create').onclick = () => {
+  if (!state.game) return;
+  const saved = state.loadouts?.profiles.find(p => p.titleId === state.game.titleId && p.version === state.game.version);
+  loadoutEditor(saved || { titleId: state.game.titleId, version: state.game.version, name: state.game.name || state.game.titleId,
+    plugins: [], cheats: [], overlay: {}, autostart: false });
+};
+async function loadoutEditor(profile) {
+  const revision = state.revision, dialog = el('dialog', 'storage-dialog'), form = el('form'), name = el('input'), automatic = el('input');
+  const heading = el('h2', '', 'Edit game loadout');heading.id = 'loadout-heading';dialog.setAttribute('aria-labelledby', heading.id);
+  const field = (label, input) => { const line = el('label', 'setting', label);line.append(input);return line; };
+  name.value = profile.name;name.maxLength = 100;name.required = true;automatic.type = 'checkbox';automatic.checked = profile.autostart;
+  const pluginChoices = new Map(), cheatChoices = new Map(), overlayChoices = new Map();
+  const pluginGroup = el('fieldset'), cheatGroup = el('fieldset'), overlayGroup = el('fieldset');
+  pluginGroup.append(el('legend', '', 'Plugins'));cheatGroup.append(el('legend', '', 'Cheats'));overlayGroup.append(el('legend', '', 'Overlay'));
+  const choice = (group, map, key, label, checked, disabled = false) => {
+    const input = el('input');input.type = 'checkbox';input.checked = checked;input.disabled = disabled;
+    map.set(key, input);group.append(field(label, input));
+  };
+  for (const plugin of state.plugins || []) if (plugin.scope === 'system' || plugin.target?.titleId === profile.titleId && plugin.target?.version === profile.version)
+    choice(pluginGroup, pluginChoices, plugin.sha256, plugin.name, profile.plugins.includes(plugin.sha256));
+  for (const sha256 of profile.plugins) if (!pluginChoices.has(sha256)) choice(pluginGroup, pluginChoices, sha256, 'Unavailable plugin · ' + sha256.slice(0, 12), true);
+  if (!pluginChoices.size) pluginGroup.append(el('p', 'fine', 'Register plugins in Payloads first.'));
+  for (const [key, label] of [['fps', 'FPS'], ['ram', 'Memory'], ['cpu', 'CPU'], ['ip', 'IP address']]) {
+    const select = el('select');for (const [value, text] of [['inherit', 'Use default'], ['on', 'On'], ['off', 'Off']]) { const option = el('option', '', text);option.value = value;select.append(option); }
+    select.value = Object.hasOwn(profile.overlay, key) ? profile.overlay[key] ? 'on' : 'off' : 'inherit';overlayChoices.set(key, select);overlayGroup.append(field(label, select));
+  }
+  const status = el('p', 'fine', 'Reading available cheats…');status.setAttribute('role', 'status');
+  const save = el('button', '', 'Save loadout'), cancel = el('button', '', 'Cancel'), remove = el('button', 'quiet', 'Delete loadout');
+  save.type = 'submit';save.disabled = true;cancel.type = remove.type = 'button';cancel.onclick = () => dialog.close();
+  const actions = el('div', 'actions');actions.append(save, cancel);
+  if (state.loadouts?.profiles.some(p => p.titleId === profile.titleId && p.version === profile.version)) actions.append(remove);
+  remove.onclick = async () => {
+    if (!confirm('Delete this saved loadout? Existing plugins and cheats will stay applied.')) return;remove.disabled = true;
+    try { await api('/api/command', { command: 'loadout.remove', args: { titleId: profile.titleId, version: profile.version, revision } });dialog.close();await refresh(); }
+    catch (error) { status.textContent = error.message;remove.disabled = false; }
+  };
+  form.append(field('Name', name), field('Apply automatically when this game opens', automatic), pluginGroup, cheatGroup, overlayGroup, status, actions);
+  dialog.append(heading, el('p', 'fine', profile.titleId + ' · ' + profile.version), form);dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
+  try {
+    for (const entry of state.cheats || []) if (entry.titleId === profile.titleId && entry.version === profile.version) {
+      const { result: pack } = await api('/api/command', { command: 'cheat.inspect', args: { sha256: entry.sha256 } });if (!dialog.isConnected) return;
+      for (const cheat of pack.cheats) {
+        const selected = profile.cheats.some(c => c.pack === pack.sha256 && c.id === cheat.id);
+        choice(cheatGroup, cheatChoices, pack.sha256 + ':' + cheat.id, pack.name + ' / ' + cheat.name + (cheat.supported ? '' : ' · unavailable'), selected, !cheat.supported && !selected);
+      }
+    }
+    for (const ref of profile.cheats) { const key = ref.pack + ':' + ref.id;if (!cheatChoices.has(key)) choice(cheatGroup, cheatChoices, key, 'Unavailable cheat · ' + ref.pack.slice(0, 12) + ' / ' + ref.id, true); }
+    if (!cheatChoices.size) cheatGroup.append(el('p', 'fine', 'Import an exact-version cheat file in Cheats first.'));
+    status.textContent = 'Choose Review and apply for manual use. Enabling automatic startup can apply this setup to the current game as soon as it is ready.';save.disabled = false;
+  } catch (error) { status.textContent = 'Could not read cheat choices: ' + error.message + ' Close and reopen this editor to retry.'; }
+  form.onsubmit = async event => {
+    event.preventDefault();save.disabled = true;
+    const overlay = {};for (const [key, select] of overlayChoices) if (select.value !== 'inherit') overlay[key] = select.value === 'on';
+    const updated = { ...profile, name: name.value.trim(), autostart: automatic.checked, overlay,
+      plugins: [...pluginChoices].filter(([, input]) => input.checked).map(([key]) => key),
+      cheats: [...cheatChoices].filter(([, input]) => input.checked).map(([key]) => { const [pack, id] = key.split(':');return { pack, id }; }) };
+    try { await api('/api/command', { command: 'loadout.save', args: { profile: updated, revision } });dialog.close();await refresh();notice('Loadout saved.'); }
+    catch (error) { status.textContent = error.message;save.disabled = false; }
+  };
+}
+async function loadoutReview(profile) {
+  const dialog = el('dialog', 'storage-dialog'), detail = el('div', 'stack'), status = el('p', 'fine', 'Checking every choice…');status.setAttribute('role', 'status');
+  const apply = el('button', '', 'Apply loadout'), close = el('button', '', 'Back'), actions = el('div', 'actions');apply.disabled = true;close.onclick = () => dialog.close();actions.append(apply, close);
+  dialog.append(el('h2', '', profile.name), el('p', 'fine', profile.titleId + ' · ' + profile.version), detail, status, actions);
+  dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
+  try {
+    const { result: plan } = await api('/api/command', { command: 'loadout.preview', args: { titleId: profile.titleId, version: profile.version } });if (!dialog.isConnected) return;
+    for (const step of plan.steps) detail.append(row(step.label, '', step.existing ? 'Reuse recorded operation' : 'Will start'));
+    for (const [key, value] of Object.entries(plan.profile.overlay)) detail.append(row(key.toUpperCase() + ' overlay', '', value ? 'On' : 'Off'));
+    for (const issue of plan.issues) detail.append(row(issue.label, issue.message, 'Needs attention', false));
+    status.textContent = plan.canApply ? 'Ready. Operations run in order. A failure stops later steps; already loaded plugins remain resident.' : 'Resolve the listed issues before applying this loadout.';
+    apply.disabled = !plan.canApply;const key = requestKey();
+    apply.onclick = async () => {
+      apply.disabled = true;
+      try { await api('/api/command', { command: 'job.enqueue', args: { kind: 'loadout.apply', input: plan.accepted, key } });dialog.close();await refresh();notice('Loadout queued. Follow each step in Activity.'); }
+      catch (error) { status.textContent = error.message;apply.disabled = false; }
+    };
+  } catch (error) { status.textContent = error.message; }
+}
 function draw() {
   drawCheats();
+  drawLoadouts();
   const sample = state.telemetry;
   $('#game-measurements').replaceChildren(...[
     ['fps', sample?.fpsSource === 'display-scanout' ? 'Display rate' : 'Game FPS', sample?.fps, sample?.fpsSource === 'display-scanout' ? ' Hz' : ' FPS'],
@@ -170,15 +267,22 @@ function draw() {
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
     const title = { 'package.verify': 'Verify package', 'package.install': 'Install package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
-      'payload.dispatch': 'Load payload', 'plugin.start': 'Start plugin', 'game.module.start': 'Load game module', 'deck.start': 'Start command deck' }[job.kind] || job.kind;
+      'payload.dispatch': 'Load payload', 'plugin.start': 'Start plugin', 'game.module.start': 'Load game module', 'deck.start': 'Start command deck', 'loadout.apply': 'Apply game loadout' }[job.kind] || job.kind;
+    const partial = job.kind === 'loadout.apply' && job.result?.phase === 'loadout-stopped';
     const node = row(title, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
-      job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');
+      partial ? 'Stopped · review steps' : job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed' && !partial);
     node.classList.add('job-row');
     const actions = el('div', 'actions');
     if (job.progress?.total > 0) {
       const progress = el('progress'); progress.max = job.progress.total; progress.value = job.progress.completed;
       progress.setAttribute('aria-label', 'Operation progress'); node.append(progress,
-        el('small', '', `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
+        el('small', '', job.kind === 'loadout.apply' ? `${job.progress.completed} / ${job.progress.total} steps recorded` : `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
+    }
+    if (job.kind === 'loadout.apply' && job.result?.steps?.length) {
+      const list = el('ul', 'fine');for (const step of job.result.steps) {
+        const child = state.jobs.find(item => item.id === step.id);
+        list.append(el('li', '', `${step.label || child?.kind || 'Recorded step'}: ${child?.status || 'Receipt unavailable'}${step.adopted ? ' · already applied' : ''}`));
+      }node.append(list);
     }
     for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || ['library.storage', 'package.verify'].includes(job.kind) && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
       if (!show) continue; const button = el('button', '', label); button.onclick = () => command('job.' + action, { id: job.id }); actions.append(button);

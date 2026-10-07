@@ -50,7 +50,7 @@ export class Plugins {
   handler() {
     const self = this, runtime = this.runtime;
     const validate = async input => {
-      invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && ['manual', 'automatic'].includes(input.source),
+      invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && ['manual', 'automatic', 'profile'].includes(input.source),
         'PLUGIN_INPUT', 'Choose a registered plugin and launch mode.');
       const item = self.find(input.sha256), configuration = canonical(item);
       invariant(item.format === 'plugin', 'PLUGIN_FORMAT', 'This file is a game module; use the native module loader.');
@@ -67,9 +67,9 @@ export class Plugins {
       invariant(info.format === 'plugin' && info.sha256 === item.sha256 && info.pluginId === item.pluginId &&
         info.pluginVersion === item.pluginVersion && canonical(self.find(input.sha256)) === configuration,
         'PLUGIN_CHANGED', 'Plugin bytes or configuration changed before launch.');
-      const gameScoped = input.source === 'automatic' && item.scope === 'game';
+      const gameScoped = input.source === 'profile' || input.source === 'automatic' && item.scope === 'game';
       const game = gameScoped ? clone(runtime.game) : null;
-      invariant(!gameScoped || matches(item.target, game) && typeof game.generation === 'string', 'PLUGIN_GAME_CHANGED', 'The target game changed before launch.');
+      invariant(!gameScoped || game && (item.scope === 'system' || matches(item.target, game)) && typeof game.generation === 'string', 'PLUGIN_GAME_CHANGED', 'The target game changed before launch.');
       const accepted = { sha256: item.sha256, upload: item.upload, pluginId: item.pluginId, pluginVersion: item.pluginVersion,
         source: input.source, boot: probe.boot, generation: game?.generation ?? null, configuration };
       if (input.boot) invariant(input.boot === accepted.boot && input.configuration === configuration && input.generation === accepted.generation,
@@ -96,7 +96,8 @@ export class Plugins {
             invariant(!context.signal.aborted, 'PLUGIN_CANCELLED', 'Plugin launch ended before native dispatch.');
             // Recheck after waits: never launch into a different game or boot.
             const item = self.find(input.sha256);
-            invariant(canonical(item) === input.configuration && (input.source === 'manual' || item.autostart &&
+            invariant(canonical(item) === input.configuration && (input.source === 'manual' || input.source === 'profile' &&
+              runtime.game?.generation === input.generation && (item.scope === 'system' || matches(item.target, runtime.game)) || input.source === 'automatic' && item.autostart &&
               (item.scope === 'system' || matches(item.target, runtime.game) && runtime.game.generation === input.generation)),
               'PLUGIN_CONTEXT_CHANGED', 'Plugin startup conditions changed while waiting.');
           } catch (error) { error.noSideEffects = true; throw error; }
@@ -145,7 +146,7 @@ export class Plugins {
         item.scope === 'game' ? 'Waiting for the exact game title and version.' : 'Waiting for verified native services.' : 'Ready to start, including before a game opens.' };
       this.observations.set(item.sha256, observation);
       const key = probe.boot + ':' + item.sha256;
-      if (!prior && !this.attempts.has(key) && item.autostart && !this.runtime.graph.safe && probe.kstuff?.injectionReady === true &&
+      if (!prior && !this.attempts.has(key) && item.autostart && !this.runtime.loadouts?.ownsAutostart(item.sha256) && !this.runtime.graph.safe && probe.kstuff?.injectionReady === true &&
           (item.scope === 'system' || matches(item.target, this.runtime.game))) {
         this.attempts.add(key);
         try { await this.runtime.jobs.enqueue('plugin.start', { sha256: item.sha256, source: 'automatic' }, this.runtime.id()); }
