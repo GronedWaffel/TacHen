@@ -10,7 +10,9 @@ int tac_publish_hooks(const TacDeckPatch* patches,size_t count,const TacPublicat
   for(size_t j=0;j<i;j++)if(patches[i].address<patches[j].address+14&&patches[j].address<patches[i].address+14)return 1;
  }
  for(unsigned attempt=0;attempt<20;attempt++){
-  if(o->attach(o->context))return -1;
+  // Attach can acquire ownership before a stop wait or credential check fails.
+  // The adapter must make detach a no-op when ownership was never acquired.
+  if(o->attach(o->context)){o->detach(o->context);return -1;}
   uint64_t pcs[2048];int n=o->threads(o->context,pcs,2048),busy=0,ok=1;
   if(n<=0||n>2048){o->detach(o->context);return -1;}
   for(int i=0;i<n;i++)for(size_t j=0;j<count;j++)if(pcs[i]>=patches[j].address&&pcs[i]<patches[j].address+14)busy=1;

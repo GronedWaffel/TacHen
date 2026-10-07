@@ -796,3 +796,40 @@ Hardware acceptance must still establish PS4 export compatibility, sampling
 accuracy, overhead, restart recovery and interaction with games and plugins.
 Full in-game rendering/input, saves, loadouts, updates and the other previously
 listed requirements remain open. No console contact or publication occurred.
+
+## Checkpoint seventeen — retain ownership on interrupted attach
+
+Reviewing the input integration uncovered older game/deck injection callers
+still using the convenience attach wrapper. A ptrace attach can be accepted
+before a later stop wait or credential-restoration check fails. These callers
+now use the ownership-preserving API, and hook publication attempts detach on
+an attach failure. Detach is a no-op when an adapter never acquired ownership.
+The actual publication-core host test now injects an accepted-but-failed attach
+and verifies no patches are written and resume cleanup is attempted.
+
+Game and deck injection report whether their final detach was confirmed. Their
+workers avoid filesystem outcome writes when it was not, retaining the durable
+pre-operation intent and publishing an uncertain in-memory result. Module-slot
+publication likewise postpones its failed-attach/detach outcome write until
+cleanup confirms resume. This fixes ownership bookkeeping; it does not promise
+recovery from a kernel call that never returns or from a failing detach syscall.
+
+All **197 local tests** pass, including the expanded native publication test.
+The console artifacts cross-build; runtime **8,608,008 bytes**, SHA-256
+`0e11ee26a6d0d17bb34a4b9edc73851f3742b444e343137adb448a147a941dcc`.
+No console was contacted. Actual attach-failure and resume behavior remains a
+hardware acceptance item.
+
+In-game deck work remains next. The current managed GamePad hook only consumes
+ShellUI input; it does not establish that game input is consumed. The existing
+game PRX trampoline is a pre-call callback, so it cannot filter the returned
+pad sample. The native menu needs a real post-read path and shared capture
+ownership, with release on renderer loss and without redirecting stale game
+handles. Public normal-pad interoperability research was inspected at
+`blackbearreloaded/ps5-native-gamepad-input-research` revision
+`10667715140895b313d88613e416d9495e7e5387` (local ignored checkout
+`.local/gamepad-research`). It documents 120-byte samples, capacities 1–64,
+and centered stick bytes of 128; static declarations are evidence to validate
+against supported runtime ABIs, not proof of every firmware/game. No research
+code has been incorporated at this checkpoint. Full in-game rendering/input
+and all remaining scope are still outstanding.

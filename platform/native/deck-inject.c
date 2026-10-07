@@ -13,10 +13,12 @@
 extern intptr_t tac_elf_map(pid_t,const uint8_t*,size_t);
 extern intptr_t tac_payload_args(pid_t);
 extern int pt_getlwps(pid_t,int*,size_t);
-typedef struct { pid_t pid;intptr_t address;int(*identity)(void*);void* cookie;uint64_t pages[4];int protections[4];unsigned pageCount; } Publication;
-static int attach(void* p){Publication* c=p;if(pt_attach(c->pid))return -1;
- if(!c->identity(c->cookie)){pt_detach(c->pid,0);return -1;}return 0;}
-static int detach(void* p){return pt_detach(((Publication*)p)->pid,0);}
+typedef struct { pid_t pid;intptr_t address;int(*identity)(void*);void* cookie;uint64_t pages[4];int protections[4];unsigned pageCount;int attached; } Publication;
+static int attach(void* p){Publication* c=p;
+ if(!c->identity(c->cookie)||(!c->attached&&pt_attach_owned(c->pid,&c->attached)))return -1;
+ return c->identity(c->cookie)?0:-1;}
+static int detach(void* p){Publication* c=p;if(!c->attached)return 0;
+ if(pt_detach(c->pid,0))return -1;c->attached=0;return 0;}
 static int threads(void* p,uint64_t* pcs,size_t capacity){
  Publication* c=p;int ids[2048];int n=pt_getlwps(c->pid,ids,capacity);if(n<=0)return -1;
  for(int i=0;i<n;i++){struct reg r;if(pt_getregs(ids[i],&r))return -1;pcs[i]=r.r_rip;}return n;
@@ -41,9 +43,10 @@ static int writebytes(void* p,uint64_t a,const void* b,size_t n){
 static int ack(void* p){Publication* c=p;uint32_t state=2;return pt_copyin(c->pid,&state,c->address+offsetof(TacDeckBoot,state),4);}
 static int reject(void* p){Publication* c=p;uint32_t state=3;return pt_copyin(c->pid,&state,c->address+offsetof(TacDeckBoot,state),4);}
 static void pause_thread(void* p){(void)p;usleep(1000);}
-int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char credential[33],intptr_t* control,int(*identity)(void*),void* cookie){
- *control=0;int attached=0,ok=0;intptr_t code=0,params=0;
- if(pt_attach(pid))return -1;attached=1;
+int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char credential[33],intptr_t* control,int(*identity)(void*),void* cookie,int* resumed){
+ *control=0;*resumed=1;int attached=0,ok=0;intptr_t code=0,params=0;
+ Publication context={.pid=pid,.identity=identity,.cookie=cookie};
+ if(pt_attach_owned(pid,&attached))goto done;
  if(!identity||!identity(cookie))goto done;
  intptr_t entry=tac_elf_map(pid,image,bytes);if(!entry)goto done;
  intptr_t args=tac_payload_args(pid);if(!args)goto done;
@@ -72,7 +75,7 @@ int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char crede
   if(status.state==3)goto done;
   if(status.state==1){
    if(status.count!=2)goto done;
-   Publication context={.pid=pid,.address=*control,.identity=identity,.cookie=cookie};TacPublicationOps ops={&context,attach,detach,threads,readbytes,writebytes,ack,reject,pause_thread};
+   context.address=*control;TacPublicationOps ops={&context,attach,detach,threads,readbytes,writebytes,ack,reject,pause_thread};
    if(tac_publish_hooks(status.patches,status.count,&ops)){
     uint32_t failed=3;kernel_proc_copyin(pid,&failed,*control+offsetof(TacDeckBoot,state),4);goto done;
    }
@@ -80,6 +83,8 @@ int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char crede
   if(status.state==4){ok=1;break;}usleep(100000);
  }
 done:
- if(attached&&pt_detach(pid,0))ok=0;
+ if(attached){if(pt_detach(pid,0))ok=0;else attached=0;}
+ if(detach(&context))ok=0;
+ *resumed=!attached&&!context.attached;
  return ok?0:-1;
 }

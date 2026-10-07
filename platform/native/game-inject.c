@@ -19,7 +19,7 @@ typedef struct {
   uint64_t pages[4];int protections[4];unsigned pageCount,count;TacDeckPatch patches[2];
 } Target;
 static int attach(void *arg){
-  Target *t=arg;if(!t->attached){if(pt_attach(t->pid))return -1;t->attached=1;}
+  Target *t=arg;if(!t->attached&&pt_attach_owned(t->pid,&t->attached))return -1;
   if(!t->identity(t->context)||!tac_process_current(t->pid))return -1;return 0;
 }
 static int detach(void *arg){Target *t=arg;if(!t->attached)return 0;if(pt_detach(t->pid,0))return -1;t->attached=0;return 0;}
@@ -55,7 +55,7 @@ static intptr_t resolve(pid_t pid,const char *module,const char *nid){
   uint32_t handle;if(kernel_dynlib_handle(pid,module,&handle))return 0;return kernel_dynlib_resolve(pid,handle,nid);
 }
 int tac_game_inject(pid_t pid,uint64_t cookie,int(*identity)(void*),void* context,TacGameInjection *out){
-  if(!out)return -1;memset(out,0,sizeof *out);out->cookie=cookie;
+  if(!out)return -1;memset(out,0,sizeof *out);out->cookie=cookie;out->resumed=1;
   Target t={.pid=pid,.identity=identity,.context=context};intptr_t arena=0;int keep=0,result=1;
   const char *message="Game callback preflight failed";
   if(pid<=1||!cookie||!identity||!identity(context))goto done;
@@ -96,6 +96,7 @@ done:
     if(attach(&t)||pt_munmap(pid,arena,0x8000)){keep=1;result=-1;message="Game callback cleanup is unconfirmed; allocation retained";}
   }
   if(detach(&t)){result=-1;message="Target resume was not confirmed";}
+  out->resumed=!t.attached;
   out->arena=keep?arena:0;out->control=keep?t.control:0;out->uncertain=result<0;
   snprintf(out->message,sizeof out->message,"%s",message);return result;
 }

@@ -4,6 +4,8 @@
 #include <stddef.h>
 typedef struct {
  void* context;
+ // Track accepted attach even when the subsequent stop wait fails. Detach
+ // must be safe after a failed attach and a no-op if no ownership was acquired.
  int (*attach)(void*);int (*detach)(void*);
  int (*threads)(void*,uint64_t*,size_t); // stopped thread instruction pointers
  int (*read)(void*,uint64_t,void*,size_t);

@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #define CHECK(expr) do{if(!(expr)){fprintf(stderr,"%d: %s\n",__LINE__,#expr);return 1;}}while(0)
-typedef struct {unsigned char memory[64];int stopped,attached,detached,writes,acked,busy,failWrite,failAck,failDetach,failRollback;} Mock;
-static int attach(void* p){Mock* m=p;m->stopped=1;m->attached++;return 0;}
+typedef struct {unsigned char memory[64];int stopped,attached,detached,writes,acked,busy,failWrite,failAck,failDetach,failRollback,failAttach;} Mock;
+static int attach(void* p){Mock* m=p;m->stopped=1;m->attached++;return m->failAttach;}
 static int detach(void* p){Mock* m=p;m->stopped=0;m->detached++;return m->failDetach;}
 static int threads(void* p,uint64_t* pcs,size_t n){(void)n;Mock* m=p;pcs[0]=m->busy?0x10005:0x50000;if(m->busy>0)m->busy--;return 1;}
 static int readbytes(void* p,uint64_t a,void* b,size_t n){Mock* m=p;if(!m->stopped||a<0x10000||a+n>0x10040)return -1;memcpy(b,m->memory+(a-0x10000),n);return 0;}
@@ -27,6 +27,7 @@ int main(void){
  m=(Mock){.failAck=1};CHECK(run(&m,p)==1);for(int i=0;i<64;i++)CHECK(m.memory[i]==0);
  m=(Mock){.failWrite=2,.failRollback=1};CHECK(run(&m,p)==-1);CHECK(!m.stopped);
  m=(Mock){.failDetach=1};CHECK(run(&m,p)==-1);
+ m=(Mock){.failAttach=1};CHECK(run(&m,p)==-1);CHECK(m.detached==1&&!m.stopped&&m.writes==0);
  m=(Mock){0};m.memory[32]=1;CHECK(run(&m,p)==1);CHECK(m.writes==0);
  m=(Mock){0};p[1].address=0x10005;CHECK(run(&m,p)==1);CHECK(m.attached==0);
  puts("Stopped-thread publication, collisions, partial-write rollback and uncertain outcomes passed");return 0;

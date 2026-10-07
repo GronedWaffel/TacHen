@@ -102,6 +102,7 @@ static int write_gate(void *arg,size_t offset,const void *bytes,size_t size){
 static void *worker(void *ignored){
   (void)ignored;TacModuleSession s;unsigned slot;pthread_mutex_lock(&mutex);s=current;slot=currentSlot;pthread_mutex_unlock(&mutex);
   TacModuleReceipt *r=&s.slots[slot];char reason[192]="Module file could not be prepared";int attached=0;
+  int pendingStage=0;const char *pendingMessage=NULL;
   int platform=!memcmp(s.title,"PPS",3)||!memcmp(s.title,"MOUU",4)?5:4;
   if(sealed_file(&s,r,platform,reason)||!metadata_matches(&s,reason))goto rejected;
   const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
@@ -114,15 +115,19 @@ static void *worker(void *ignored){
     if(transition(&s,slot,TAC_PRX_ARMING,0,"Preparing a verified game callback"))goto done;
     TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,identity,&s,&injected);
     s.arena=injected.arena;s.control=injected.control;
+    if(!injected.resumed){
+      s.phase=TAC_ARENA_UNKNOWN;r->stage=TAC_PRX_UNKNOWN;r->clean=0;
+      snprintf(r->message,sizeof r->message,"Game callback resume is unconfirmed; original intent retained");publish(&s);goto done;
+    }
     if(result){s.phase=result<0?TAC_ARENA_UNKNOWN:TAC_ARENA_EMPTY;
       transition(&s,slot,result<0?TAC_PRX_UNKNOWN:TAC_PRX_REJECTED,result>0,injected.message);goto done;}
     s.phase=TAC_ARENA_READY;if(transition(&s,slot,TAC_PRX_ARMING,0,"Game callback ready; preparing module slot"))goto done;
   }else if(s.phase!=TAC_ARENA_READY){snprintf(reason,sizeof reason,"Previous game callback ownership is unresolved");goto rejected;}
   if(!metadata_matches(&s,reason))goto rejected;
   if(transition(&s,slot,TAC_PRX_ARMING,0,"Publishing the module slot in the verified game"))goto done;
-  if(pt_attach(s.pid)){transition(&s,slot,TAC_PRX_UNKNOWN,0,"Could not acquire a confirmed stopped game lease");goto done;}attached=1;
+  if(pt_attach_owned(s.pid,&attached)){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Could not acquire a confirmed stopped game lease";goto done;}
   TacModuleOps ops={&s,read_gate,write_gate};int staged=tac_module_stage(&s,slot,&ops);
-  if(pt_detach(s.pid,0)){s.phase=TAC_ARENA_UNKNOWN;transition(&s,slot,TAC_PRX_UNKNOWN,0,"Game resume was not confirmed; no retry was issued");goto done;}attached=0;
+  if(pt_detach(s.pid,0)){s.phase=TAC_ARENA_UNKNOWN;pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed; no retry was issued";goto done;}attached=0;
   if(staged<0){s.phase=TAC_ARENA_UNKNOWN;transition(&s,slot,TAC_PRX_UNKNOWN,0,"Module slot rollback could not be confirmed");}
   else if(staged>0)transition(&s,slot,TAC_PRX_REJECTED,1,"Module slot was not published; game callback may be busy or its ownership changed");
   else transition(&s,slot,TAC_PRX_ARMED,0,"Module staged; waiting for the game's module initializer");
@@ -132,7 +137,12 @@ rejected:
 done:
   // Retry only the resume operation if the first detach failed, never inject or
   // run a module again. An uncertain durable receipt remains uncertain.
-  if(attached)pt_detach(s.pid,0);
+  if(attached&&!pt_detach(s.pid,0))attached=0;
+  if(pendingStage){
+    if(!attached)transition(&s,slot,pendingStage,0,pendingMessage);
+    else {s.phase=TAC_ARENA_UNKNOWN;r->stage=TAC_PRX_UNKNOWN;r->clean=0;
+      snprintf(r->message,sizeof r->message,"Game resume is unconfirmed; original module intent retained");publish(&s);}
+  }
   pthread_mutex_lock(&mutex);running=0;tac_native_release();pthread_mutex_unlock(&mutex);return NULL;
 }
 static int start(const char *request,const char *upload,const char *hash,int pid,const char *generation,const char *title,const char *metadata,const char *extension){

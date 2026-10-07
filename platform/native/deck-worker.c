@@ -72,8 +72,13 @@ static void* worker(void* ignored){
  if(transition(&r,2,0,"Preparing the native deck inside the verified ShellUI process")){
   transition(&r,4,1,"Deck intent could not be saved; injection withheld");goto done;
  }
- intptr_t control=0;int injected=tac_deck_inject(r.pid,tachen_deck_start,bytes,credential,&control,verify_identity,&r);r.control=control;
- if(injected)transition(&r,5,0,"Deck initialization or hook publication was not confirmed; no reinjection was issued");
+ intptr_t control=0;int resumed=0;int injected=tac_deck_inject(r.pid,tachen_deck_start,bytes,credential,&control,verify_identity,&r,&resumed);r.control=control;
+ if(!resumed){
+  // Retain the durable intent. Do not wait on filesystem operations while
+  // ShellUI may still be stopped by this coordinator.
+  r.stage=5;r.clean=0;snprintf(r.message,sizeof r.message,"ShellUI resume is unconfirmed; original deck intent retained");
+  pthread_mutex_lock(&mutex);current=r;pthread_mutex_unlock(&mutex);
+ }else if(injected)transition(&r,5,0,"Deck initialization or hook publication was not confirmed; no reinjection was issued");
  else if(transition(&r,3,0,"Deck hooks published; waiting for actual renderer heartbeat")){
   r.stage=5;snprintf(r.message,sizeof r.message,"Deck initialized but its durable receipt could not be saved");pthread_mutex_lock(&mutex);current=r;pthread_mutex_unlock(&mutex);
  }
