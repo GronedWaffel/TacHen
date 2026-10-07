@@ -27,5 +27,7 @@ typedef struct {char state[16];uint64_t downloaded,total;int32_t error;} TacPack
 // A successful API return alone is not completion. Require progress belonging
 // to this submission and two terminal observations. Prior playable installs
 // must never be mistaken for a newly submitted replacement/patch.
-typedef struct {TacPackageProgress baseline;unsigned baselineValid,observed,terminal;} TacPackageTracker;
+typedef struct {TacPackageProgress baseline;unsigned baselineValid,observed,terminal,unproven;} TacPackageTracker;
+// Returns -2 after 120 consecutive unproven none/already-complete polls,
+// -1 for invalid/error/lost-task status, 0 while observing, 1 for completion.
 int tac_package_track(TacPackageTracker* tracker,const TacPackageProgress* progress,uint64_t bytes,uint32_t platform);

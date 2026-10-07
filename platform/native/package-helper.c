@@ -102,7 +102,7 @@ int main(void){
   publish(TAC_PKG_UNKNOWN,0,"Installer returned a different content identity; no second submission was issued");goto done;
  }
  if(publish(TAC_PKG_INSTALLING,0,"Package accepted; observing actual install progress"))goto done;
- uint64_t started=tac_package_millis(),lastPoll=started;unsigned errors=0,unproven=0;
+ uint64_t started=tac_package_millis(),lastPoll=started;unsigned errors=0;
  for(;;){
   uint64_t now=tac_package_millis();if(!now||now<lastPoll||now-started>48ULL*60*60*1000){publish(TAC_PKG_UNKNOWN,0,"Installation observation expired; uploaded package retained");break;}lastPoll=now;
   TacPackageProgress progress;rc=get_status(&progress);
@@ -110,11 +110,14 @@ int main(void){
   errors=0;int complete=tac_package_track(&tracker,&progress,request.bytes,request.platform);
   memcpy(receipt.state,progress.state,16);receipt.state[15]=0;receipt.downloaded=progress.downloaded;receipt.total=progress.total;
   receipt.error=progress.error;receipt.observed=tracker.observed;
-  if(complete<0){publish(TAC_PKG_UNKNOWN,0,"Console installer reported an error or invalid progress; package retained");break;}
+  if(complete<0){
+   const char* detail=complete==-2?(!strcmp(progress.state,"none")?
+    "The accepted installation never appeared; source retained and no resubmission issued":
+    "Only a completed status was visible; a new install cannot be distinguished from the previous one"):
+    "Console installer reported an error, lost task or invalid progress; package retained";
+   publish(TAC_PKG_UNKNOWN,0,detail);break;
+  }
   if(complete){result=publish(TAC_PKG_COMPLETED,0,"Console reported complete installation after observed transfer progress");break;}
-  if(!tracker.observed&&progress.total&&progress.downloaded==progress.total){
-   if(++unproven>=120){publish(TAC_PKG_UNKNOWN,0,"Only a completed status was visible; a new install cannot be distinguished from the previous one");break;}
-  }else unproven=0;
   if(now-receipt.updated>=2000&&tac_package_receipt_save(&receipt))break;usleep(500000);
  }
  goto done;

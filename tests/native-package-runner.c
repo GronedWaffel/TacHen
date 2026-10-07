@@ -12,7 +12,22 @@ static int read_at(void* data,uint64_t at,void* buffer,size_t bytes){
  return fread(buffer,1,bytes,r->file)==bytes?0:-1;
 }
 static void tracking(void){
- TacPackageTracker t={0};TacPackageProgress p={.state="playable",.downloaded=8192,.total=8192};
+ TacPackageTracker t={0};TacPackageProgress p={.state="error",.downloaded=100,.total=8192};
+ CHECK(tac_package_track(&t,&p,8192,4)==-1);CHECK(!t.observed&&!t.terminal);
+ p=(TacPackageProgress){.state="none",.downloaded=100,.total=8192};
+ for(unsigned i=0;i<119;i++)CHECK(tac_package_track(&t,&p,8192,4)==0);
+ CHECK(tac_package_track(&t,&p,8192,4)==-2);CHECK(t.unproven==120&&!t.observed);
+ CHECK(tac_package_track(&t,&p,8192,4)==-2);CHECK(t.unproven==120);
+ memset(&t,0,sizeof t);
+ for(unsigned i=0;i<100;i++)CHECK(tac_package_track(&t,&p,8192,4)==0);
+ strcpy(p.state,"queued");p.downloaded=p.total=0;CHECK(tac_package_track(&t,&p,8192,4)==0);CHECK(!t.unproven);
+ strcpy(p.state,"none");CHECK(tac_package_track(&t,&p,8192,4)==0);CHECK(t.unproven==1);
+ p=(TacPackageProgress){.state="downloading",.downloaded=100,.total=8192};
+ CHECK(tac_package_track(&t,&p,8192,4)==0);CHECK(t.observed&&!t.unproven);
+ strcpy(p.state,"none");CHECK(tac_package_track(&t,&p,8192,4)==-1);CHECK(!t.terminal);
+ strcpy(p.state,"playable");p.downloaded=8192;CHECK(tac_package_track(&t,&p,8192,4)==0);
+ strcpy(p.state,"error");CHECK(tac_package_track(&t,&p,8192,4)==-1);CHECK(!t.terminal);
+ memset(&t,0,sizeof t);p=(TacPackageProgress){.state="playable",.downloaded=8192,.total=8192};
  // Returning the old playable status forever never proves a new install.
  t.baseline=p;t.baselineValid=1;
  for(int i=0;i<10;i++)CHECK(tac_package_track(&t,&p,8192,4)==0);

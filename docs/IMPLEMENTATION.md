@@ -2020,3 +2020,35 @@ Runtime **9,121,496 bytes**, SHA-256 `6eee031298a80764944c8333af2426e7f0bf4f1fe3
 Launcher **9,282,624 bytes**, SHA-256 `ee82682b8d8e881a4417dd02354f735abee5e489d53f12e3a4ad41ca4ac3dbf5`.
 Update package **9,121,752 bytes**, SHA-256 `b700630b920908a72302138ed2907afef62b53d22082f3ec741f7157ce63dc09`.
 Source fingerprint `89c7846a2dd1187c3c6dc697916f5abb48788f8056bdfd80d427832f73eb0c6f`.
+
+
+## Checkpoint 40 — stop polling terminal or missing installer tasks
+
+The package progress tracker now treats textual error status as failure even
+when the optional numeric error code is zero. A task that disappears after
+observed transfer becomes unresolved immediately; it cannot later complete from
+an unrelated playable result. Before first observed progress, 120 consecutive
+none/already-complete replies end observation as unresolved (about one minute at
+the helper's normal polling interval). The bounded counter lives in the portable
+production tracker. None replies with stale nonzero counters cannot manufacture
+transfer evidence. Real nonterminal observation resets the consecutive counter.
+
+The helper retains its source and receipt, reports the reason and never
+resubmits automatically. This does not claim that partial installer effects
+were undone or that another install is safe. All **355 tests** and the production
+ELF/embedded-asset build pass. Expanded native cases cover zero-code errors,
+disappearance after progress, the 119/120 boundary, saturation, counter reset,
+stale none counters and preservation of the existing two-confirmation success
+rule. No console was contacted; hardware validation remains last.
+
+Another public-source search did not supply independent lower-firmware layout
+evidence. Payload Manager 0.5.2's app installer handles its own directory-based
+app installation, not a general package-install API that can replace this
+adapter. The 13.60 gate remains. The full goal is active; this checkpoint is not
+a completion claim. The shared native/phone accent setting is the next concrete
+integration gap found during the interface review.
+
+Runtime **9,121,496 bytes**, SHA-256 `5c565c33d493e7a534b1d3b5300397400abc426bbf9d1b3f0a08430ad851cf54`.
+Launcher **9,282,624 bytes**, SHA-256 `40ef2b40ac65344fc4ab385cc724d004d7661c368754e7af964828649c6f5c7e`.
+Update package **9,121,752 bytes**, SHA-256 `5dd742974ca3637d610333fd511d445c3ea2812f8f68209e3873d59d684e995b`.
+Source fingerprint `398ae641dadedf19d6aae315eca7f900cec4b758b31365473192ba5985a590ce`.

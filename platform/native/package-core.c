@@ -49,10 +49,18 @@ int tac_package_inspect(TacPackageRead read,void* context,uint64_t size,TacPacka
 }
 int tac_package_track(TacPackageTracker* t,const TacPackageProgress* p,uint64_t bytes,uint32_t platform){
  if(!memchr(p->state,0,sizeof p->state)||!p->state[0]||p->total>TAC_PACKAGE_MAX||p->downloaded>p->total||p->error){t->terminal=0;return -1;}
+ // The textual terminal failure remains authoritative even when its optional
+ // numeric error is zero. A vanished task after observed transfer is unresolved,
+ // not a reason to wait for an unrelated later playable state.
+ if(!strcmp(p->state,"error")||(!strcmp(p->state,"none")&&t->observed)){t->terminal=0;return -1;}
  int terminal=!strcmp(p->state,"completed")||!strcmp(p->state,"playable");
  int changed=!t->baselineValid||strcmp(p->state,t->baseline.state)||p->total!=t->baseline.total||p->downloaded!=t->baseline.downloaded;
  // A partial playable chunk is active transfer, not a full installation.
- if(changed&&p->total&&p->downloaded<p->total)t->observed=1;
+ if(strcmp(p->state,"none")&&changed&&p->total&&p->downloaded<p->total)t->observed=1;
+ if(!t->observed&&(!strcmp(p->state,"none")||(p->total&&p->downloaded==p->total))){
+  if(t->unproven<120)t->unproven++;
+  if(t->unproven>=120){t->terminal=0;return -2;}
+ }else t->unproven=0;
  int complete=terminal&&p->total&&p->downloaded==p->total&&(platform!=4||p->total==bytes);
  if(!complete||!t->observed)t->terminal=0;else if(t->terminal<2)t->terminal++;
  return t->terminal==2?1:0;
