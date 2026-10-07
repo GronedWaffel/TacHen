@@ -16,9 +16,11 @@ function entities(text) {
 }
 function xml(source) {
   // Some public SHN files retain an AES-block padding suffix. Accept only a
-  // complete, aligned PKCS#7 suffix, not arbitrary trailing data/control bytes.
+  // complete repeated padding suffix after the closing root. Repository line-ending
+  // conversion can change byte alignment after decryption; interior controls and
+  // malformed suffixes remain invalid XML.
   const padding = source.charCodeAt(source.length - 1);
-  if (padding >= 1 && padding <= 16 && Buffer.byteLength(source) % 16 === 0 && source.endsWith(String.fromCharCode(padding).repeat(padding))) {
+  if (padding >= 1 && padding <= 16 && source.endsWith(String.fromCharCode(padding).repeat(padding))) {
     const unpadded = source.slice(0, -padding);
     if (unpadded.trimEnd().endsWith('</Trainer>')) source = unpadded;
   }
@@ -83,6 +85,10 @@ function field(node, name, required = false) {
 }
 export function importCheatXml(source, identity, { legacyTrainer = false } = {}) {
   invariant(typeof source === 'string' && Buffer.byteLength(source) <= 4 * 1024 * 1024, 'CHEAT_SIZE', 'Cheat document is too large.');
+  // The API receives decoded Unicode text, not encoded XML bytes. Public SHN
+  // exports sometimes retain a utf-16 declaration after conversion to UTF-8.
+  // Normalize only that declaration; no entities or patch content are changed.
+  source = source.replace(/^(\ufeff?<\?xml\s[^?]*?\bencoding\s*=\s*)(["'])utf-16\2/i, '$1$2utf-8$2');
   const root = xml(source);if (root.name !== 'Trainer') bad('Expected an SHN Trainer element.');
   attributes(root, ['Game', 'Process', 'Moder', 'Cusa', 'Version', 'xmlns:xsd', 'xmlns:xsi']);children(root, ['Cheat', 'Genres', 'Items']);
   for (const metadata of root.children.filter(child => child.name !== 'Cheat')) {

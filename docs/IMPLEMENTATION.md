@@ -2079,3 +2079,24 @@ not establish PUI rendering or input correctness on console.
 No PS5 connection, release or deployment occurred. Hardware acceptance remains
 last. Native PKG installation below 13.60 still lacks independent interface
 layout evidence; this checkpoint does not remove that gate or complete the goal.
+
+
+## Checkpoint 42 — compatibility corrections from real public cheat files
+
+A pinned, deterministic 36-file GoldHEN JSON/SHN/MC4 sample exposed seven SHN
+imports rejected for stale encoding declarations or complete padding whose
+alignment changed after text conversion. The importer now handles those two
+cases without changing patch content or execution checks. Malformed suffixes,
+interior controls, unknown encodings, custom entities and external declarations
+still fail. Details and reproducibility are in CHEAT-COMPATIBILITY.md.
+
+The sample improves from 28 imported packs / 213 bidirectional packets to 35
+packs / 274 bidirectional packets. Sixteen nonzero-section cheats and one pack
+with unequal patch lengths still need implementation work; no game execution
+has been verified. The corpus checker validates pinned input hashes and never
+contacts a console. Downloaded third-party files are kept locally, outside Git.
+
+All **358 local tests**, the production build with embedded-asset checks and the
+embedded QuickJS fixture pass. Checkpoint logs are in `.local/checkpoint42-*`.
+No console connection, deployment or release occurred. The goal remains active;
+lower-firmware package ABI evidence and final console acceptance are still open.

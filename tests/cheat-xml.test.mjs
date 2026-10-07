@@ -62,3 +62,21 @@ test('imports bound decoded fields, node count and source byte size before regis
   assert.throws(() => importCheatSource('😀'.repeat(1024 * 1024 + 1), identity), { code: 'CHEAT_SIZE' });
   assert.throws(() => importCheatSource('encrypted content', identity), { code: 'CHEAT_FORMAT' });
 });
+
+
+test('SHN repository text conversions preserve patch identity despite stale encoding labels and padding alignment', () => {
+  const expected=importCheatJson(json(),identity);
+  const labelled='<?xml version="1.0" encoding="utf-16"?>\r\n'+source();
+  assert.deepEqual(importCheatXml(labelled,identity),expected);
+  assert.deepEqual(importCheatXml('\ufeff'+labelled.replace('utf-16','UTF-16'),identity),expected);
+  const padded=labelled+String.fromCharCode(15).repeat(15);
+  assert.notEqual(Buffer.byteLength(padded)%16,0);
+  assert.deepEqual(importCheatXml(padded,identity),expected);
+  assert.deepEqual(importCheatXml(padded.replaceAll('\r\n','\n'),identity),expected);
+  for(const tail of ['\x0f'.repeat(14),'\x0f'.repeat(16),'\x11'.repeat(17),'\0','junk'+'\x0f'.repeat(15)])
+    assert.throws(()=>importCheatXml(labelled+tail,identity),{code:'CHEAT_XML'});
+  assert.throws(()=>importCheatXml(labelled.replace('<Items/>','<Items>\x0f</Items>')+'\x0f'.repeat(15),identity),{code:'CHEAT_XML'});
+  assert.throws(()=>importCheatXml(labelled.replace('utf-16','iso-8859-1'),identity),{code:'CHEAT_XML'});
+  const pack=importCheatXml(padded,identity);
+  for(const enabled of [false,true])assert.deepEqual(cheatPacket(pack,'0',enabled),cheatPacket(expected,'0',enabled));
+});

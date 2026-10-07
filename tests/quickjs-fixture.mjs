@@ -58,7 +58,7 @@ globalThis.testPassed = false;
   binary.writeBigUInt64LE(160n,96);binary.writeBigUInt64LE(160n,104);
   assert(inspectPayload(binary,'quickjs.elf').bytes===160,'QuickJS ELF parser failed');
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
-  const xmlCheat = importCheatSource('<Trainer Game="Fixture &amp; data" Moder="Fixture author" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
+  const xmlCheat = importCheatSource('<?xml version="1.0" encoding="utf-16"?>\n<Trainer Game="Fixture &amp; data" Moder="Fixture author" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>' + '\x0f'.repeat(15), { titleId: 'CUSA00001', version: '01.00' });
   assert(xmlCheat.name === 'Fixture & data' && xmlCheat.cheats[0].memory[0].on === '9090', 'QuickJS SHN parser failed');
   const absoluteCheat = importCheatSource('<Trainer Game="Address fixture" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>400010</Offset><Absolute>True</Absolute><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
   const absolutePacket = cheatPacket(absoluteCheat, '0', true);
