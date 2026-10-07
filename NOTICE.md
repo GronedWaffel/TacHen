@@ -156,3 +156,11 @@ copyright John Törnblom, idlesauce and sleirsgoevy. The sampler does not use th
 file's generic process-copy fallback or alter process credentials. Its bounded
 page-copy loop is original TacHen code. Counter semantics and native operations
 still require console validation.
+
+The PS4 counter entry trampoline and GNM export selection derive from the
+GPL etaHEN port's `fps_counter_stub.h` and `bc-fps-counter.cpp`, credited to
+OnionHEN / LightningMods and the etaHEN contributors. Their hashes are included
+in `vendor/telemetry-provenance.json`. TacHen retains readable executable entries
+for the indirect jump and adds its own game-instance receipt, control cookie,
+publication transaction and ABI execution tests. This counts flip submissions,
+not a guarantee of successfully displayed frames.

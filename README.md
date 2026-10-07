@@ -193,6 +193,11 @@ scanout, process CPU time and resident memory. Phone Preferences and the native
 ShellUI deck consume the same readings. Metric updates do not invalidate menu
 actions. CPU is normalized to total logical CPU capacity; display scanout is
 labeled separately, and stale/missing measurements are unavailable. Sampling
-does no native work when disabled or without a verified game. PS4 frame-hook
-integration and full in-game rendering remain unfinished; none of these native
-sampling or display paths has been tested on a console.
+does no native work when disabled or without a verified game. PS4 games use a
+separate GNM flip-submission counter, installed once per game instance through
+the job queue. Its durable receipt prevents automatic reinstallation after an
+interrupted or rejected attempt. Sampling checks the live hook and control
+cookie before accepting readings. Turning FPS off stops sampling; an installed
+PS4 entry counter remains until that game exits. Full in-game rendering remains
+unfinished; none of these native sampling or display paths has been tested on a
+console.

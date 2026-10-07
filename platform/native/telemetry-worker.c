@@ -9,6 +9,7 @@
 #include "fps-counters.h"
 #include "memory-map.h"
 #include "user-read.h"
+#include "bc-fps.h"
 #include <ps5/kernel.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -27,8 +28,8 @@
 extern unsigned long KERNEL_ADDRESS_DMAP_BASE;
 extern int kernel_proc_getpaddr(int,unsigned long,unsigned long*,unsigned long*);
 typedef struct {
-  uint32_t serial,flags;int pid,valid,resources,ringOk,globalOk,scanoutOk,cpus;
-  char generation[128],title[10];uint64_t proc,time,ring,global,scanout,cpuUsec,rss;
+  uint32_t serial,flags;int pid,valid,resources,ringOk,globalOk,scanoutOk,bcOk,cpus;
+  char generation[128],title[10];uint64_t proc,time,ring,global,scanout,bc,cpuUsec,rss;
 } Sample;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static Sample latest;static uint32_t serial;static int running;
@@ -86,6 +87,13 @@ static void *worker(void *p){
              after.object==driver.object&&after.base==driver.base&&after.size==driver.size)s->globalOk=1;
         }
         dce_sample(s);
+      }else if(s->flags&2){
+        TacFpsInjection injection;TacFpsGate gate;unsigned char entry[14];
+        if(!tac_bc_fps_lookup(s->pid,s->generation,s->title,&injection)&&
+           !read_user(s,injection.control,&gate,sizeof gate)&&gate.magic==TAC_FPS_MAGIC&&gate.cookie==injection.cookie&&gate.enabled==1&&
+           !read_user(s,injection.target,entry,sizeof entry)&&!memcmp(entry,injection.after,sizeof entry)){
+          s->bc=gate.frames;s->bcOk=1;
+        }
       }
       s->time=millis();s->valid=s->time&&current(s);
     }
@@ -118,6 +126,7 @@ static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *arg
   if(s.valid){
     if(s.resources){decimal(c,out,"cpuUsec",s.cpuUsec);JS_SetPropertyStr(c,out,"rssBytes",JS_NewFloat64(c,(double)s.rss));JS_SetPropertyStr(c,out,"cpus",JS_NewInt32(c,s.cpus));}
     if(s.ringOk)decimal(c,out,"ring",s.ring);if(s.globalOk)decimal(c,out,"global",s.global);if(s.scanoutOk)decimal(c,out,"scanout",s.scanout);
+    if(s.bcOk)decimal(c,out,"bc",s.bc);
   }
   return out;
 }

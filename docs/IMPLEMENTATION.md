@@ -760,3 +760,39 @@ full in-game rendering/input integration. The earlier save, loadout, update,
 firmware/format and other requirements remain open. Counter interpretation,
 overhead, interaction with native jobs and lower-firmware behavior require
 hardware acceptance later. No PS5 connection, deployment or release occurred.
+
+## Checkpoint sixteen — PS4 frame counter integration
+
+PS4 game FPS preparation is now wired into the native runtime and shared job
+queue. It verifies the mounted metadata, exact process generation and kstuff
+readiness before stopping the game. A unique supported GNM flip export is
+required; ambiguous exports and existing entry hooks are rejected. Relocation
+stages code in RX pages with a separate RW counter/control page. Publication uses
+the existing stopped-thread transaction, rollback and resume checks. The inline
+indirect jump retains read permission on originally execute-only mappings.
+
+Each game instance gets a checksummed durable intent before dispatch. Interrupted
+or rejected attempts are not automatically replayed. Confirmed installations can
+be recovered after coordinator restart; sampling separately checks current game
+identity, the exact installed entry bytes and the control cookie. No receipt is
+written after injection unless target resume was confirmed. Uncertain outcomes
+retain queue exclusion. A verified game exit can settle that operation without
+installing another hook in the old instance.
+
+This counter measures flip submissions, not successful presentation. Disabling
+FPS stops sampling but leaves the small entry counter installed until game exit.
+The enabled/cookie control block and atomic increment do not call game functions
+or move stack arguments. Actual host execution verifies ten SysV integer
+arguments, preserved flags, disabled/enabled behavior and 40,000 concurrent
+increments. JavaScript tests cover dependency changes, process changes, busy
+workers, recovery, non-replay and counter reset/missing data. The embedded
+QuickJS test executes coordinator preparation against a test native contract.
+These do not exercise console ptrace, mapping permissions, GNM calls or storage.
+
+All **197 local tests** pass and the embedded QuickJS check passes. All three
+ELFs cross-build. The runtime is **8,608,008 bytes**, SHA-256
+`f9d912ba51239ff243919fe0236e33f8c3edd05ef2807ba5b1444429677a42da`.
+Hardware acceptance must still establish PS4 export compatibility, sampling
+accuracy, overhead, restart recovery and interaction with games and plugins.
+Full in-game rendering/input, saves, loadouts, updates and the other previously
+listed requirements remain open. No console contact or publication occurred.

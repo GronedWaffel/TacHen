@@ -8,7 +8,7 @@ const targetKey = (game, flags) => game ? JSON.stringify([game.pid, game.generat
 
 export class CounterWindow {
   constructor() { this.reset(); }
-  reset() { this.previous = null;this.rates = { ring: [], global: [], scanout: [] };this.pairs = []; }
+  reset() { this.previous = null;this.rates = { ring: [], global: [], scanout: [], bc: [] };this.pairs = []; }
   consume(sample) {
     const previous = this.previous;this.previous = sample;
     const delta = previous ? sample.time - previous.time : 0;
@@ -21,14 +21,14 @@ export class CounterWindow {
       if (Number.isFinite(percent) && percent <= 100) result.cpuPercent = rounded(percent);
     }
     const rates = {};
-    for (const key of ['ring', 'global', 'scanout']) {
+    for (const key of ['ring', 'global', 'scanout', 'bc']) {
       const count = decimal(sample[key]), prior = decimal(previous?.[key]);
       const raw = interval && count !== null && prior !== null && count > prior ? Number(count - prior) * 1000 / delta : null;
       if (raw === null || raw < 1 || raw > 10000) { this.rates[key] = [];continue; }
       this.rates[key].push(raw);if (this.rates[key].length > 5) this.rates[key].shift();
       rates[key] = this.rates[key].reduce((a, b) => a + b, 0) / this.rates[key].length;
     }
-    const source = rates.ring ? 'ring' : rates.global ? 'global' : null;
+    const source = rates.bc ? 'bc' : rates.ring ? 'ring' : rates.global ? 'global' : null;
     // A render counter can count several submissions per displayed frame.
     // Never silently relabel display scanout as game FPS when that is detected.
     if (source && rates.scanout >= 25) {
@@ -40,7 +40,7 @@ export class CounterWindow {
     const multipass = source && this.pairs.length === 100 && this.pairs.every(p => p.source === source) &&
       this.pairs.reduce((sum, p) => sum + p.ratio, 0) / 100 > 2.5;
     if (source && rates[source] <= 240 && !multipass) {
-      result.fps = rounded(rates[source]);result.fpsSource = source === 'ring' ? 'agc-ring' : 'agc-submissions';
+      result.fps = rounded(rates[source]);result.fpsSource = source === 'bc' ? 'gnm-flip-submissions' : source === 'ring' ? 'agc-ring' : 'agc-submissions';
       result.reason = 'Observed game render counter; hardware validation pending.';
     } else if (rates.scanout >= 1 && rates.scanout <= 240) {
       result.fps = rounded(rates.scanout);result.fpsSource = 'display-scanout';
@@ -93,7 +93,10 @@ export class Telemetry {
     if (this.pending && (now < this.pending.at || now - this.pending.at > 3000)) out = empty('The native sample is still pending; no additional sampler was started.');
     if (!(flags & 1)) { out.cpuPercent = null;out.rssBytes = null; }
     if (!(flags & 2)) { out.fps = null;out.fpsSource = null; }
-    if (flags & 2 && game && !/^PPS[AB]/.test(game.titleId)) out.reason = 'PS4 frame-counter integration is not ready in this build.';
+    if (flags & 2 && game && !/^PPS[AB]/.test(game.titleId) && out.fps === null) {
+      const observed = this.runtime.ps4Fps?.observation;
+      out.reason = observed?.generation === game.generation ? observed.message : this.runtime.ps4Fps ? 'Waiting for this PS4 game’s frame counter.' : 'PS4 frame-counter integration is not ready in this build.';
+    }
     return out;
   }
   start() {
@@ -117,7 +120,7 @@ export function telemetryText(state) {
 }
 export function installTelemetry(runtime, native, options) {
   if (typeof native.telemetryStart !== 'function' || typeof native.telemetryPoll !== 'function') return null;
-  runtime.capability('fps', true, 'Native PS5 AGC/DCE sampler and shared readout; PS4 counter integration remains pending. Hardware untested.');
+  runtime.capability('fps', true, runtime.ps4Fps ? 'Native PS4 GNM and PS5 AGC/DCE counters with a shared readout. Hardware untested.' : 'Native PS5 AGC/DCE sampler and shared readout; PS4 counter integration remains pending. Hardware untested.');
   runtime.capability('resources', true, 'Native process CPU and resident RAM observations. CPU is a share of total logical CPU capacity. Hardware untested.');
   return runtime.telemetry = new Telemetry(runtime, native, options);
 }

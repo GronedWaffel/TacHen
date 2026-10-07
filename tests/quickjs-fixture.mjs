@@ -14,6 +14,7 @@ import { installCheats } from '../src/cheat-service.mjs';
 import { installMemory } from '../src/memory-service.mjs';
 import { installMcp } from '../src/mcp.mjs';
 import { CounterWindow } from '../src/telemetry.mjs';
+import { installPs4Fps } from '../src/ps4-fps.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -117,6 +118,15 @@ globalThis.testPassed = false;
   fpsWindow.consume({ time: 1000, ring: '18446744073709550000' });
   const measured = fpsWindow.consume({ time: 1500, ring: '18446744073709550030' });
   assert(measured.fps === 60 && measured.fpsSource === 'agc-ring', 'QuickJS 64-bit telemetry counter failed');
+  let ps4Handler, ps4Receipt;
+  await store.transaction(state => { state.settings.overlay.fps = true; });
+  const ps4Runtime = { ...inspectionRuntime, game: { pid: 105, generation: '100:0/105/110:0', titleId: 'CUSA00001', version: '01.00', metadataHash: 'a'.repeat(64) },
+    jobs: { register(kind, handler) { if (kind === 'fps.ps4.prepare') ps4Handler = handler; }, snapshot: () => [] } };
+  installPs4Fps(ps4Runtime, { systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true } }),
+    bcFpsStart(request, pid, generation, title, metadataHash) { assert(title === 'CUSA00001', 'PS4 counter target failed');ps4Receipt = { request, pid, generation, metadataHash, stage: 2, resumed: true, uncertain: false }; },
+    bcFpsPoll: () => ps4Receipt });
+  const ps4Input = ps4Handler.validate({}), ps4Result = await ps4Handler.run(ps4Input, { id: '6'.repeat(32), signal: { aborted: false } });
+  assert(ps4Handler.verify(ps4Result, ps4Input), 'QuickJS PS4 counter installation contract failed');
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));
