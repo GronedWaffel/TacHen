@@ -50,6 +50,25 @@ test('disconnect revokes only that device', async t => {
   assert.equal((await fetch(f.origin + '/api/state', { headers: { Cookie: a.cookie } })).status, 401);
   assert.equal((await fetch(f.origin + '/api/state', { headers: { Cookie: b.cookie } })).status, 200);
 });
+
+test('support export uses authenticated CSRF commands; state polling contains metadata only and two devices share consent', async t => {
+  const f = await fixture(t), a = await f.connect(), b = await f.connect();
+  const send = (session, command, args = {}, extra = {}) => fetch(f.origin + '/api/command', { method: 'POST', headers: {
+    Origin: f.origin, Cookie: session.cookie, 'X-TacHen-CSRF': session.csrf, 'Content-Type': 'application/json', ...extra
+  }, body: JSON.stringify({ command, args }) });
+  assert.equal((await send(a, 'diagnostics.export')).status, 409);
+  assert.equal((await send(a, 'settings.update', { revision: a.state.revision, patch: { developer: { diagnostics: true } } })).status, 200);
+  const state = await (await fetch(f.origin + '/api/state', { headers: { Cookie: b.cookie } })).json();
+  assert(state.diagnostics.enabled);assert(!('runs' in state.diagnostics));assert.equal(state.settings.developer.enabled, false);
+  assert.equal((await send(b, 'diagnostics.export', {}, { 'X-TacHen-CSRF': 'wrong' })).status, 403);
+  assert.equal((await send(b, 'diagnostics.clear', {}, { Origin: 'https://elsewhere.invalid' })).status, 403);
+  const response = await send(b, 'diagnostics.export');assert.equal(response.status, 200);
+  assert.match(response.headers.get('cache-control'), /no-store/);
+  const report = (await response.json()).result;assert.equal(report.product, 'TacHen');assert.equal(report.runs.length, 1);
+  await fetch(f.origin + '/api/disconnect', { method: 'POST', headers: { Origin: f.origin, Cookie: b.cookie, 'X-TacHen-CSRF': b.csrf } });
+  assert.equal((await send(b, 'diagnostics.export')).status, 401);
+  assert.equal((await send(a, 'diagnostics.export')).status, 200);
+});
 test('unsupported controls cannot silently save a pretend native success', async t => {
   const f = await fixture(t);
   await assert.rejects(f.runtime.settings({ overlay: { fps: true } }, f.runtime.snapshot().revision), { code: 'FEATURE_UNAVAILABLE' });

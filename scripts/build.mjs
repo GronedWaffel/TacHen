@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { sourceFingerprint } from './source-fingerprint.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-neighbourhood/tools/ps5-sdk-0.43/ps5-payload-sdk'));
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
@@ -30,8 +31,9 @@ const alias = {
   'node:net': path.join(root, 'platform/runtime/net.mjs'),
   'node:path': 'path-browserify', 'stream': 'readable-stream', 'buffer': 'buffer/', 'events': 'events/'
 };
+const buildIdentity = { source: await sourceFingerprint(root), components: components.map(({ id, version, sha256 }) => ({ id, version, sha256 })) };
 await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], bundle: true, platform: 'browser',
-  format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias });
+  format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias, define: { TACHEN_BUILD: JSON.stringify(buildIdentity) } });
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
 await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned char tachen_bundle[]={' + [...bundle, 0].join(',') + '};\n');
 await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.global tachen_deck_start\n.global tachen_deck_end\ntachen_deck_start:\n.incbin "build/tachen-deck.elf"\ntachen_deck_end:\n.section .note.GNU-stack,"",@progbits\n');
@@ -102,6 +104,7 @@ const padBridge = JSON.parse(await fs.readFile(path.join(root, 'build/pad/manife
 if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.readUInt16LE(18) !== 62) throw Error('Output is not an x86-64 ELF');
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
+  buildIdentity,
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },

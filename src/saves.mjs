@@ -94,7 +94,8 @@ export function installSaves(runtime, native, { delay = sleep, now = Date.now } 
       }
       await context.checkpoint({ request: context.id, mode, stamp: input.stamp });
       for (;;) {
-        const r = receipt(context.id, input), result = outcome(r, input); if (result) return result;
+        const r = receipt(context.id, input); context.evidence?.(r);
+        const result = outcome(r, input); if (result) return result;
         if (r.stage === 9 && r.noSideEffects && !r.mounted) throw clean('SAVE_REJECTED', r.message);
         invariant(r.stage !== 10 && r.sameBoot && r.ageMs <= 90000 && !context.signal.aborted,
           'SAVE_UNCERTAIN', r.stage === 10 ? r.message : 'Save helper stopped reporting. Staged files are retained; no retry was issued.');

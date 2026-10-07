@@ -6,6 +6,7 @@ import { ServiceGraph } from './services.mjs';
 import { JobQueue } from './jobs.mjs';
 import { SessionHistory } from './history.mjs';
 import { AdaptiveNotices } from './notices.mjs';
+import { SupportRecorder } from './diagnostics.mjs';
 
 export const FEATURES = Object.freeze([
   ['deck', 'Command deck'], ['game-overlay', 'In-game command deck'], ['phone', 'Phone control'],
@@ -21,11 +22,13 @@ export class TacRuntime {
     this.store = store; this.platform = platform; this.id = id; this.now = now;
     this.sequence = 0; this.session = id(); this.game = null; this.started = false;
     this.inboxItems = [];
-    const changed = () => { this.sequence++;this.notices?.observe(); };
+    const changed = () => { this.sequence++;this.notices?.observe();this.diagnostics?.observe(); };
     this.graph = new ServiceGraph({ changed });
-    this.jobs = new JobQueue(store, { id, now, session: this.session, changed });
+    this.jobs = new JobQueue(store, { id, now, session: this.session, changed,
+      evidence: (job, value) => this.diagnostics?.receipt(job, value) });
     this.changes = new SessionHistory(this);
     this.notices = new AdaptiveNotices(this);
+    this.diagnostics = new SupportRecorder(this);
     this.capabilities = new Map(FEATURES.map(([id, name]) => [id,
       { id, name, available: false, reason: 'Native integration is not installed in this build.' }]));
   }
@@ -35,25 +38,38 @@ export class TacRuntime {
   }
   async start() {
     invariant(!this.started, 'ALREADY_STARTED', 'TacHen is already started.');
-    this.identity = await this.platform.identity();
-    if (this.identity.mode === 'console') requireFirmware(this.identity.firmware);
-    const prior = this.store.snapshot();
-    this.graph.safe = prior.startup.pending || this.store.recovered || prior.startup.safe;
-    await this.store.transaction(state => {
-      state.startup = { pending: true, session: this.session, safe: this.graph.safe };
-      if (this.graph.safe) state.settings = clone(state.knownGood);
-      // Authorization to write memory is deliberately never carried across boots.
-      state.settings.developer.memoryWrites = false;
-    });
-    await this.jobs.recover();
-    await this.platform.install(this);
-    this.graph.validate(); this.started = true;
-    // 'ready' here covers this coordinator only, never unstarted native services.
-    await this.store.transaction(state => { state.startup.pending = false; });
-    // A served webpage does not prove the native console renderer is running.
-    this.capability('phone', true);
-    this.notices.observe();
-    return this;
+    await this.diagnostics.open();
+    try {
+      this.identity = await this.platform.identity();
+      this.diagnostics.identity();
+      if (this.identity.mode === 'console') requireFirmware(this.identity.firmware);
+      const prior = this.store.snapshot();
+      this.graph.safe = prior.startup.pending || this.store.recovered || prior.startup.safe;
+      this.diagnostics.record('startup', { status: 'state-open', evidence: { safe: this.graph.safe } });
+      await this.store.transaction(state => {
+        state.startup = { pending: true, session: this.session, safe: this.graph.safe };
+        if (this.graph.safe) state.settings = clone(state.knownGood);
+        // Recovery must preserve the user's latest recording choice.
+        state.settings.developer.diagnostics = prior.settings.developer.diagnostics;
+        // Authorization to write memory is deliberately never carried across boots.
+        state.settings.developer.memoryWrites = false;
+      });
+      await this.jobs.recover();
+      this.diagnostics.observe();
+      this.diagnostics.record('startup', { status: 'installing-adapters' }); await this.diagnostics.flush();
+      await this.platform.install(this);
+      this.graph.validate(); this.started = true;
+      // 'ready' here covers this coordinator only, never unstarted native services.
+      await this.store.transaction(state => { state.startup.pending = false; });
+      // A served webpage does not prove the native console renderer is running.
+      this.capability('phone', true);
+      this.notices.observe();
+      this.diagnostics.record('startup', { status: 'coordinator-ready' }); await this.diagnostics.flush();
+      return this;
+    } catch (error) {
+      this.diagnostics.record('startup', { status: 'failed', code: error.code });
+      this.diagnostics.finish('startup-failed'); await this.diagnostics.flush(); throw error;
+    }
   }
   overlaySettings() { return { ...this.store.snapshot().settings.overlay, ...this.loadouts?.overlay() }; }
   snapshot() {
@@ -65,6 +81,7 @@ export class TacRuntime {
       gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
       settings: { ...state.settings, overlay: this.overlaySettings() }, services, capabilities: [...this.capabilities.values()].map(clone),
       notices: this.notices.snapshot(state, services),
+      diagnostics: this.diagnostics.snapshot(state),
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
@@ -79,7 +96,7 @@ export class TacRuntime {
   async settings(patch, revision) {
     invariant(Number.isSafeInteger(revision), 'REVISION_REQUIRED', 'Settings require the displayed state revision.', { status: 400 });
     await this.store.transaction(state => this.applyPreferences(state, patch), revision);
-    this.preferencesApplied(patch);return this.snapshot();
+    await this.preferencesApplied(patch);return this.snapshot();
   }
   applyPreferences(state, patch, reversalOf = null) {
     const before = state.settings, requested = mergeSettings(before, patch);
@@ -90,10 +107,12 @@ export class TacRuntime {
     state.settings = requested;
     this.changes.settingsChanged(state, before, requested, reversalOf);
   }
-  preferencesApplied(patch) {
+  async preferencesApplied(patch) {
     if (!this.store.snapshot().settings.developer.enabled) this.mcp?.revoke();
     if (patch.overlay) { this.loadouts?.overrideOverlay(patch.overlay);this.telemetry?.reset(); }
     this.sequence++;
+    this.diagnostics.configure(this.store.snapshot().settings.developer.diagnostics);
+    await this.diagnostics.flush();
   }
   async restorePreferences(id, proof) {
     let patch = null;
@@ -105,7 +124,7 @@ export class TacRuntime {
       patch = clone(entry.before);entry.undone = { at: this.now() };
       this.applyPreferences(state, patch, id);
     });
-    if (patch) this.preferencesApplied(patch);
+    if (patch) await this.preferencesApplied(patch);
     return { reversed: true, id, message: 'Previous preferences restored.' };
   }
   async execute(command, args) {
@@ -115,6 +134,8 @@ export class TacRuntime {
       case 'history.preview': return this.changes.preview(args);
       case 'history.undo': return this.changes.undo(args);
       case 'notice.dismiss': return this.notices.dismiss(args);
+      case 'diagnostics.export': return this.diagnostics.export();
+      case 'diagnostics.clear': return this.diagnostics.clear();
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':
@@ -183,5 +204,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.mcp?.revoke(); this.loadouts?.stop();this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.mcp?.revoke(); this.loadouts?.stop();this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; await this.diagnostics.close(); }
 }

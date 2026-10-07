@@ -53,7 +53,8 @@ export function installPackageInstaller(runtime, native, { delay = sleep, now = 
       }
       await context.checkpoint({ request: context.id, sha256: input.sha256, contentId: input.contentId });
       for (;;) {
-        const status = receipt(context.id, input), result = outcome(status); if (result) return result;
+        const status = receipt(context.id, input); context.evidence?.(status);
+        const result = outcome(status); if (result) return result;
         if (status.stage === 7 && status.noSideEffects) throw clean('PACKAGE_REJECTED', status.message);
         invariant(status.stage !== 8 && status.sameBoot && status.ageMs <= 60000 && !context.signal.aborted,
           'PACKAGE_UNCERTAIN', status.stage === 8 ? status.message : 'Installer stopped reporting progress. Its source file is retained; no retry was issued.');

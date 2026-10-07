@@ -236,6 +236,10 @@ function draw() {
   ].filter(([key]) => state.settings.overlay[key]).map(([, label, value, unit]) => row(label, '', value == null ? 'Unavailable' : value + unit, value != null)));
   $('#measurement-detail').textContent = sample?.reason || 'Monitoring is not integrated in this runtime.';
   $('#mcp-enabled').checked = state.settings.developer.enabled;
+  const capture = state.diagnostics;
+  $('#diagnostics-enabled').checked = state.settings.developer.diagnostics;
+  $('#diagnostics-export').disabled = !capture?.captures;
+  $('#diagnostics-status').textContent = capture ? `${capture.enabled ? 'Recording' : 'Not recording'} · ${capture.captures} captures · ${capture.events} events${capture.omitted ? ` · ${capture.omitted} older events omitted` : ''}${capture.pending ? ' · pending storage write' : ''}${capture.recovered ? ' · recovered from an unreadable capture slot' : ''}${capture.fault ? ` · ${capture.fault}: saved evidence needs attention; export available evidence or clear captures to reset` : ''}` : 'Support recorder unavailable.';
   $('#mcp-enabled').disabled = !capability('mcp')?.available || state.safe;
   $('#mcp-writes').checked = state.settings.developer.memoryWrites;
   $('#mcp-writes').disabled = !state.settings.developer.enabled || state.safe;
@@ -496,6 +500,26 @@ $('#accent').onchange = () => command('settings.update', { patch: { appearance: 
 $('#reduced-motion').onchange = () => command('settings.update', { patch: { appearance: { reducedMotion: $('#reduced-motion').checked } }, revision: state.revision });
 $('#mcp-enabled').onchange = () => command('settings.update', { patch: { developer: { enabled: $('#mcp-enabled').checked } }, revision: state.revision });
 $('#mcp-writes').onchange = () => command('settings.update', { patch: { developer: { memoryWrites: $('#mcp-writes').checked } }, revision: state.revision });
+$('#diagnostics-enabled').onchange = () => command('settings.update', { patch: { developer: { diagnostics: $('#diagnostics-enabled').checked } }, revision: state.revision });
+$('#diagnostics-export').onclick = async () => {
+  if (busy) return;busy = true;
+  try {
+    const { result } = await api('/api/command', { command: 'diagnostics.export', args: {} });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');link.href = url;link.download = 'TacHen-support.json';document.body.append(link);link.click();link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $('#diagnostics-result').textContent = 'Report download requested. Share the downloaded JSON with support when ready. No report was uploaded.' + (result.persistence.fault ? ' Storage failed; this export includes available in-memory evidence.' : '');
+  } catch (error) { $('#diagnostics-result').textContent = error.message; }
+  finally { busy = false; }
+};
+$('#diagnostics-clear').onclick = async () => {
+  if (busy) return;busy = true;
+  try {
+    await api('/api/command', { command: 'diagnostics.clear', args: {} });await refresh();
+    $('#diagnostics-result').textContent = 'Saved captures cleared.' + (state.diagnostics.enabled ? ' A new capture is recording.' : '');
+  } catch (error) { $('#diagnostics-result').textContent = error.message; }
+  finally { busy = false; }
+};
 $('#mcp-create').onclick = async () => {
   if (busy) return;busy = true;
   try {

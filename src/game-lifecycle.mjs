@@ -32,7 +32,8 @@ export class GameLifecycle {
   }
   state(phase, message, details = {}) {
     const value = { phase, message, ...details, at: this.now() };
-    this.runtime.gameStatus = value; this.runtime.sequence++; return value;
+    this.runtime.gameStatus = value; this.runtime.sequence++;
+    this.runtime.diagnostics?.game(phase, this.runtime.game, details.error);return value;
   }
   async invalidate(message, error = null) {
     const changed = this.runtime.gameStatus.phase !== 'uncertain' || this.runtime.gameStatus.message !== message;

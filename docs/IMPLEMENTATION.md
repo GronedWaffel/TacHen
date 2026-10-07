@@ -1231,3 +1231,67 @@ The full goal remains active, including original presentation, remaining cheat
 formats, update/recovery flows, support diagnostics, older-firmware installer
 ABIs and deferred hardware acceptance. This is an implementation checkpoint,
 not a claim that the complete HEN is finished.
+
+## Checkpoint twenty-five — opt-in support captures
+
+The phone Preferences page now has a separate Support capture section. Recording
+is off by default, independent of MCP permissions and preserved as the latest
+explicit choice during safe configuration recovery. Users can enable recording,
+disable it while preserving existing evidence, download a JSON report and clear
+the saved captures. There is no reporting/upload server. The authenticated
+same-origin command API and CSRF checks protect export/clear; normal polling
+publishes capture counts and storage status, not report contents.
+
+The recorder observes coordinator startup, service/queue transitions, job claims
+and outcomes, game identity/lifecycle and selected native receipts. Payload,
+deck, plugin/module, cheat, input, PS4 FPS, package and save adapters pass their
+observed stages through a numeric/boolean allowlist. Component readiness now
+has distinct reason codes for hooks, process/listener disagreement, unexpected
+APIs, independent manager startup and lost readiness. Native prose, paths,
+credentials, upload identities, request keys and raw memory are omitted. Jobs
+get local aliases and earlier-session work is labelled rather than replayed as
+a fresh failure. Reports identify the exact embedded source fingerprint and
+bundled component hashes; this is separate from the final ELF hash.
+
+Three captures retain 512 events each, preserving the first 64 and most recent
+events with explicit omission/truncation metadata. Two independent revisioned,
+checksummed snapshots use the existing atomic file replacement adapter under
+/data/tachen/state. A valid older slot recovers a torn write. Both corrupt slots
+are preserved until explicit clear. Disk-write failures cannot halt the work
+queue; RAM export reports the persistence failure. Writes are bounded to one
+active/coalesced successor, with no extra polling timer. A follow-up check fixed
+export starvation under a continuous stream of new events: export no longer
+waits for all future writes to drain. Clearing replaces both slots before
+starting a new enabled capture.
+
+All **271 local tests** passed. New coverage exercises consent, real dispatch
+adapter failure receipts and redaction, startup failure ordering, reopening,
+torn/corrupt slots, failed diagnostic writes alongside successful ordinary jobs,
+bounded/coalesced history, continuous activity during export, safe recovery,
+earlier-session jobs and authenticated API behavior. The actual embedded QuickJS
+fixture exercises capture/disable/export/clear; the native build and four-ELF
+process-link audit passed.
+
+In a real loopback development browser, enabling and disabling capture worked.
+Download produced a valid TacHen-support.json in the local Downloads folder.
+The browser automation download-event waiter timed out even though the file was
+saved; filesystem inspection confirmed the JSON product/schema, development
+mode and captured events. The support panel fits a 390-pixel viewport. Screenshot:
+.local/support-phone-preview.png. Viewport override was reset, both current and
+obsolete temporary preview tabs closed, and the development server stopped.
+
+Runtime **8,939,056 bytes**, SHA-256
+`aecd884c2215d6611036db57391e00e551e611b096bf652151d4d4683376f3cb`.
+Source fingerprint
+`831c5b339d845b1e1352280ff29da7c6a11d2a535367dc1b9c8df4bff1f3ac2b`.
+Native deck remains **130,880 bytes**, SHA-256
+`e058edaba79519f093973d7e9484752612205b29f3ab317bb44cdd09fc8ea76a`.
+
+Power loss can omit a pending capture write. Unconfirmed stop is not proof of
+a crash; coordinator close is not proof that native workers settled. Early
+native startup before JavaScript, stages between polls and omitted ring events
+are outside the capture. Console durability and real failure coverage remain
+untested. No console was contacted and nothing was published or deployed.
+The full goal remains active, including original visual presentation, remaining
+cheat formats, update/recovery flows, older-firmware installer ABIs and hardware
+acceptance. This checkpoint does not claim TacHen is complete.

@@ -185,6 +185,14 @@ globalThis.testPassed = false;
   const saveJob = await saveRuntime.jobs.enqueue('save.refresh', {}, 'quickjs-save-refresh');
   for (let i = 0; i < 500 && saveRuntime.jobs.snapshot().some(j => ['queued', 'running'].includes(j.status)); i++) await Promise.resolve();
   assert(saveRuntime.jobs.snapshot().find(j => j.id === saveJob.id)?.status === 'completed' && saveRuntime.saves.list().total === 0, 'QuickJS save queue/catalog failed');
+  await saveRuntime.settings({ developer: { diagnostics: true } }, store.snapshot().revision);
+  saveRuntime.diagnostics.record('quickjs', { evidence: { stage: 7, credential: 'must-not-export' } });
+  await saveRuntime.settings({ developer: { diagnostics: false } }, store.snapshot().revision);
+  const supportReport = await saveRuntime.execute('diagnostics.export', {});
+  assert(supportReport.runs.at(-1).ended === 'disabled' && supportReport.runs.at(-1).events.some(e => e.evidence.stage === 7) &&
+    !JSON.stringify(supportReport).includes('must-not-export'), 'QuickJS support capture, persistence/export or redaction failed');
+  await saveRuntime.execute('diagnostics.clear', {});
+  assert(saveRuntime.snapshot().diagnostics.captures === 0, 'QuickJS support clear failed');
   await saveRuntime.close();
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle, loadouts and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;

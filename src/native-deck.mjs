@@ -36,6 +36,7 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline && !context.signal.aborted) {
         const status = inspect();
+        context.evidence?.(status);
         invariant(status.request === request && status.pid === input.pid && status.generation === input.generation,
           'DECK_RECEIPT', 'Native deck receipt does not match this ShellUI process.');
         if (status.ready) return { completed: true, evidence: status };

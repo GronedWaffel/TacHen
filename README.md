@@ -266,3 +266,14 @@ Components. The native notice has an independent sequence and local deadline,
 so it neither changes controller action tokens nor persists indefinitely when
 the coordinator stops responding. The implementation is locally tested and
 cross-built; console appearance and interactions still require acceptance.
+
+Support capture is available under Preferences in the phone interface and is off
+by default. Enable it before reproducing an issue, then download the JSON report
+and share it explicitly. It records coordinator startup, service transitions,
+job outcomes and selected native receipt stages while excluding credentials,
+paths, uploaded content and raw memory. The latest three captures use separate
+checksummed snapshots; startup events and recent events are retained within a
+fixed bound. Recording can be disabled without losing the saved evidence.
+See [support capture behavior and limits](docs/SUPPORT-CAPTURES.md). Local tests,
+the embedded interpreter and a real browser download were verified; console
+storage durability and diagnostic coverage on hardware remain acceptance work.

@@ -30,6 +30,7 @@ export function payloadDispatchHandler(runtime, native, { delay = sleep, managed
       let phase = 0;
       for (;;) {
         const receipt = native.loaderPoll(context.id);
+        context.evidence?.(receipt);
         invariant(receipt?.request === context.id && receipt.sha256 === input.sha256,
           'DISPATCH_RECEIPT', 'The payload dispatch receipt could not be verified.');
         if (phase !== receipt.stage) {

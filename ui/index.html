@@ -58,6 +58,15 @@
           <div class="actions"><button id="mcp-create">Create connection</button><button id="mcp-revoke">Disconnect MCP clients</button></div>
           <p id="mcp-status" class="fine" role="status">Developer access is off by default.</p>
           <div id="mcp-connection" hidden><label class="mcp-field">MCP endpoint<input id="mcp-url" readonly></label><label class="mcp-field">Authorization header<textarea id="mcp-token" readonly rows="3" spellcheck="false"></textarea></label><button id="mcp-select">Select connection details</button><p class="fine">Treat this access token as private. Creating another connection invalidates the previous token. This page does not save it.</p></div>
+        </details>
+        <details class="panel" id="support-panel"><summary>Support capture</summary>
+          <p>Enable this before reproducing a problem. TacHen keeps startup, operation and selected native receipt evidence for the latest three captures on this console.</p>
+          <label class="setting">Record support evidence<input id="diagnostics-enabled" type="checkbox"></label>
+          <p class="fine">Includes firmware, source build, title ID/version, process IDs, numeric stages and error codes. Excludes credentials, file paths, uploaded files and raw game memory. Nothing is uploaded automatically. Disable recording when finished; existing captures remain until cleared.</p>
+          <p class="fine">Enable before restarting TacHen to capture its next startup. A power loss can omit a pending write; older events are bounded. Captures help investigate a failure but do not prove its cause.</p>
+          <p id="diagnostics-status" class="fine" role="status"></p>
+          <div class="actions"><button id="diagnostics-export">Download support report</button><button id="diagnostics-clear">Clear saved captures</button></div>
+          <p id="diagnostics-result" class="fine" role="status"></p>
         </details></section>
       <section id="components" class="view" hidden><div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
     </main>

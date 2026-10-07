@@ -9,25 +9,25 @@ const definitions = {
   'payload-manager': { needle: 'pldmgr', port: 8084, route: '/version' }
 };
 const match = (probe, id) => probe.processes.filter(p => (p.name + ' ' + p.thread).toLowerCase().includes(definitions[id].needle));
-const unknown = reason => ({ ready: false, absent: false, reason });
+const unknown = (reason, reasonCode = 'COMPONENT_UNCONFIRMED') => ({ ready: false, absent: false, reason, reasonCode });
 export function serviceInspector(native, { get = localRequest } = {}) {
   return async function inspect(id) {
     invariant(Object.hasOwn(definitions, id), 'SERVICE_UNKNOWN', 'Unknown native component.');
     const first = native.systemProbe();
-    if (first.busy) return { ...unknown('Native operation is still running.'), busy: true };
+    if (first.busy) return { ...unknown('Native operation is still running.', 'PROBE_BUSY'), busy: true };
     invariant(typeof first.boot === 'string' && Array.isArray(first.processes), 'SYSTEM_PROBE', 'Native system evidence is incomplete.');
     if (id === 'kstuff') {
       if (first.kstuff.state === 'installed' && first.kstuff.injectionReady)
         return { ready: true, id, boot: first.boot, firmware: first.firmware, hooks: 'installed', injectionReady: true };
       if (first.kstuff.state === 'unmodified' && !match(first, id).length)
         return { absent: true, ready: false, id, boot: first.boot };
-      return unknown('kstuff hooks are changing, incomplete, or unsuitable for injection. No second copy was started.');
+      return unknown('kstuff hooks are changing, incomplete, or unsuitable for injection. No second copy was started.', 'KSTUFF_HOOKS_UNCONFIRMED');
     }
     const processes = match(first, id), port = first.ports[id];
     if (!processes.length && port === 0) return { absent: true, ready: false, id, boot: first.boot };
-    if (processes.length !== 1 || port !== 1) return unknown('The component process and listener do not agree.');
+    if (processes.length !== 1 || port !== 1) return unknown('The component process and listener do not agree.', 'PROCESS_LISTENER_DISAGREE');
     const process = processes[0];
-    if (!Number.isInteger(process.pid) || process.pid <= 0 || !process.generation) return unknown('The component process identity is incomplete.');
+    if (!Number.isInteger(process.pid) || process.pid <= 0 || !process.generation) return unknown('The component process identity is incomplete.', 'PROCESS_IDENTITY_INCOMPLETE');
     let api;
     try {
       const response = await get(definitions[id].port, definitions[id].route, id === 'shadowmount' ? { method: 'POST', body: {} } : {});
@@ -35,20 +35,20 @@ export function serviceInspector(native, { get = localRequest } = {}) {
         api = JSON.parse(response.text);
         if (api.status !== 0 || api.api_version !== 1 || api.shadowmount_version !== '1.7beta4' ||
           !Array.isArray(api.capabilities) || !['list_games', 'storage_job_status', 'mount_game'].every(key => api.capabilities.includes(key)))
-          return unknown('ShadowMount returned a different API or component version.');
+          return unknown('ShadowMount returned a different API or component version.', 'SHADOWMOUNT_API_MISMATCH');
       } else {
-        if (response.text.trim() !== '0.5.2') return unknown('Payload Manager returned an unsupported version.');
+        if (response.text.trim() !== '0.5.2') return unknown('Payload Manager returned an unsupported version.', 'MANAGER_VERSION_MISMATCH');
         const config = JSON.parse((await get(8084, '/get_config')).text);
         if (![config.AUTOLOAD_ENABLED, config.AUTO_BROWSER_OPEN, config.KILL_DISC_PLAYER_ON_STARTUP, config.AUTO_INSTALL_APP].every(x => x === false || x === 0))
-          return unknown('Payload Manager has independent startup actions enabled. Review its configuration first.');
+          return unknown('Payload Manager has independent startup actions enabled. Review its configuration first.', 'MANAGER_STARTUP_CONFLICT');
         api = { version: '0.5.2' };
       }
-    } catch (error) { return unknown(error.message || 'The component API is not ready.'); }
+    } catch (error) { return unknown(error.message || 'The component API is not ready.', 'COMPONENT_API_UNAVAILABLE'); }
     const second = native.systemProbe();
-    if (second.busy) return { ...unknown('Native operation deferred the second readiness observation.'), busy: true };
+    if (second.busy) return { ...unknown('Native operation deferred the second readiness observation.', 'PROBE_BUSY'), busy: true };
     if (second.boot !== first.boot || second.ports[id] !== 1 || match(second, id).length !== 1 ||
-      !match(second, id).some(p => p.pid === process.pid && p.generation === process.generation)) return unknown('The component restarted during readiness verification.');
-    if (second.kstuff.state !== 'installed' || !second.kstuff.injectionReady) return unknown('kstuff readiness was lost during component verification.');
+      !match(second, id).some(p => p.pid === process.pid && p.generation === process.generation)) return unknown('The component restarted during readiness verification.', 'COMPONENT_CHANGED');
+    if (second.kstuff.state !== 'installed' || !second.kstuff.injectionReady) return unknown('kstuff readiness was lost during component verification.', 'KSTUFF_READINESS_LOST');
     return { ready: true, id, boot: first.boot, pid: process.pid, generation: process.generation,
       version: id === 'shadowmount' ? api.shadowmount_version : api.version,
       capabilities: id === 'shadowmount' ? api.capabilities : [] };
@@ -75,6 +75,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
       try {
         invariant(!runtime.graph.safe, 'SAFE_START', 'Recovery mode prevents starting a native component.');
         evidence = await inspect(input.component);
+        context.evidence?.(evidence);
         if (evidence.ready) return { completed: true, evidence, adopted: true };
         invariant(evidence.absent, 'COMPONENT_CONFLICT', evidence.reason || 'Existing component state is uncertain.');
         if (input.component !== 'kstuff') invariant((await inspect('kstuff')).ready, 'KSTUFF_NOT_READY', 'Wait for verified kstuff initialization.');
@@ -89,6 +90,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline && !context.signal.aborted) {
         evidence = await inspect(input.component);
+        context.evidence?.(evidence);
         if (evidence.ready) return { completed: true, evidence, adopted: false };
         await context.progress({ completed: 0, total: 1, phase: 'Waiting for ' + input.component + ' readiness' });
         await delay(500);

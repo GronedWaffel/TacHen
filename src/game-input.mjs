@@ -50,7 +50,8 @@ export class GameInput {
           catch (error) { if (error.code !== 'NATIVE_BUSY') throw error;await self.delay(100); }
         }
         for (;;) {
-          const receipt = native.gameInputPoll(context.id, input.pid, input.generation), result = self.outcome(receipt, input, context.id);
+          const receipt = native.gameInputPoll(context.id, input.pid, input.generation); context.evidence?.(receipt);
+          const result = self.outcome(receipt, input, context.id);
           if (result) return result;
           if (receipt?.stage === 3) throw clean('INPUT_REJECTED', receipt.message);
           invariant(receipt?.stage === 1, 'INPUT_UNCERTAIN', receipt?.message || 'Game input preparation is unconfirmed; no retry was issued.');

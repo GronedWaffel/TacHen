@@ -66,7 +66,8 @@ export class GameModules {
           catch (error) { if (error.code !== 'NATIVE_BUSY') throw error; await plugins.delay(250); }
         }
         for (;;) {
-          const receipt = native.gameModulePoll(context.id, input.pid, input.generation), result = self.outcome(receipt, input, context.id);
+          const receipt = native.gameModulePoll(context.id, input.pid, input.generation); context.evidence?.(receipt);
+          const result = self.outcome(receipt, input, context.id);
           if (result) return result;
           if (receipt.stage === 7 && receipt.noSideEffects) throw clean('MODULE_REJECTED', receipt.message);
           if ([5, 6, 7].includes(receipt.stage)) throw new TacError('MODULE_UNCERTAIN', receipt.message);

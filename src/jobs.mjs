@@ -4,9 +4,10 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const ACTIVE = new Set(['running', 'cancelling', 'uncertain']);
 
 export class JobQueue {
-  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, timeout = 120000 } = {}) {
+  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, evidence = () => {}, timeout = 120000 } = {}) {
     this.store = store; this.id = id; this.now = now; this.session = session; this.concurrency = concurrency;
     this.changed = changed; this.timeout = timeout; this.handlers = new Map(); this.running = new Map();
+    this.evidence = evidence;
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
   }
   register(kind, handler) {
@@ -92,6 +93,7 @@ export class JobQueue {
           current.status = 'running'; current.updatedAt = this.now(); return true;
         });
         if (!claim.result) continue;
+        this.changed();
         const active = { job, controller: new AbortController(), expired: false, cancelling: false };
         this.running.set(job.id, active);
         active.promise = this.execute(active, handler);
@@ -112,6 +114,7 @@ export class JobQueue {
       const result = await handler.run(clone(job.args), {
         id: job.id,
         signal: controller.signal,
+        evidence: value => this.evidence(job, value),
         checkpoint: async evidence => {
           const serialized = canonical(evidence);
           invariant(serialized.length <= 16384, 'CHECKPOINT_LIMIT', 'Operation receipt exceeds its limit.');

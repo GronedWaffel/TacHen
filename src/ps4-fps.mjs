@@ -43,7 +43,8 @@ export class Ps4Fps {
           catch (error) { if (error.code !== 'NATIVE_BUSY') throw error;await self.delay(100); }
         }
         for (;;) {
-          const receipt = native.bcFpsPoll(context.id, input.generation), result = self.outcome(receipt, input, context.id);
+          const receipt = native.bcFpsPoll(context.id, input.generation); context.evidence?.(receipt);
+          const result = self.outcome(receipt, input, context.id);
           if (result) return result;
           if (receipt?.stage === 3 && receipt.resumed === true && !receipt.uncertain) throw clean('FPS_REJECTED', receipt.message);
           invariant(receipt?.stage === 1, 'FPS_UNCERTAIN', receipt?.message || 'The PS4 counter outcome is not confirmed; no retry was issued.');

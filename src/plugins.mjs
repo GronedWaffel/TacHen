@@ -110,7 +110,8 @@ export class Plugins {
           catch (error) { if (error.code !== 'LOADER_BUSY') throw error; await self.delay(250); }
         }
         for (;;) {
-          const receipt = self.native.loaderPoll(context.id), outcome = result(receipt, input, context.id);
+          const receipt = self.native.loaderPoll(context.id); context.evidence?.(receipt);
+          const outcome = result(receipt, input, context.id);
           if (outcome) return outcome;
           if (receipt.stage === 4 && receipt.noSideEffects) throw clean('PLUGIN_REJECTED', receipt.message);
           if (receipt.stage === 4 || receipt.stage === 5) throw new TacError('PLUGIN_UNCERTAIN', receipt.message);

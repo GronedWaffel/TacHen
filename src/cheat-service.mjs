@@ -96,7 +96,8 @@ export class CheatService {
           } catch (error) { if (error.code !== 'NATIVE_BUSY') throw error; await self.delay(100); }
         }
         for (;;) {
-          const receipt = native.cheatPoll(context.id), result = self.outcome(receipt, input, context.id);
+          const receipt = native.cheatPoll(context.id); context.evidence?.(receipt);
+          const result = self.outcome(receipt, input, context.id);
           if (result) return result;
           if (receipt.stage === 4 && receipt.restored === true && receipt.resumed === true) throw clean('CHEAT_REJECTED', receipt.message);
           invariant([1, 2].includes(receipt.stage), 'CHEAT_UNCERTAIN', receipt.message || 'The native cheat result is uncertain.');
