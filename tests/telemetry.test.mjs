@@ -56,6 +56,12 @@ test('jobs take precedence and a native busy result schedules no second worker',
   f.runtime.jobs.running.clear();f.native.telemetryStart = () => null;f.tick();assert.equal(f.runtime.telemetry.pending, null);
   assert.equal(f.runtime.snapshot().telemetry.rssBytes, null);
 });
+
+test('ordered startup suspends telemetry without replacing a sample already in flight', async t => {
+  const f=await fixture(t);await f.settings({fps:true});f.tick();assert.equal(f.calls.length,1);
+  f.runtime.recovery={pending:true,snapshot:()=>null};f.tick();f.reply(1);f.tick();assert.equal(f.calls.length,1);assert.equal(f.runtime.snapshot().telemetry.fps,null);
+  f.runtime.recovery.pending=false;f.tick(1000);assert.equal(f.calls.length,2);
+});
 test('turning a preference off and back on discards a pending sample and previous interval', async t => {
   const f = await fixture(t);await f.settings({ fps: true });f.tick();await f.settings({ fps: false });await f.settings({ fps: true });
   f.reply(1);f.tick();assert.equal(f.runtime.telemetry.last, null);f.tick(500);f.reply(2);f.tick();assert.equal(f.runtime.snapshot().telemetry.fps, null);

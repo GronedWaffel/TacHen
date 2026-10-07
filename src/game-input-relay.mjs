@@ -9,7 +9,7 @@ export class GameInputRelay {
   now() { return this.native.gameInputClock(); }
   target() {
     const r = this.runtime, game = r.game;
-    if (!game || r.graph.safe || !r.capabilities.get('deck').available || r.gameInput?.observation?.generation !== game.generation || r.gameInput.observation.phase !== 'prepared') return null;
+    if (!game || r.graph.safe || r.recovery?.pending || !r.capabilities.get('deck').available || r.gameInput?.observation?.generation !== game.generation || r.gameInput.observation.phase !== 'prepared') return null;
     return { ...game, key: game.generation + ':' + game.metadataHash };
   }
   rendered(now) {

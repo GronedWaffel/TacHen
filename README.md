@@ -127,6 +127,17 @@ consistent process instance. The phone remains available throughout startup.
 Unknown state blocks another launch. Recovered startup enters recovery mode;
 it does not automatically replay interrupted native operations.
 
+**Components → Review startup** inspects configured services and unfinished work
+without dispatching anything. Confirming the reviewed plan reserves ordered startup;
+other native jobs and automatic game workers wait until it settles. The controller
+Home page exposes the same review. An uncertain kernel-startup attempt can expire
+only after two matching observations establish a different console boot. Package,
+save and filesystem operations never expire through this rule. A renderer from a
+previous coordinator cannot be adopted with an obsolete private connection.
+The known-good preferences are saved only after the complete configured service
+set passes readiness again. This is startup evidence, not hardware validation or
+proof that every setting or feature is stable. Binary update rollback is unfinished.
+
 The coordinator also embeds `build/tachen-deck.elf`, an internal ShellUI module
 with controller navigation and a shared phone/console command bridge. It starts
 after verified kstuff and requires a fresh render heartbeat before exposing deck

@@ -23,9 +23,15 @@ export class TacRuntime {
     this.sequence = 0; this.session = id(); this.game = null; this.started = false;
     this.inboxItems = [];
     const changed = () => { this.sequence++;this.notices?.observe();this.diagnostics?.observe(); };
-    this.graph = new ServiceGraph({ changed });
+    this.graph = new ServiceGraph({ changed, allowOptional: id => this.recovery?.permits(id) === true });
     this.jobs = new JobQueue(store, { id, now, session: this.session, changed,
-      evidence: (job, value) => this.diagnostics?.receipt(job, value) });
+      evidence: (job, value) => this.diagnostics?.receipt(job, value), admit: (kind, args) => {
+        if (kind === 'package.verify') return;
+        const permitted = this.recovery?.permitsJob(kind, args);
+        invariant(!this.recovery?.pending || permitted, 'STARTUP_BUSY', 'Native startup is in progress. Wait for it to finish.');
+        invariant(!this.graph.safe || permitted, kind === 'component.start' ? 'SAFE_START' : 'SAFE_STARTUP',
+          'Native operations are held during recovery. Review startup first.');
+      } });
     this.changes = new SessionHistory(this);
     this.notices = new AdaptiveNotices(this);
     this.diagnostics = new SupportRecorder(this);
@@ -47,7 +53,7 @@ export class TacRuntime {
       this.graph.safe = prior.startup.pending || this.store.recovered || prior.startup.safe;
       this.diagnostics.record('startup', { status: 'state-open', evidence: { safe: this.graph.safe } });
       await this.store.transaction(state => {
-        state.startup = { pending: true, session: this.session, safe: this.graph.safe };
+        state.startup = { pending: true, session: this.session, safe: this.graph.safe, native: prior.startup.native || null };
         if (this.graph.safe) state.settings = clone(state.knownGood);
         // Recovery must preserve the user's latest recording choice.
         state.settings.developer.diagnostics = prior.settings.developer.diagnostics;
@@ -82,6 +88,7 @@ export class TacRuntime {
       settings: { ...state.settings, overlay: this.overlaySettings() }, services, capabilities: [...this.capabilities.values()].map(clone),
       notices: this.notices.snapshot(state, services),
       diagnostics: this.diagnostics.snapshot(state),
+      recovery: this.recovery?.snapshot(state) || null,
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
@@ -136,6 +143,10 @@ export class TacRuntime {
       case 'notice.dismiss': return this.notices.dismiss(args);
       case 'diagnostics.export': return this.diagnostics.export();
       case 'diagnostics.clear': return this.diagnostics.clear();
+      case 'startup.preview':
+      case 'startup.resume':
+        invariant(this.recovery, 'FEATURE_UNAVAILABLE', 'Native startup recovery is not installed.');
+        return command === 'startup.preview' ? this.recovery.preview() : this.recovery.resume(args);
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':
@@ -195,6 +206,7 @@ export class TacRuntime {
       case 'job.resume': await this.jobs.resume(args.id); break;
       case 'job.reconcile': await this.jobs.reconcile(args.id); break;
       case 'service.start': {
+        invariant(!this.recovery?.pending || this.recovery.permits(args.id), 'STARTUP_BUSY', 'Wait for ordered native startup to finish.');
         // Return immediately so a phone request does not outlive its connection.
         // The graph and durable startup job publish the actual result separately.
         this.graph.start(args.id).catch(() => { this.sequence++; }); break;

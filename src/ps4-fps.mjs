@@ -66,7 +66,7 @@ export class Ps4Fps {
   }
   async inspect() {
     const runtime = this.runtime, game = runtime.game;
-    if (!isPs4(game) || runtime.graph.safe || !enabled(runtime)) { this.observation = null;return; }
+    if (!isPs4(game) || runtime.graph.safe || runtime.recovery?.pending || !enabled(runtime)) { this.observation = null;return; }
     const prior = runtime.jobs.snapshot().filter(job => job.kind === 'fps.ps4.prepare' && job.args.generation === game.generation).at(-1);
     if (prior) {
       const receipt = this.native.bcFpsPoll(prior.id, game.generation); // Recover the RAM cache after a coordinator restart.

@@ -21,6 +21,7 @@ import { installLoadouts } from '../src/loadouts.mjs';
 import { installSaves } from '../src/saves.mjs';
 import { TacRuntime } from '../src/runtime.mjs';
 import { SessionHistory } from '../src/history.mjs';
+import { StartupRecovery } from '../src/startup-recovery.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -194,6 +195,20 @@ globalThis.testPassed = false;
   await saveRuntime.execute('diagnostics.clear', {});
   assert(saveRuntime.snapshot().diagnostics.captures === 0, 'QuickJS support clear failed');
   await saveRuntime.close();
+  const recoveryFiles = new Map(), recoveryStore = await new StateStore({ read: async key => recoveryFiles.get(key) || null,
+    replace: async (key, value) => { recoveryFiles.set(key, value); } }, value => createHash('sha256').update(value).digest('hex')).open();
+  await recoveryStore.transaction(s => { s.startup.safe = true; });
+  const recoveryRuntime = await new TacRuntime(recoveryStore, { identity: async () => ({ mode: 'development', firmware: '13.60' }),
+    install(runtime) {
+      for (const id of ['kstuff', 'shadowmount', 'payload-manager']) runtime.graph.register({ id, optional: true,
+        start: async () => ({ ready: true }), inspect: async () => ({ ready: true }), verify: evidence => evidence.ready });
+      runtime.recovery = new StartupRecovery(runtime, { systemProbe: () => ({ boot: 'quickjs-boot' }) });
+    } }, { id: () => (++loadoutId).toString(16).padStart(32, '0') }).start();
+  const recoveryPlan = await recoveryRuntime.execute('startup.preview', {});
+  assert(recoveryPlan.available && recoveryRuntime.graph.safe, 'QuickJS safe recovery preview failed');
+  await recoveryRuntime.execute('startup.resume', { proof: recoveryPlan.proof });await recoveryRuntime.recovery.pending;
+  assert(!recoveryRuntime.graph.safe && recoveryStore.snapshot().knownGoodReceipt.services.length === 3, 'QuickJS reviewed recovery/known-good promotion failed');
+  await recoveryRuntime.close();
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle, loadouts and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

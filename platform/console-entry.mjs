@@ -74,6 +74,8 @@ globalThis.__ready = (async () => {
   const runtime = await new TacRuntime(store, platform, { id }).start();
   await serve(runtime, { assets, host: '0.0.0.0', port: 8780, id });
   __native.notify(`TacHen development runtime loaded\nPhone: http://${runtime.identity.ip}:8780`);
+  // Reserve ordered startup before automatic game consumers can enqueue work.
+  const startup = runtime.nativeServices.startConfigured();
   runtime.gameLifecycle.start();
   runtime.plugins.start();
   runtime.loadouts?.start();
@@ -82,7 +84,7 @@ globalThis.__ready = (async () => {
   runtime.gameInput?.start();
   runtime.gameInputRelay?.start();
   // The phone stays responsive while durable native startup jobs execute.
-  runtime.nativeServices.startConfigured().then(() => { runtime.nativeServices.startMonitoring(); runtime.nativeDeck.startMonitoring(); }).catch(error => {
+  startup.then(() => { runtime.nativeServices.startMonitoring(); runtime.nativeDeck.startMonitoring(); }).catch(error => {
     console.error(error.message); __native.notify('TacHen startup needs attention. Open Activity on your phone.');
   });
 })().catch(error => { console.error(error.stack || error.message); __native.notify('TacHen could not start. Existing HEN services were not changed.'); __native.stop(); });

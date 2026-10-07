@@ -114,7 +114,10 @@ export class GameModules {
       if (attempts.some(job => job.args.generation === game.generation) || this.attempts.has(key)) continue;
       this.attempts.add(key);
       try { await this.runtime.jobs.enqueue('game.module.start', { sha256: item.sha256, source: 'automatic' }, this.runtime.id()); }
-      catch (error) { this.observe(item, 'held', error.message, { error: publicError(error) }); }
+      catch (error) {
+        if (error.code === 'STARTUP_BUSY') this.attempts.delete(key);
+        this.observe(item, 'held', error.message, { error: publicError(error) });
+      }
     }
   }
 }

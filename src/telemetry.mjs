@@ -59,7 +59,7 @@ export class Telemetry {
   target() {
     const settings = this.runtime.overlaySettings?.() || this.runtime.store.snapshot().settings.overlay;
     const flags = (settings.ram || settings.cpu ? 1 : 0) | (settings.fps ? 2 : 0);
-    const game = this.runtime.graph.safe ? null : this.runtime.game;
+    const game = this.runtime.graph.safe || this.runtime.recovery?.pending ? null : this.runtime.game;
     return { game, flags, key: flags ? targetKey(game, flags) : '' };
   }
   reset() {

@@ -2,9 +2,10 @@
 import { clone, invariant, publicError, TacError } from './errors.mjs';
 
 export class ServiceGraph {
-  constructor({ timeout = 15000, changed = () => {} } = {}) {
+  constructor({ timeout = 15000, changed = () => {}, allowOptional = () => false } = {}) {
     this.definitions = new Map(); this.states = new Map(); this.pending = new Map();
     this.timeout = timeout; this.changed = changed; this.generation = 0; this.safe = false;
+    this.allowOptional = allowOptional;
   }
   register(definition) {
     invariant(/^[a-z][a-z0-9-]{0,40}$/.test(definition.id) && !this.definitions.has(definition.id),
@@ -33,7 +34,7 @@ export class ServiceGraph {
     const definition = this.definitions.get(id);
     invariant(definition, 'SERVICE_MISSING', `Unknown service ${id}.`);
     if (this.ready(id)) return Promise.resolve(clone(this.states.get(id)));
-    invariant(!(this.safe && definition.optional), 'SAFE_START', 'Optional components are disabled for this startup.',
+    invariant(!(this.safe && definition.optional && !this.allowOptional(id)), 'SAFE_START', 'Optional components are disabled for this startup.',
       { action: 'Review the previous startup failure before enabling optional components.' });
     invariant(!['failed', 'uncertain', 'blocked'].includes(this.states.get(id).status), 'SERVICE_RETRY_REQUIRED',
       'This service requires explicit reconciliation before retrying.');

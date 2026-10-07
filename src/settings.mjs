@@ -33,7 +33,7 @@ export function mergeSettings(current, patch) {
 }
 export function initialState() {
   return { schema: 1, revision: 0, settings: clone(defaults), knownGood: clone(defaults),
-    startup: { pending: false, session: null, safe: false }, jobs: [], profiles: {}, plugins: [], cheats: [], history: [] };
+    startup: { pending: false, session: null, safe: false, native: null }, knownGoodReceipt: null, jobs: [], profiles: {}, plugins: [], cheats: [], history: [] };
 }
 export function validateState(state) {
   invariant(state?.schema === 1 && Number.isSafeInteger(state.revision) && state.revision >= 0 &&
@@ -43,6 +43,21 @@ export function validateState(state) {
   'STATE_INVALID', 'Saved TacHen state is not valid.');
   state.settings = mergeSettings(defaults, state.settings);
   state.knownGood = mergeSettings(defaults, state.knownGood);
+  const services = value => Array.isArray(value) && value.length <= 4 && new Set(value).size === value.length &&
+    value.every(id => ['kstuff', 'native-deck', 'shadowmount', 'payload-manager'].includes(id));
+  const id = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
+  invariant(typeof state.startup.safe === 'boolean' && (state.startup.session === null || id(state.startup.session)), 'STATE_INVALID', 'Saved startup identity is invalid.');
+  if (state.startup.native != null) {
+    const n = state.startup.native;
+    invariant(id(n.id) && ['starting', 'ready', 'failed'].includes(n.status) && Number.isSafeInteger(n.at) && n.at >= 0 && services(n.services) &&
+      (n.service === null || n.services.includes(n.service)) && (n.error === null || typeof n.error.code === 'string' && n.error.code.length <= 80 &&
+      typeof n.error.message === 'string' && n.error.message.length <= 4096), 'STATE_INVALID', 'Saved native startup evidence is invalid.');
+  }
+  if (state.knownGoodReceipt != null) {
+    const good = state.knownGoodReceipt;
+    invariant(id(good.session) && Number.isSafeInteger(good.at) && good.at >= 0 && services(good.services) &&
+      (good.firmware === null || /^\d{2}\.\d{2}$/.test(good.firmware)), 'STATE_INVALID', 'Saved verified-startup receipt is invalid.');
+  }
   state.plugins = validatePlugins(state.plugins ?? []);
   state.cheats = validateCheatRegistry(state.cheats ?? []);
   state.profiles = validateProfiles(state.profiles);

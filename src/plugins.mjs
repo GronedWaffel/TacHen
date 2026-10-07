@@ -130,6 +130,7 @@ export class Plugins {
     };
   }
   async inspect() {
+    if (this.runtime.recovery?.pending) return;
     if (!this.entries().length) return;
     const probe = this.native.systemProbe();
     if (probe.busy) {
@@ -157,7 +158,7 @@ export class Plugins {
         this.attempts.add(key);
         try { await this.runtime.jobs.enqueue('plugin.start', { sha256: item.sha256, source: 'automatic' }, this.runtime.id()); }
         catch (error) {
-          if (error.code === 'PLUGIN_READINESS') this.attempts.delete(key);
+          if (['PLUGIN_READINESS', 'STARTUP_BUSY'].includes(error.code)) this.attempts.delete(key);
           this.observations.set(item.sha256, { phase: 'held', message: error.message, error: publicError(error) });
         }
       }

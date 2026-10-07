@@ -68,7 +68,14 @@
           <div class="actions"><button id="diagnostics-export">Download support report</button><button id="diagnostics-clear">Clear saved captures</button></div>
           <p id="diagnostics-result" class="fine" role="status"></p>
         </details></section>
-      <section id="components" class="view" hidden><div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
+      <section id="components" class="view" hidden><article class="panel"><h2>Startup and recovery</h2>
+        <p id="startup-status" role="status"></p><p id="startup-known-good" class="fine"></p>
+        <p class="fine">Recovery keeps automatic native work held. Review existing services and unfinished jobs before continuing. Unknown work in the current boot is never launched twice.</p>
+        <label class="setting">Start ShadowMount<input id="startup-shadowmount" type="checkbox"></label>
+        <label class="setting">Start Payload Manager<input id="startup-payload-manager" type="checkbox"></label>
+        <p class="fine">These choices apply to the next startup attempt. They do not stop an already running service. kstuff and the command deck remain required.</p>
+        <button id="startup-review">Review startup</button></article>
+        <div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
     </main>
     <footer><span>TacHen / development workspace</span><span id="firmware">No hardware connection</span><span>Direct LAN · No cloud account</span></footer>
   </div>

@@ -1295,3 +1295,58 @@ untested. No console was contacted and nothing was published or deployed.
 The full goal remains active, including original visual presentation, remaining
 cheat formats, update/recovery flows, older-firmware installer ABIs and hardware
 acceptance. This checkpoint does not claim TacHen is complete.
+
+## Checkpoint twenty-six — reviewed native startup recovery
+
+Native startup now reserves the queue before automatic game consumers start.
+The ordered kstuff, command deck and selected ShadowMount/Payload Manager steps
+write a durable startup marker before dispatch, keep unrelated native work held,
+and verify the complete configured set again before saving known-good preferences.
+MCP authorization is not promoted into that recovery configuration. Startup failure
+keeps recovery enabled; failure to save that failure also halts the work queue.
+Automatic plugins/loadouts, telemetry, lifecycle and input preparation wait through
+the reservation. A validation that began earlier cannot bypass admission when its
+durable intent commits. Existing accepted request identities remain idempotent.
+
+Phone Components and controller Home expose a read-only startup review and explicit
+confirmation. Plans distinguish reusable, absent and uncertain services, and block
+on unrelated unfinished work. Confirmation binds the reviewed configuration revision,
+boot and observed service identities. Changes during asynchronous inspection reject
+the review; the serialized startup-intent commit checks its revision again. This does
+not create an atomic snapshot of console processes: native dispatch and readiness
+adapters must still verify their current observations.
+
+Loader and deck receipts now expose their recorded boot identity. Only component
+and deck startup handlers can expire a previous-boot intent, with a second matching
+boot-expiration check before reconciliation. The outcome records that the prior
+result remains unknown. This cannot be used to discard uncertain packages, save
+exports or other filesystem effects. A new coordinator in the same boot cannot
+adopt an old deck carrying a different private credential; it requires a console
+restart instead of another injection. Clean pre-execution failures can be reviewed
+and retried with a new durable request identity.
+
+All **284 local tests** pass. Coverage includes ordered readiness promotion, clean
+retry, same-boot uncertain dispatch refusal, new-boot expiration, old renderer
+ownership, stale configuration/service/boot proofs, asynchronous review changes,
+queued storage writes crossing confirmation, storage failures, admission races and
+controller confirmation. The embedded QuickJS fixture exercises reviewed recovery.
+The native build and four-ELF process-link audit pass with no legacy references.
+
+The actual loopback browser flow displayed the plan, accepted confirmation and
+showed the saved verified-startup state against simulated native services. The
+390-pixel layout is captured in .local/recovery-phone-preview.png. These fixtures
+never contacted a console and do not demonstrate actual kernel or ShellUI readiness.
+
+Runtime **8,955,440 bytes**, SHA-256
+`39c491e5a03464b3aca3c0285f9e14d7efc565090714974f16b7f7f661bb72e7`.
+Source fingerprint
+`5c35181356af3c48b5a9f7f38f57574166bcd97c05964dabade55f52426404ac`.
+The deck binary remains 130,880 bytes with SHA-256
+`e058edaba79519f093973d7e9484752612205b29f3ab317bb44cdd09fc8ea76a`.
+
+Console acceptance must cover interrupted startup across cold boot, clean rejected
+dispatch, same-boot coordinator replacement, real readiness delays and lost services,
+controller/phone review agreement and storage failure. No console was contacted;
+nothing was published or deployed. Artifact update rollback, original final visual
+presentation, remaining cheat formats, older-firmware installer ABIs and deferred
+hardware acceptance remain unfinished. The full TacHen goal stays active.

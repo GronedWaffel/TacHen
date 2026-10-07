@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { invariant, TacError, publicError } from './errors.mjs';
+import { invariant, TacError } from './errors.mjs';
 import { payloadDispatchHandler } from './payload-loader.mjs';
 import { localRequest } from './local-http.mjs';
+import { StartupRecovery } from './startup-recovery.mjs';
+import { expiredStartup, sameExpiry } from './boot-recovery.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const definitions = {
   kstuff: { needle: 'kstuff' },
@@ -65,15 +67,19 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
     resources: () => ['native-payload-dispatch'], timeout: timeout + 30000, cancellable: false,
     async validate(input) {
       invariant(Object.hasOwn(definitions, input?.component), 'SERVICE_UNKNOWN', 'Choose a supported component.');
-      invariant(!runtime.graph.safe, 'SAFE_START', 'Automatic native startup is disabled while recovery is pending.');
+      invariant(!runtime.graph.safe || runtime.recovery?.permits(input.component), 'SAFE_START', 'Automatic native startup is disabled while recovery is pending.');
       const pinned = assets.get(input.component);
       if (input.sha256) invariant(input.sha256 === pinned.sha256, 'COMPONENT_CHANGED', 'Queued component differs from this build.');
-      return { component: input.component, ...await assets.ensure(input.component) };
+      const probe = native.systemProbe();
+      invariant(!probe.busy && typeof probe.boot === 'string', 'STARTUP_BOOT', 'Current boot identity is unavailable.');
+      if (input.boot) invariant(input.boot === probe.boot, 'STARTUP_BOOT_CHANGED', 'This component request belongs to an earlier boot.');
+      return { component: input.component, boot: probe.boot, ...await assets.ensure(input.component) };
     },
     async run(input, context) {
       let evidence;
       try {
-        invariant(!runtime.graph.safe, 'SAFE_START', 'Recovery mode prevents starting a native component.');
+        invariant(!runtime.graph.safe || runtime.recovery?.permits(input.component), 'SAFE_START', 'Recovery mode prevents starting a native component.');
+        invariant(native.systemProbe().boot === input.boot, 'STARTUP_BOOT_CHANGED', 'The console boot changed before dispatch.');
         evidence = await inspect(input.component);
         context.evidence?.(evidence);
         if (evidence.ready) return { completed: true, evidence, adopted: true };
@@ -100,14 +106,17 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
     },
     verify: async result => sameInstance(result.evidence, await inspect(result.evidence?.id)),
     async reconcile(job) {
+      const receipt = native.loaderPoll(job.id);
+      if (receipt) invariant(receipt.request === job.id && receipt.sha256 === job.args.sha256, 'DISPATCH_RECEIPT', 'The previous startup receipt has a different identity.');
+      const expired = expiredStartup(native, job, receipt);if (expired) return expired;
       const evidence = await inspect(job.args.component);
       if (evidence.ready) return { completed: true, evidence, reconciled: true };
-      const receipt = native.loaderPoll(job.id);
       // A spawn receipt plus an absent process is not permission to repeat a
       // kernel operation. Only an unexecuted request can be retried in this boot.
       if (evidence.absent && (!receipt || receipt.stage === 4 && receipt.noSideEffects)) return { absent: true };
       return null;
-    }
+    },
+    verifyExpired: (outcome, job) => sameExpiry(outcome, expiredStartup(native, job, native.loaderPoll(job.id)))
   });
   for (const id of Object.keys(definitions)) {
     runtime.graph.register({ id, dependencies: id === 'kstuff' ? ['coordinator'] : ['kstuff'],
@@ -116,7 +125,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
       async start({ signal }) {
         const existing = await inspect(id); if (existing.ready) return existing;
         invariant(existing.absent, 'COMPONENT_CONFLICT', existing.reason || 'Component state is unknown.');
-        const job = await runtime.jobs.enqueue('component.start', { component: id }, 'component_' + runtime.session + '_' + id);
+        const job = await runtime.jobs.enqueue('component.start', { component: id }, 'component_' + (runtime.recovery?.attempt || runtime.session) + '_' + id);
         while (!signal.aborted) {
           const current = runtime.jobs.snapshot().find(item => item.id === job.id);
           if (current.status === 'completed') return current.result.evidence;
@@ -129,10 +138,11 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
     });
   }
   runtime.capability('kstuff', true, 'Kernel hook markers are inspected on each readiness check.');
+  runtime.recovery = new StartupRecovery(runtime, native);
   let timer = null, monitoring = false, checking = false;
   const misses = new Map();
   async function checkResident() {
-    if (checking || runtime.jobs.running.size) return;
+    if (checking || runtime.jobs.running.size || runtime.recovery?.pending) return;
     checking = true;
     try {
       for (const id of Object.keys(definitions)) {
@@ -163,25 +173,6 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
       timer = setTimeout(tick, 10000);
     },
     stopMonitoring() { monitoring = false; clearTimeout(timer); },
-    async startConfigured() {
-      if (runtime.graph.safe) return;
-      await runtime.store.transaction(state => { state.startup.pending = true; });
-      let failure = null;
-      try {
-        await runtime.graph.start('kstuff');
-        if (runtime.graph.definitions.has('native-deck')) await runtime.graph.start('native-deck');
-        for (const id of ['shadowmount', 'payload-manager']) {
-          if (runtime.store.snapshot().settings.services[id === 'shadowmount' ? 'shadowmount' : 'payloadManager']) await runtime.graph.start(id);
-        }
-      } catch (error) { failure = publicError(error); }
-      await runtime.store.transaction(state => {
-        state.startup.pending = false; state.startup.safe = !!failure;
-        state.history.push({ id: runtime.id(), session: runtime.session, at: runtime.now(), type: 'startup', undo: false,
-          message: failure ? 'Native startup needs attention' : 'Native components are ready', detail: failure?.message || 'Component identities and readiness were verified.' });
-        state.history = state.history.slice(-256);
-      });
-      if (failure) runtime.graph.safe = true;
-      runtime.sequence++;
-    }
+    startConfigured: () => runtime.recovery.startConfigured()
   };
 }

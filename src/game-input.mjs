@@ -71,7 +71,7 @@ export class GameInput {
   }
   async inspect() {
     const runtime = this.runtime, game = runtime.game;
-    if (!game || runtime.graph.safe || !runtime.capabilities.get('deck').available) { this.observation = null;return; }
+    if (!game || runtime.graph.safe || runtime.recovery?.pending || !runtime.capabilities.get('deck').available) { this.observation = null;return; }
     const prior = runtime.jobs.snapshot().filter(job => job.kind === 'game.input.prepare' && job.args.generation === game.generation).at(-1);
     if (prior) {
       const receipt = this.native.gameInputPoll(prior.id, game.pid, game.generation);

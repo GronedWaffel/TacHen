@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ConsoleDeck } from './deck.mjs';
 import { invariant, TacError } from './errors.mjs';
+import { expiredStartup, sameExpiry } from './boot-recovery.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 30000 } = {}) {
   runtime.consoleDeck = new ConsoleDeck(runtime); runtime.deckCredential = runtime.id();
-  let request = null, monitor = null;
+  const prior = runtime.jobs.snapshot().filter(j => j.kind === 'deck.start').at(-1);
+  let request = prior?.id || null, monitor = null;
   function enable(ready) {
     for (const feature of ['deck', 'ip-overlay']) runtime.capability(feature, ready,
       ready ? 'Native ShellUI renderer heartbeat verified.' : 'Native renderer is not ready. Use the phone interface.');
     // The separate game-input relay owns game-overlay readiness. ShellUI's
     // heartbeat alone cannot establish game-process input isolation.
   }
-  function inspect() {
-    if (!request) return { absent: true, ready: false };
-    const status = native.deckPoll(request);
+  function inspect(requestId = request) {
+    if (!requestId) return { absent: true, ready: false };
+    const status = native.deckPoll(requestId), job = runtime.jobs.snapshot().find(j => j.id === requestId);
+    if (job && job.session !== runtime.session && expiredStartup(native, job, status)) return { absent: true, ready: false, expired: true };
+    if (job && job.session !== runtime.session && !(status?.stage === 4 && status.noSideEffects))
+      return { absent: false, ready: false, reason: 'The earlier coordinator may still own ShellUI hooks in this boot. Restart the console before starting a new deck.' };
     return status ? { ...status, absent: status.stage === 4 && status.noSideEffects } : { ready: false, absent: true };
   }
   function target(input) {
@@ -26,7 +31,7 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
       'OTHER_HEN_RUNNING', 'Another HEN owns ShellUI. Start TacHen in a separate clean session.');
     if (input?.generation) invariant(input.pid === shells[0].pid && input.generation === shells[0].generation,
       'SHELLUI_CHANGED', 'ShellUI restarted after the native deck was requested.');
-    return { pid: shells[0].pid, generation: shells[0].generation };
+    return { pid: shells[0].pid, generation: shells[0].generation, ...(state.boot ? { boot: state.boot } : {}) };
   }
   runtime.jobs.register('deck.start', {
     validate: target, resources: () => ['native-payload-dispatch', 'shellui-hooks'], timeout: timeout + 30000, cancellable: false,
@@ -48,15 +53,19 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
       throw new TacError('DECK_NOT_READY', 'The native deck did not produce a fresh render heartbeat. Use the phone interface; no reinjection was issued.');
     },
     verify(result, input) { const status = inspect(); return status.ready && status.pid === input.pid && status.generation === input.generation && result.evidence.request === status.request; },
-    reconcile(job) { request = job.id; const status = inspect(); if (status.absent) return { absent: true };
-      return status.ready && status.pid === job.args.pid && status.generation === job.args.generation ? { completed: true, evidence: status } : null; }
+    reconcile(job) {
+      const receipt = native.deckPoll(job.id), expired = expiredStartup(native, job, receipt);if (expired) return expired;
+      const status = inspect(job.id); if (status.absent) return { absent: true };
+      return status.ready && status.pid === job.args.pid && status.generation === job.args.generation ? { completed: true, evidence: status } : null;
+    },
+    verifyExpired: (outcome, job) => sameExpiry(outcome, expiredStartup(native, job, native.deckPoll(job.id)))
   });
   runtime.graph.register({ id: 'native-deck', dependencies: ['coordinator', 'kstuff'], optional: true, timeout: timeout + 35000,
     inspect, verify: evidence => evidence?.request === inspect().request && inspect().ready,
     async start({ signal }) {
       const current = inspect(); if (current.ready) { enable(true); return current; }
       invariant(current.absent, 'DECK_UNCERTAIN', 'The previous native deck attempt needs inspection.');
-      const job = await runtime.jobs.enqueue('deck.start', {}, 'deck_' + runtime.session);
+      const job = await runtime.jobs.enqueue('deck.start', {}, 'deck_' + (runtime.recovery?.attempt || runtime.session));
       while (!signal.aborted) {
         const state = runtime.jobs.snapshot().find(j => j.id === job.id);
         if (state.status === 'completed') { enable(true); return state.result.evidence; }

@@ -175,7 +175,7 @@ export class Loadouts {
   async inspect() {
     const r = this.runtime, profile = this.profile();
     if (this.attemptGeneration !== r.game?.generation) { this.attempts.clear();this.attemptGeneration = r.game?.generation; }
-    if (!profile || !profile.autostart || r.graph.safe || r.jobs.running.size) return;
+    if (!profile || !profile.autostart || r.graph.safe || r.recovery?.pending || r.jobs.running.size) return;
     const game = r.game, key = game.generation + ':' + hash(profile);
     if (this.attempts.has(key) || r.jobs.snapshot().some(j => j.kind === 'loadout.apply' && j.args.generation === game.generation && j.args.source === 'automatic')) return;
     this.attempts.add(key);
@@ -184,7 +184,7 @@ export class Loadouts {
       const job = await r.jobs.enqueue('loadout.apply', { titleId: profile.titleId, version: profile.version, source: 'automatic' }, r.id());
       this.observation = { generation: game.generation, job: job.id, message: 'Automatic loadout queued.' };
     } catch (error) {
-      if (error.code === 'PROFILE_READINESS') this.attempts.delete(key);
+      if (['PROFILE_READINESS', 'STARTUP_BUSY'].includes(error.code)) this.attempts.delete(key);
       this.observation = { generation: game.generation, message: error.message, error: publicError(error) };
     }
     r.sequence++;

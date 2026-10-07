@@ -43,6 +43,7 @@ export class GameLifecycle {
     if (changed) await this.emit('unavailable', null, this.current);
   }
   async inspect() {
+    if (this.runtime.recovery?.pending) return;
     this.deferred = false;
     const probe = this.native.systemProbe();
     if (probe.busy) {

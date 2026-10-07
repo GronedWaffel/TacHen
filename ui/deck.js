@@ -271,6 +271,14 @@ function draw() {
   $('#available-count').textContent = `${available.length} of ${state.capabilities.length} integrations`;
   $('#capabilities').replaceChildren(...available.map(item => { const card = el('article', 'cap'); card.append(el('span', 'indicator', 'AVAILABLE'), el('h3', '', item.name), el('p', '', item.reason || 'Connected to the shared TacHen runtime.')); return card; }));
   $('#component-list').replaceChildren(...state.capabilities.map(item => row(item.name, item.reason, item.available ? 'Available' : 'Not integrated', item.available)));
+  const startup = state.recovery;
+  $('#startup-status').textContent = !startup ? 'Native startup recovery is unavailable in this development runtime.' : startup.running ? `Checking startup${startup.target ? ': ' + startup.target : ''}…` :
+    startup.safe ? `Recovery is holding native operations. ${startup.last?.error?.message || 'The previous startup needs review.'}` : startup.last?.status === 'ready' ? 'Configured services passed startup readiness checks.' : 'Native startup has not been verified.';
+  $('#startup-known-good').textContent = startup?.knownGood ? `Last verified startup saved: ${new Date(startup.knownGood.at).toLocaleString()}. This is startup readiness evidence, not a guarantee of overall stability.` : 'No verified startup configuration has been saved yet. Recovery uses the default preferences.';
+  $('#startup-review').disabled = !startup || startup.running;
+  for (const [selector, key] of [['#startup-shadowmount', 'shadowmount'], ['#startup-payload-manager', 'payloadManager']]) {
+    $(selector).checked = state.settings.services[key];$(selector).disabled = !startup || startup.running;
+  }
   $('#payload-file').disabled = !capability('inbox')?.available;
   $('#package-file').disabled = packageUploading || !Array.isArray(state.packages);
   $('#package-hash').disabled = packageUploading;
@@ -501,6 +509,26 @@ $('#reduced-motion').onchange = () => command('settings.update', { patch: { appe
 $('#mcp-enabled').onchange = () => command('settings.update', { patch: { developer: { enabled: $('#mcp-enabled').checked } }, revision: state.revision });
 $('#mcp-writes').onchange = () => command('settings.update', { patch: { developer: { memoryWrites: $('#mcp-writes').checked } }, revision: state.revision });
 $('#diagnostics-enabled').onchange = () => command('settings.update', { patch: { developer: { diagnostics: $('#diagnostics-enabled').checked } }, revision: state.revision });
+for (const [selector, key] of [['#startup-shadowmount', 'shadowmount'], ['#startup-payload-manager', 'payloadManager']])
+  $(selector).onchange = () => command('settings.update', { patch: { services: { [key]: $(selector).checked } }, revision: state.revision });
+$('#startup-review').onclick = async () => {
+  if (busy) return;busy = true;
+  try {
+    const { result: plan } = await api('/api/command', { command: 'startup.preview', args: {} });
+    const dialog = el('dialog', 'storage-dialog'), detail = el('div', 'stack'), actions = el('div', 'actions');
+    for (const service of plan.services) detail.append(row(service.id, service.reason || (service.status === 'adopt' ? 'Recheck and reuse the verified instance.' : 'Start after its dependencies pass checks.'), service.status));
+    const status = el('p', 'fine', plan.available ? plan.message : plan.blockers.join(' '));status.setAttribute('role', 'status');
+    const resume = el('button', '', 'Continue reviewed startup'), back = el('button', '', 'Back');resume.disabled = !plan.available;back.onclick = () => dialog.close();
+    resume.onclick = async () => {
+      resume.disabled = true;
+      try { await api('/api/command', { command: 'startup.resume', args: { proof: plan.proof } });dialog.close();await refresh();notice('Startup accepted. Follow its service checks in Components.'); }
+      catch (error) { status.textContent = error.message; }
+    };
+    actions.append(resume, back);dialog.append(el('h2', '', 'Review startup'), detail, status, actions);
+    dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
+  } catch (error) { notice(error.message); }
+  finally { busy = false; }
+};
 $('#diagnostics-export').onclick = async () => {
   if (busy) return;busy = true;
   try {

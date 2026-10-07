@@ -132,6 +132,7 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
     status.renderedAt&&now>=status.renderedAt&&now-status.renderedAt<=3000)ready=1;
  }
  JSValue out=JS_NewObject(c);JS_SetPropertyStr(c,out,"request",JS_NewString(c,r.request));JS_SetPropertyStr(c,out,"stage",JS_NewInt32(c,r.stage));
+ char boot[80];snprintf(boot,sizeof boot,"%lld:%lld",(long long)r.bootSec,(long long)r.bootUsec);JS_SetPropertyStr(c,out,"boot",JS_NewString(c,boot));
  JS_SetPropertyStr(c,out,"busy",JS_NewBool(c,tac_native_busy()));
  JS_SetPropertyStr(c,out,"pid",JS_NewInt32(c,r.pid));JS_SetPropertyStr(c,out,"generation",JS_NewString(c,r.generation));
  JS_SetPropertyStr(c,out,"ready",JS_NewBool(c,ready));JS_SetPropertyStr(c,out,"noSideEffects",JS_NewBool(c,r.clean));JS_SetPropertyStr(c,out,"message",JS_NewString(c,r.message));

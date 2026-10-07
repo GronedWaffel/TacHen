@@ -4,10 +4,11 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const ACTIVE = new Set(['running', 'cancelling', 'uncertain']);
 
 export class JobQueue {
-  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, evidence = () => {}, timeout = 120000 } = {}) {
+  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, evidence = () => {}, admit = () => {}, timeout = 120000 } = {}) {
     this.store = store; this.id = id; this.now = now; this.session = session; this.concurrency = concurrency;
     this.changed = changed; this.timeout = timeout; this.handlers = new Map(); this.running = new Map();
     this.evidence = evidence;
+    this.admit = admit;
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
   }
   register(kind, handler) {
@@ -44,6 +45,7 @@ export class JobQueue {
       // same accepted request must return its original intent, not rebind it.
       return clone(accepted);
     }
+    this.admit(kind, input);
     const args = await handler.validate(clone(input));
     const signature = canonical({ kind, args });
     const { result } = await this.store.transaction(state => {
@@ -54,6 +56,9 @@ export class JobQueue {
         return clone(previous);
       }
       invariant(state.jobs.length < 1024, 'QUEUE_FULL', 'Job history is full; archive completed operations first.');
+      // Admission can change while file/native validation awaits. Recheck in
+      // the serialized intent transaction before accepting any new operation.
+      this.admit(kind, args);
       handler.guard?.(args, state);
       const resources = handler.resources(args);
       invariant(Array.isArray(resources) && resources.every(x => typeof x === 'string' && x.length <= 160), 'JOB_RESOURCE', 'Invalid operation resources.');
@@ -111,6 +116,7 @@ export class JobQueue {
       } }).catch(error => this.halt(error));
     }, handler.timeout ?? this.timeout);
     try {
+      try { this.admit(job.kind, job.args); } catch (error) { error.noSideEffects = true;throw error; }
       const result = await handler.run(clone(job.args), {
         id: job.id,
         signal: controller.signal,
@@ -201,6 +207,9 @@ export class JobQueue {
     const outcome = await handler.reconcile(clone(job));
     if (outcome?.completed === true && await handler.verify(outcome, job.args))
       await this.patch(id, { status: 'completed', result: outcome, error: null });
+    else if (outcome?.expired === true && await handler.verifyExpired?.(outcome, clone(job)))
+      await this.patch(id, { status: 'failed', result: { phase: 'boot-ended', priorOutcome: 'unknown' },
+        error: { code: 'PREVIOUS_BOOT_ENDED', message: 'This startup attempt belonged to an earlier console boot. Its earlier outcome is unknown; it is no longer running.' } });
     else if (outcome?.absent === true)
       await this.patch(id, { status: 'failed', result: outcome, error: { code: 'NOT_APPLIED', message: 'The operation was verified as not applied.' } });
     else throw new TacError('OUTCOME_UNKNOWN', 'The result remains uncertain. No retry was issued.');

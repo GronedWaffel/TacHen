@@ -64,6 +64,13 @@ export class ConsoleDeck {
     if (this.confirmation) {
       row('Confirm: ' + this.confirmation.label, this.confirmation.detail, '$confirm');
       row('Cancel', 'Return without making changes', '$cancel');
+    } else if (this.startupReview) {
+      const plan = this.startupReview;
+      for (const service of plan.services) row(service.id, service.status === 'adopt' ? 'Reuse after readiness check' : service.status === 'start' ? 'Start after dependencies' : service.reason);
+      for (const blocker of plan.blockers) row('Needs attention', blocker);
+      row('Continue reviewed startup', plan.message, plan.available && !state.recovery?.running ? 'startup.resume' : null, { proof: plan.proof }, { confirm: true });
+      row('Review again', 'Refresh existing service evidence', '$startup-review');
+      row('Back', 'Return to the command deck', '$startup-back');
     } else if (this.historyView) {
       if (this.historyView.id && !state.history.some(entry => entry.id === this.historyView.id)) {
         row('Change no longer available', 'The session history has advanced. Return to the list.');
@@ -108,6 +115,8 @@ export class ConsoleDeck {
     } else if (this.page === 0) {
       row('Your phone is a second controller', `Open http://${state.identity.ip}:8780 on the same network`);
       row(state.game?.name || 'Dashboard', state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || `Firmware ${state.identity.firmware || 'development'}`);
+      if (state.recovery) row(state.recovery.running ? 'Checking native startup' : 'Review startup and recovery',
+        state.recovery.target || (state.safe ? 'Native operations held pending review' : 'Inspect existing components before continuing'), state.recovery.running ? null : '$startup-review');
       for (const service of state.services.slice(0, 5))
         row(service.id, service.error?.message || service.phase || service.status,
           service.status === 'stopped' && !state.safe ? 'service.start' : null, { id: service.id });
@@ -200,10 +209,11 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null;this.historyView = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null;this.historyView = null;this.startupReview = null; this.notice = ''; return this.frame();
       }
       if (input.kind === 'back') {
-        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView)) this.confirmation = null;
+        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView || this.startupReview)) this.confirmation = null;
+        else if (this.startupReview) this.startupReview = null;
         else if (this.historyView) { if (this.historyView.id) this.historyView = {};else this.historyView = null; }
         else if (this.saveView) { if (this.saveView.selected) this.saveView.selected = null;else this.saveView = null; }
         else { this.confirmation = null;if (this.loadoutPreview) this.loadoutPreview = null;else if (this.page === 5 && this.cheatPack) this.cheatPack = null;else this.page = 0; }
@@ -219,6 +229,8 @@ export class ConsoleDeck {
         if (active) await this.runtime.execute('notice.dismiss', { id: active.id });
       }
       else if (selected.command === '$history') { this.historyView = {};this.offset = 0; }
+      else if (selected.command === '$startup-review') { this.startupReview = await this.runtime.execute('startup.preview', {});this.offset = 0; }
+      else if (selected.command === '$startup-back') { this.startupReview = null;this.offset = 0; }
       else if (selected.command === '$history-open') { this.historyView = selected.args;this.offset = 0; }
       else if (selected.command === '$history-back') { this.historyView = {};this.offset = 0; }
       else if (selected.command === '$saves') { this.saveView = { offset: 0, selected: null };this.offset = 0; }

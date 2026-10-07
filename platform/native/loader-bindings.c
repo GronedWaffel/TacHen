@@ -2,6 +2,7 @@
 #include "quickjs.h"
 #include "loader-worker.h"
 #include <errno.h>
+#include <stdio.h>
 static JSValue error(JSContext *c){
   JSValue value=JS_NewError(c);JS_SetPropertyStr(c,value,"code",JS_NewString(c,errno==EBUSY?"LOADER_BUSY":"LOADER_NATIVE"));
   JS_SetPropertyStr(c,value,"message",JS_NewString(c,"Native payload dispatch could not be started or inspected"));return JS_Throw(c,value);
@@ -26,6 +27,8 @@ static JSValue poll(JSContext *c,JSValueConst self,int argc,JSValueConst *args){
   TacDispatchReceipt r;int result=tac_loader_poll(request,&r);JS_FreeCString(c,request);
   if(result)return errno==ENOENT?JS_NULL:error(c);
   JSValue value=JS_NewObject(c);
+  char boot[80];snprintf(boot,sizeof boot,"%lld:%lld",(long long)r.boot_sec,(long long)r.boot_usec);
+  JS_SetPropertyStr(c,value,"boot",JS_NewString(c,boot));
   JS_SetPropertyStr(c,value,"request",JS_NewString(c,r.request));
   JS_SetPropertyStr(c,value,"sha256",JS_NewString(c,r.sha256));
   JS_SetPropertyStr(c,value,"stage",JS_NewInt32(c,r.stage));
