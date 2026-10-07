@@ -10,6 +10,7 @@ const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-n
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
 await fs.mkdir(path.join(root, 'build'), { recursive: true });
 await import('./build-game-gate.mjs');
+await import('./build-pad-bridge.mjs');
 const assets = {};
 for (const file of ['index.html', 'deck.css', 'deck.js']) assets[file] = await fs.readFile(path.join(root, 'ui', file), 'utf8');
 await fs.writeFile(path.join(root, 'build/ui-assets.json'), JSON.stringify(assets));
@@ -40,7 +41,7 @@ const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/pub
       'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
       'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
-  'platform/game/game-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
+  'platform/game/game-trampoline.cpp', 'platform/game/pad-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
 const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild',
@@ -86,12 +87,14 @@ const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
 const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 const packageElf = await fs.readFile(path.join(root, 'build/tachen-package-helper.elf'));
 const gameCallback = JSON.parse(await fs.readFile(path.join(root, 'build/game/manifest.json'), 'utf8'));
+const padBridge = JSON.parse(await fs.readFile(path.join(root, 'build/pad/manifest.json'), 'utf8'));
 if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.readUInt16LE(18) !== 62) throw Error('Output is not an x86-64 ELF');
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },
+  padBridge: { ...padBridge, nativeInjectorCompiled: true, coordinatorWired: false, captureEnabled: false },
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: false },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),

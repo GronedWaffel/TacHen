@@ -5,6 +5,8 @@
 #include "game-inject.h"
 #include "game-gate.h"
 #include "game/gate.h"
+#include "pad-bridge.h"
+#include "pad/pad.h"
 #include "publication.h"
 #include "pt.h"
 #include "process-current.h"
@@ -69,12 +71,21 @@ int tac_game_inject(pid_t pid,uint64_t cookie,int(*identity)(void*),void* contex
   t.control=arena+0x4000;
   TacGameGate gate={0};gate.magic=TAC_GAME_GATE_MAGIC;gate.cookie=cookie;gate.version=1;gate.bytes=sizeof gate;gate.loadStartModule=loader;
   if(pt_copyin(pid,tac_game_gate_bytes,arena,sizeof tac_game_gate_bytes)||pt_copyin(pid,&gate,t.control,sizeof gate)){message="Game callback staging failed";goto done;}
+  // The post-read bridge remains disabled until a verified renderer/capture
+  // supervisor grants a lease. Plugin callbacks still use their existing gate.
+  TacPadBridge pad={0};pad.magic=TAC_PAD_MAGIC;pad.cookie=cookie;pad.version=1;pad.bytes=sizeof pad;
+  pad.moduleEntry=arena;pad.moduleControl=t.control;
+  pad.clock=kernel_dynlib_dlsym(pid,0x1,"clock_gettime");
+  if(!pad.clock)pad.clock=kernel_dynlib_dlsym(pid,0x2001,"clock_gettime");
+  if(pt_copyin(pid,tac_pad_bridge_bytes,arena+0x2000,sizeof tac_pad_bridge_bytes)||pt_copyin(pid,&pad,arena+0x5000,sizeof pad)){
+    message="Post-read controller bridge staging failed";goto done;
+  }
   for(unsigned lane=0;lane<2;lane++){
     uint64_t target=functions[lane];if(!target||(lane&&target==functions[0]))continue;
     uint8_t before[64];TacGameTrampoline code;uint64_t stub=arena+0x1000+lane*0x800;
     if(target<0x10000||target>UINT64_C(0x7fffffffffff)-64||pt_copyout(pid,target,before,sizeof before)){message="Game input entry is unreadable";goto done;}
     if((before[0]==0xff&&before[1]==0x25)||before[0]==0xe9||before[0]==0xeb){message="Game input entry already has a hook or forwarding jump";goto done;}
-    if(tac_game_trampoline(before,sizeof before,target,stub,t.control,cookie,arena,lane,&code)||pt_copyin(pid,code.bytes,stub,code.size)){
+    if(tac_pad_trampoline(before,sizeof before,target,stub,arena+0x5000,cookie,arena+0x2000,lane,&code)||pt_copyin(pid,code.bytes,stub,code.size)){
       message="Game input instructions could not be relocated";goto done;
     }
     TacDeckPatch *patch=&t.patches[t.count++];patch->address=target;memcpy(patch->before,before,14);

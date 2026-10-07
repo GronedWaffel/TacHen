@@ -164,3 +164,12 @@ in `vendor/telemetry-provenance.json`. TacHen retains readable executable entrie
 for the indirect jump and adds its own game-instance receipt, control cookie,
 publication transaction and ABI execution tests. This counts flip submissions,
 not a guarantee of successfully displayed frames.
+
+The normal 120-byte controller sample declarations in `platform/game/pad-bridge.h`
+use the independent interoperability research published by
+[blackbearreloaded](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research).
+Source revision, file hashes and scope are recorded in `vendor/pad-provenance.json`.
+TacHen's typed post-read trampoline, capture leases, bounded event queue and
+controller ownership/release policy are new code. Relocation continues to use
+the credited etaHEN/HDE foundation above. No extended input ABI or hardware
+compatibility is implied by this normal-pad reference.

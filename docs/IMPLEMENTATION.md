@@ -833,3 +833,49 @@ and centered stick bytes of 128; static declarations are evidence to validate
 against supported runtime ABIs, not proof of every firmware/game. No research
 code has been incorporated at this checkpoint. Full in-game rendering/input
 and all remaining scope are still outstanding.
+
+## Checkpoint eighteen — native post-read input bridge
+
+The game injector now stages a separate post-read pad bridge at arena + 0x2000
+and its control block at + 0x5000. Existing module slots retain their original
+control ABI. The typed entry stubs call the relocated original scePadRead or
+scePadReadState using their three- or two-argument SysV signatures and preserve
+the returned result. Module initialization still uses the earlier callback gate.
+Invalid/disabled bridge state passes through the original read; a successful
+normal read can be inspected only after it returns. Failed reads, oversized
+results and malformed samples do not produce manufactured successful input.
+
+Capture remains **disabled** in this build. The future supervisor must verify
+normal-pad compatibility and renderer readiness, bind the game generation,
+enable the bridge, drain its events and publish a coherent lease. No UI control
+currently claims that this supervisor or full in-game input is available.
+
+The bridge has one lock with nonblocking acquisition, a 128-event ring, at most
+eight controller records, and monotonic leases no longer than 500 ms. Only the
+named handle and connection generation are captured. Motion/touch/buttons are
+neutralized while preserving connection, timing and device metadata; centered
+stick bytes are 128. On release or expiry, held input drains for at most another
+250 ms, bounded by the original lease deadline even if the game stopped reading.
+Overflow or capture contention invalidates that capture epoch. Reopening old
+handles can reuse expired controller records. Nested reads do not report the
+inner hook's neutralized buffer as a physical release. No file/network I/O,
+allocation or waiting occurs in the filter. Its only timing call is the target's
+clock_gettime(CLOCK_MONOTONIC); a missing/failed clock leaves input unchanged.
+
+The actual freestanding bridge binary and generated entry stubs execute in host
+tests. They cover both call signatures, unchanged native failures, passive
+observation, ownership, reconnects, lease expiry, a sleeping game, release drain,
+contention, batch boundaries/canaries, overflow/recovery, sequence wrap and nested
+reads. The full suite passed **198 local tests**, followed by a focused rerun
+after making the ReadState call explicitly two-argument. All console artifacts
+cross-build. Runtime **8,608,136 bytes**, SHA-256
+`af84bbf97513373ba767571e4ff28461388390e57f24cce01810bcaae26e6837`;
+bridge **2,816 bytes**, SHA-256
+`5c592ffaaba3f2d21e2c8f4b90672163c9e1b31a04fff3b164f1b53e426b2d59`.
+
+This is implementation evidence for the game-thread half, not native API or
+hardware validation. The control supervisor, event-to-deck routing, renderer
+loss handling across processes, independent arena startup without a PRX, and
+normal-pad runtime compatibility checks remain next. Extended input APIs need
+separate adapters. Full in-game presentation and the rest of TacHen's requested
+scope remain unfinished. No console connection, test or publication occurred.

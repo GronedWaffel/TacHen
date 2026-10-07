@@ -201,3 +201,10 @@ cookie before accepting readings. Turning FPS off stops sampling; an installed
 PS4 entry counter remains until that game exits. Full in-game rendering remains
 unfinished; none of these native sampling or display paths has been tested on a
 console.
+
+The game callback now also stages a typed post-read controller bridge. Its
+capture path is disabled in the current build: the renderer-to-game lease
+supervisor is not connected yet. The bridge preserves native read results,
+records bounded input events, and can filter only the controller identified by
+a short-lived capture lease. Host machine-code tests cover this path; it is not
+yet a usable in-game menu and has not been run on a PS5.
