@@ -20,7 +20,7 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=4||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=5||(f.flags&~7u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
  if(!f.notice.sequence||f.notice.kind>2||f.notice.remainingMs>9000||f.notice.count>999||
@@ -93,7 +93,7 @@ int tac_deck_input_at(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now,u
  // Never activate a row whose text/highlight the user has not actually seen.
  if(d->presentedSequence!=d->frame.sequence||!d->presentedOpen||d->presentedSelected!=d->selected)return 1;
  if(pressed&TAC_CIRCLE){
-  if(d->frame.page==0&&!d->pending){d->open=0;d->drain[device]=1;}
+  if(d->frame.page==0&&!(d->frame.flags&4)&&!d->pending){d->open=0;d->drain[device]=1;}
   else action(d,TAC_DECK_BACK);return 1;
  }
  if(d->pending)return 1;

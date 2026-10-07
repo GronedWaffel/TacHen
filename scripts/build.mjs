@@ -79,7 +79,7 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-save-helper.elf']);
 const deckObjects = [];
 for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
-  'platform/deck/deck-view.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
+  'platform/deck/deck-view.c', 'platform/deck/deck-layout.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-Iplatform/deck', '-Ivendor/deck', '-DHDE_DECODE_ONLY',
     ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti'] : ['-std=c11']), '-c', source, '-o', object]);

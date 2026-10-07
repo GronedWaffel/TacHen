@@ -28,6 +28,15 @@ test('native renderer availability is never inferred from phone availability', a
   assert.equal(runtime.capabilities.get('deck').available, false); assert.equal(runtime.capabilities.get('phone').available, true);
   assert.ok(!JSON.stringify(runtime.snapshot()).includes('deckCredential'));
 });
+
+test('Home confirmations explicitly route Circle back instead of closing the native deck', async t => {
+  const runtime=await fixture(t),deck=runtime.consoleDeck;
+  assert.equal(deck.frame().canBack,false);
+  deck.confirmation={label:'Example operation',detail:'Review before starting',command:'unused',args:{}};
+  const nested=deck.frame();assert.equal(nested.canBack,true);assert.equal(encodeDeck(nested).readUInt16LE(6)&4,4);
+  await deck.action(action(runtime,'back'));
+  assert.equal(deck.confirmation,null);assert.equal(deck.frame().page,0);assert.equal(deck.frame().canBack,false);
+});
 test('deck and phone share optimistic settings; stale controller selections do not overwrite phone changes', async t => {
   const runtime = await fixture(t), deck = runtime.consoleDeck;
   await deck.action(action(runtime, 'previous')); assert.equal(deck.frame().page, 5);

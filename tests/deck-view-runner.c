@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Managed-object boundary fixture. Exercises the production renderer/cache and
+// failure cleanup; does not emulate PUI rendering or validate its console ABI.
+#include "deck-view.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);return 1;}}while(0)
+enum { FIND=1,ROOT,APPEND,REMOVE,CTOR,FONTCTOR,COLORCTOR,TEXT,NAME,X,Y,WIDTH,HEIGHT,COLOR,FONT };
+typedef struct {char text[256];unsigned removed;} Obj;
+static Obj objects[256],roots[2];static void* handles[512];static char strings[512][256];
+static unsigned allocated,nextHandle,stringCount,invocations,textCalls,removed,rootIndex,failText;
+static int sceneAvailable=1;
+int tac_mono_load(TacMono* unused){(void)unused;return 0;}
+static void* object_new(void* domain,void* klass){(void)domain;(void)klass;return &objects[allocated++];}
+static uint32_t handle_new(void* object,int pinned){(void)pinned;handles[++nextHandle]=object;return nextHandle;}
+static void* handle_target(uint32_t handle){return handles[handle];}
+static void handle_free(uint32_t handle){handles[handle]=NULL;}
+static void* unbox(void* object){return object;}
+static void* string_new(void* domain,const char* text){(void)domain;snprintf(strings[stringCount],256,"%s",text);return strings[stringCount++];}
+static void* invoke(void* method,void* object,void** args,void** exception){
+ invocations++;*exception=NULL;
+ switch((uintptr_t)method){
+  case FIND:return sceneAvailable?(void*)1:NULL;
+  case ROOT:return &roots[rootIndex];
+  case TEXT:textCalls++;if(failText){failText=0;*exception=(void*)1;break;}snprintf(((Obj*)object)->text,256,"%s",(char*)args[0]);break;
+  case REMOVE:((Obj*)object)->removed=1;removed++;break;
+  default:break;
+ }return NULL;
+}
+int main(void){
+ TacDeckView view={0};view.initialized=1;view.domain=(void*)1;view.label=(void*)2;
+ view.mono.mono_object_new=object_new;view.mono.mono_gchandle_new=handle_new;
+ view.mono.mono_gchandle_get_target=handle_target;view.mono.mono_gchandle_free=handle_free;
+ view.mono.mono_object_unbox=unbox;view.mono.mono_string_new=string_new;view.mono.mono_runtime_invoke=invoke;
+ view.findScene=(void*)FIND;view.getRoot=(void*)ROOT;view.append=(void*)APPEND;view.remove=(void*)REMOVE;
+ view.labelCtor=(void*)CTOR;view.fontCtor=(void*)FONTCTOR;view.colorCtor=(void*)COLORCTOR;
+ view.text=(void*)TEXT;view.name=(void*)NAME;view.x=(void*)X;view.y=(void*)Y;view.width=(void*)WIDTH;
+ view.height=(void*)HEIGHT;view.textColor=(void*)COLOR;view.labelFont=(void*)FONT;
+ for(unsigned i=0;i<TAC_DECK_STYLES;i++){view.fonts[i]=handle_new(object_new(NULL,NULL),1);view.colors[i]=handle_new(object_new(NULL,NULL),1);}
+ TacDeckFrame frame={.flags=3,.sequence=1,.metricsSequence=1,.count=2,.page=1};
+ strcpy(frame.title,"TacHen / Plugins");strcpy(frame.rows[0].label,"Start watcher");strcpy(frame.rows[0].detail,"Ready to start.");frame.rows[0].flags=1;
+ strcpy(frame.rows[1].label,"Load game module");strcpy(frame.rows[1].detail,"Open the target game first.");strcpy(frame.metrics,"60 FPS");
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1000));CHECK(allocated==TAC_DECK_STYLES*2+TAC_DECK_LABELS);
+ CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
+ unsigned calls=invocations,allocations=stringCount;
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1001));CHECK(invocations==calls&&stringCount==allocations);
+ unsigned writes=textCalls;strcpy(frame.metrics,"59.8 FPS");frame.metricsSequence++;
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1002));CHECK(textCalls==writes+1);
+ CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
+ CHECK(tac_deck_view_render(&view,&frame,1,1,1003));CHECK(!strcmp(((Obj*)handle_target(view.labels[39]))->text,"Currently unavailable"));
+ CHECK(tac_deck_view_render(&view,&frame,0,1,1004));
+ for(unsigned i=0;i<41;i++)CHECK(!((Obj*)handle_target(view.labels[i]))->text[0]);
+ CHECK(!strcmp(((Obj*)handle_target(view.labels[42]))->text,"59.8 FPS"));
+ frame.flags=0;CHECK(tac_deck_view_render(&view,&frame,0,1,1005));CHECK(!((Obj*)handle_target(view.labels[42]))->text[0]);
+ sceneAvailable=0;CHECK(!tac_deck_view_render(&view,&frame,0,0,1300));CHECK(!view.root&&!view.paintedValid);CHECK(removed==TAC_DECK_LABELS);
+ sceneAvailable=1;rootIndex=1;frame.flags=3;
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1600));CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
+ failText=1;frame.sequence++;strcpy(frame.rows[0].label,"Changed");
+ CHECK(!tac_deck_view_render(&view,&frame,1,0,1601));CHECK(view.failed&&!view.root);CHECK(removed==TAC_DECK_LABELS*2);
+ calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,1602));CHECK(invocations==calls);
+ puts("Production native view cache, metric isolation, scene replacement and failure release passed");return 0;
+}

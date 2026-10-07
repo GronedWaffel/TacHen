@@ -44,7 +44,7 @@ globalThis.testPassed = false;
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
   const frame = encodeDeck({ sequence: 7, page: 1, ready: true, title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',
     rows: [{ token: 'a'.repeat(32), label: 'Payload 二', detail: 'Ready', enabled: true }] });
-  assert(frame.length === 6424 && frame.readUInt16LE(4) === 4 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1 && frame.readUInt32LE(2800) === 1, 'QuickJS deck wire failed');
+  assert(frame.length === 6424 && frame.readUInt16LE(4) === 5 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1 && frame.readUInt32LE(2800) === 1, 'QuickJS deck wire failed');
   const packageHeader = Buffer.alloc(0x438), packageSize = 180 * 1024 ** 3;
   packageHeader.writeUInt32BE(0x7f434e54); packageHeader.write('UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP', 0x40);
   packageHeader.writeUInt32BE(0x1a, 0x74); packageHeader.writeBigUInt64BE(BigInt(packageSize), 0x430);

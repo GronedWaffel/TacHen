@@ -11,6 +11,15 @@ static void feed(TacDeck *d,TacDeckRoute *r,TacDeckInput *input,uint64_t at,uint
 int main(int argc,char** argv){
  CHECK(argc==2);FILE* f=fopen(argv[1],"rb");CHECK(f);unsigned char bytes[sizeof(TacDeckFrame)+1];size_t length=fread(bytes,1,sizeof bytes,f);fclose(f);
  TacDeckFrame frame;CHECK(tac_deck_decode(bytes,length,&frame));CHECK(frame.count==3);CHECK(!strcmp(frame.rows[1].label,"Payload 二"));
+ TacDeckFrame legacy=frame;legacy.version=4;CHECK(!tac_deck_decode(&legacy,sizeof legacy,&legacy));
+ TacDeck nested;tac_deck_init(&nested);TacDeckFrame nestedFrame=frame;nestedFrame.flags|=4;
+ CHECK(tac_deck_receive(&nested,&nestedFrame,sizeof nestedFrame,0));nested.open=1;
+ tac_deck_present(&nested,nested.frame.sequence,1,0);tac_deck_input(&nested,0,TAC_CIRCLE,1);
+ CHECK(nested.open&&nested.pending&&nested.event.kind==TAC_DECK_BACK);
+ tac_deck_ack(&nested,nested.event.serial);tac_deck_input(&nested,0,0,2);
+ nestedFrame.flags&=~4u;nestedFrame.sequence++;CHECK(tac_deck_receive(&nested,&nestedFrame,sizeof nestedFrame,3));
+ tac_deck_present(&nested,nested.frame.sequence,1,0);tac_deck_input(&nested,0,TAC_CIRCLE,4);
+ CHECK(!nested.open&&!nested.pending); // Only the Home root closes on Circle.
  TacDeckFrame invalid=frame;invalid.input.active=3;CHECK(!tac_deck_decode(&invalid,sizeof invalid,&invalid));
  invalid=frame;invalid.input.captured=1;CHECK(!tac_deck_decode(&invalid,sizeof invalid,&invalid));
  invalid=frame;invalid.input.count=129;CHECK(!tac_deck_decode(&invalid,sizeof invalid,&invalid));

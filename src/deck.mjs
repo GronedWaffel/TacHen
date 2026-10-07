@@ -5,7 +5,7 @@ import { invariant } from './errors.mjs';
 import { telemetryText } from './telemetry.mjs';
 import { pluginDeckRows } from './deck-plugins.mjs';
 
-export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 4, bytes: 6424, rows: 8, rowBytes: 292 });
+export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 5, bytes: 6424, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
@@ -18,7 +18,7 @@ export function encodeDeck(frame) {
   invariant(frame.rows.length <= 8, 'DECK_LIMIT', 'Too many deck rows.');
   const out = Buffer.alloc(DECK_WIRE.bytes);
   out.writeUInt32LE(DECK_WIRE.magic, 0); out.writeUInt16LE(DECK_WIRE.version, 4);
-  out.writeUInt16LE((frame.ready ? 1 : 0) | (frame.ipVisible ? 2 : 0), 6);
+  out.writeUInt16LE((frame.ready ? 1 : 0) | (frame.ipVisible ? 2 : 0) | (frame.canBack ? 4 : 0), 6);
   out.writeUInt32LE(frame.sequence, 8); out.writeUInt16LE(frame.page, 12); out.writeUInt16LE(frame.rows.length, 14);
   text(out, 16, 64, frame.title); text(out, 80, 160, frame.subtitle);
   text(out, 240, 160, frame.footer); text(out, 400, 64, frame.ip);
@@ -197,6 +197,7 @@ export class ConsoleDeck {
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
     const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
+      canBack: Boolean(this.page || this.confirmation || this.pluginView || this.loadoutPreview || this.saveView || this.historyView || this.startupReview),
       page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.pluginView ? 'Plugins' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),
       footer: 'L1 / R1 sections    X select    Circle back    L3 + R3 close', rows: selected };

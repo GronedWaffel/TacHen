@@ -341,3 +341,16 @@ span, including the launcher's complete fallback package. Content digests in the
 generated assembly invalidate cached objects when an included binary changes.
 A successful build requires current bytes and a unique file-backed load mapping;
 validating the outer ELF alone is not sufficient.
+
+
+The native command deck now separates a six-section rail, eight action rows and
+an in-focus explanation. Wrapped labels preserve UTF-8 boundaries; selected
+unavailable actions keep their reason visible. Metrics/notices/IP remain separate
+from controller action identities. Circle goes back from nested Home views and
+closes only at the Home root (wire version five). This is the text layout stage;
+a native background/compositing layer and final visual design are still needed.
+
+`node scripts/preview-native-deck.mjs` starts a loopback-only layout preview on
+port 8797. It compiles the production C layout and uses example frames with browser
+fonts and a neutral backdrop. It neither connects to a console nor proves PUI
+appearance. Close it with Ctrl+C; `--write-only` just writes the preview HTML.
