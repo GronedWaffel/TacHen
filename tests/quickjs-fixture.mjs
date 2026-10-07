@@ -9,6 +9,7 @@ import { encodeDeck } from '../src/deck.mjs';
 import { pluginDeckRows } from '../src/deck-plugins.mjs';
 import { inspectPackage } from '../src/package-format.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
+import { packageDeckRows } from '../src/deck-packages.mjs';
 import { GameLifecycle } from '../src/game-lifecycle.mjs';
 import { installPlugins } from '../src/plugins.mjs';
 import { installCheats } from '../src/cheat-service.mjs';
@@ -79,6 +80,12 @@ globalThis.testPassed = false;
   const packageInput = await packageHandler.validate({ id: packageUpload });
   const install = await packageHandler.run(packageInput, { id: packageRequest, signal: { aborted: false }, checkpoint: async () => {} });
   assert(accepted === 1 && await packageHandler.verify(install, packageInput), 'QuickJS installer receipt adapter failed');
+  const packageRows = packageDeckRows({ packages: [{ id: packageUpload, name: 'example.pkg', status: 'verified', bytes: packageSize, offset: packageSize }],
+    capabilities: [{ id: 'packages', available: true }] }, { id: packageUpload }, [{ kind: 'package.verify', status: 'completed',
+    resources: ['package-file:' + packageUpload], result: { sha256: packageHash, package: pkg } }]);
+  const installRow = packageRows.find(row => row.label === 'Install package');
+  assert(installRow.enabled && installRow.confirm && installRow.args.input.sha256 === packageHash && installRow.args.input.bytes === packageSize,
+    'QuickJS controller package review binding failed');
   const gameRuntime = { sequence: 0 }, gameMetadata = Buffer.from(JSON.stringify({ titleId: 'PPSA00001', contentVersion: '01.002.003' }));
   const lifecycle = new GameLifecycle(gameRuntime, { systemProbe: () => ({ appInfoAvailable: true,
     processes: [{ pid: 101, generation: 'boot/101/100:0', appId: 24, titleId: 'PPSA00001', name: 'eboot.bin' }] }),

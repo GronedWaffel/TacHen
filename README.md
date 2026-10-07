@@ -30,6 +30,13 @@ then stream a SHA-256 verification. Uploading does not execute a payload. Incomp
 uploads retain their offset so a client can resume. Structural validation does not
 establish compatibility with a particular game, firmware, or plugin API.
 
+The controller deck's **Games → Packages** screen lists phone-staged packages,
+starts background verification, and confirms installation of the displayed
+checksum and content identity. Held jobs can be resumed, queued work cancelled,
+and interrupted installations checked without resubmission. Running installation
+cannot be cancelled here. Installation remains limited to the evidenced 13.60
+adapter; other supported firmware profiles can stage and verify files.
+
 Running-game context now combines a native process-generation/application probe
 with bounded reads of that title's mounted sandbox metadata. Two consistent
 observations establish its title/version for the phone and console deck. Ambiguous

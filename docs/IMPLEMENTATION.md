@@ -1861,3 +1861,42 @@ Runtime **9,105,112 bytes**, SHA-256 `0e53cf774774f90688edb3d66cc556796b36598918
 Launcher **9,266,240 bytes**, SHA-256 `1b2f73b555fecd90f6f653404fcdc59d362f41512c0c94e74ee8b6554ce22fd2`.
 Update package **9,105,368 bytes**, SHA-256 `278b339df4755ce7270b4add8b9f2342a8549c68c93dd66e86f652483bbaced5`.
 Source fingerprint `70557619384cbc95275040440e6e848d8fb79d71ad6eae898c6ed1952cfc0828`.
+
+
+## Checkpoint 36 — controller package workflow
+
+Games → Packages now exposes the existing staging/installation job workflow on
+console: browse uploaded packages, verify complete files, review their identity,
+confirm an install, resume held work, cancel before native installation starts,
+and check an interrupted result without resubmitting it. Running verification
+can be cancelled while preserving bytes; running installation cannot. Phone and
+controller continue to share the same queue, receipts and resource exclusions.
+
+Install confirmation binds upload ID, SHA-256, content ID and byte length.
+Before dispatch it rechecks current snapshot availability and evidence; a phone
+operation, changed verification result, recovery state or missing upload rejects
+the old review. Native validation still checks the file/dependencies at dispatch.
+Incomplete older verification records offer reverification rather than a dead-end
+install control. Circle unwinds confirmation, package detail and package list
+before returning to Games. Menu rendering performs no extra native probes or
+file reads. The 13.60-only native installer ABI guard remains unchanged.
+
+All **349 local tests** pass (`.local/checkpoint36-tests.txt`). New coverage uses
+real synthetic package bytes and the production inbox/verification/installer job
+handlers with a controlled native boundary. It checks duplicate confirmations,
+shared completion, nested navigation, lower-firmware/recovery restrictions,
+stale evidence/phone activity and supported job-control states. QuickJS executes
+the package presentation/binding path. The production ELF build and embedded
+asset checks pass (`.local/checkpoint36-build.txt`). These are off-console checks,
+not native installation acceptance. No console was contacted or software deployed.
+
+A focused search of saved local artifacts and the existing Ghidra project did
+not provide PUI panel metadata. Native background-panel presentation remains
+unresolved; no speculative API was added. Remaining native presentation,
+firmware adapters and other compatibility work retain their existing scope.
+The full goal remains active. Console acceptance is last.
+
+Runtime **9,105,112 bytes**, SHA-256 `e8c7142ddf47f7242a37851748d6412194d5739046b2d50792db55ae304d4811`.
+Launcher **9,266,240 bytes**, SHA-256 `00ba911eb149f40637b16bfedb9b75ba1db5c0af93bbb1c0dac90d25704d86e4`.
+Update package **9,105,368 bytes**, SHA-256 `60c8e81bd5fdd86b67ff38c3ed91a9fdde4dade08e3e922df5223532a1290e2b`.
+Source fingerprint `8f3b6d60484f080c789f988b5c829942dd4a4fa5a6fc8c882e5d76c37ed21702`.

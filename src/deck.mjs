@@ -4,6 +4,7 @@
 import { invariant } from './errors.mjs';
 import { telemetryText } from './telemetry.mjs';
 import { pluginDeckRows } from './deck-plugins.mjs';
+import { packageDeckRows } from './deck-packages.mjs';
 
 export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 5, bytes: 6424, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
@@ -67,6 +68,8 @@ export class ConsoleDeck {
       row('Cancel', 'Return without making changes', '$cancel');
     } else if (this.pluginView) {
       items.push(...pluginDeckRows(state,this.pluginView));
+    } else if (this.packageView) {
+      items.push(...packageDeckRows(state, this.packageView, runtime.jobs.snapshot()));
     } else if (this.startupReview) {
       const plan = this.startupReview;
       for (const service of plan.services) row(service.id, service.status === 'adopt' ? 'Reuse after readiness check' : service.status === 'start' ? 'Start after dependencies' : service.reason);
@@ -137,6 +140,7 @@ export class ConsoleDeck {
       }
       if (!items.length) row('Payload inbox is empty', 'Upload from your phone or FTP into /payloads');
     } else if (this.page === 2) {
+      if (Array.isArray(state.packages)) row('Packages', 'Verify uploads and manage background installations', '$packages');
       if (runtime.saves) row('Saved games', 'Extract and decrypt saves to USB or the FTP share', '$saves');
       const profile = state.loadouts?.profiles.find(p => p.titleId === state.game?.titleId && p.version === state.game?.version);
       if (profile) {
@@ -201,8 +205,8 @@ export class ConsoleDeck {
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
     const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
-      canBack: Boolean(this.page || this.confirmation || this.pluginView || this.loadoutPreview || this.saveView || this.historyView || this.startupReview),
-      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.pluginView ? 'Plugins' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
+      canBack: Boolean(this.page || this.confirmation || this.pluginView || this.packageView || this.loadoutPreview || this.saveView || this.historyView || this.startupReview),
+      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.pluginView ? 'Plugins' : this.packageView ? 'Packages' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),
       footer: 'L1 / R1 sections    X select    Circle back    L3 + R3 close', rows: selected };
     const signature = JSON.stringify(data);
@@ -230,10 +234,11 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.pluginView=null;this.loadoutPreview = null; this.saveView = null;this.historyView = null;this.startupReview = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.pluginView=null;this.packageView=null;this.loadoutPreview = null; this.saveView = null;this.historyView = null;this.startupReview = null; this.notice = ''; return this.frame();
       }
       if (input.kind === 'back') {
-        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView || this.startupReview||this.pluginView)) this.confirmation = null;
+        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView || this.startupReview||this.pluginView||this.packageView)) this.confirmation = null;
+        else if (this.packageView) this.packageView = this.packageView.id ? {} : null;
         else if(this.pluginView){const kind=this.pluginView.kind;this.pluginView=kind==='list'?null:{kind:kind==='register'?'inbox':'list'};}
         else if (this.startupReview) this.startupReview = null;
         else if (this.historyView) { if (this.historyView.id) this.historyView = {};else this.historyView = null; }
@@ -246,6 +251,9 @@ export class ConsoleDeck {
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$packages') { this.packageView = {}; this.offset = 0; }
+      else if (selected.command === '$package-open') { this.packageView = selected.args; this.offset = 0; }
+      else if (selected.command === '$package-exit') { this.packageView = null; this.offset = 0; }
       else if(selected.command==='$plugins'){this.pluginView={kind:'list'};this.offset=0;}
       else if(selected.command==='$plugin-inbox'){this.pluginView={kind:'inbox'};this.offset=0;}
       else if(selected.command==='$plugin-register'){this.pluginView={kind:'register',...selected.args};this.offset=0;}
@@ -285,6 +293,11 @@ export class ConsoleDeck {
   }
   async dispatch(row, key) {
     try {
+      if (row.packageReview) {
+        const current = packageDeckRows(this.runtime.snapshot(), { id: row.packageReview }, this.runtime.jobs.snapshot());
+        invariant(current.some(item => item.enabled && item.command === row.command && JSON.stringify(item.args) === JSON.stringify(row.args)),
+          'PACKAGE_REVIEW_CHANGED', 'The package or its operation changed. Review it again before installing.');
+      }
       this.notice = 'Working. Progress is shared with your phone.';
       if (row.command === 'library.refresh') {
         this.runtime.execute(row.command, row.args || {}).then(() => { this.notice = 'Library refreshed.'; }, error => { this.notice = error.message; });
