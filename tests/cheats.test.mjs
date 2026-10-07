@@ -64,3 +64,17 @@ test('loadouts bind exact versions and never partially autostart missing compone
   assert.equal(ready.autostart, true); assert.equal(ready.actions[0].generation, game.generation);
   assert.equal(profiles.plan({ ...game, version: '01.002.000' }, { plugins: [], cheats: [] }).profile, null);
 });
+
+
+test('unequal on/off lengths check every supplied expected byte and restore captured tails after failure',async()=>{
+  const value=document();value.mods[0].memory[0].on='90919293';
+  const p=importCheatJson(JSON.stringify(value),game),f=fixture();f.memory[18]=0x55;f.memory[19]=0x66;
+  const initial=Buffer.from(f.memory);f.state.failWrite=2;
+  await assert.rejects(f.session.set(game,p,'0',true),/simulated failure/);assert.deepEqual(f.memory,initial);
+  f.state.failWrite=0;await f.session.set(game,p,'0',true);
+  assert.equal(f.memory.subarray(16,20).toString('hex'),'90919293');
+  f.memory[19]=0xff;const writes=f.state.writes;
+  await assert.rejects(f.session.set(game,p,'0',false),{code:'PATCH_MISMATCH'});assert.equal(f.state.writes,writes);
+  f.memory[19]=0x93;await f.session.set(game,p,'0',false);
+  assert.equal(f.memory.subarray(16,20).toString('hex'),'01029293','disable writes precisely the author-supplied Off bytes');
+});

@@ -63,6 +63,9 @@ globalThis.testPassed = false;
   const absoluteCheat = importCheatSource('<Trainer Game="Address fixture" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>400010</Offset><Absolute>True</Absolute><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
   const absolutePacket = cheatPacket(absoluteCheat, '0', true);
   assert(absolutePacket.readUInt32LE(4) === 2 && absolutePacket.readUInt32LE(28) === 1 && absolutePacket.readBigUInt64LE(16) === 0x400010n, 'QuickJS absolute-address packet failed');
+  const unequalCheat = JSON.parse(JSON.stringify(absoluteCheat));unequalCheat.cheats[0].memory[0].on = '90919293';
+  const unequalPacket = cheatPacket(unequalCheat, '0', true);
+  assert(unequalPacket.readUInt32LE(4) === 3 && unequalPacket.readUInt32LE(24) === 2 && unequalPacket.readUInt32LE(28) === 4 && unequalPacket.readUInt32LE(32) === 1 && unequalPacket.subarray(36).toString('hex') === '010290919293', 'QuickJS independent patch lengths failed');
   const mc4Cheat = await importCheatFile(mc4Fixture.source, { titleId: 'CUSA00001', version: '01.20' });
   assert(mc4Cheat.name === 'TacHen MC4 fixture' && mc4Cheat.cheats[0].memory[0].on === '9090', 'QuickJS lazy AES/MC4 import failed');
   const frame = encodeDeck({ sequence: 7, page: 1, ready: true, accent: 'ice', title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',

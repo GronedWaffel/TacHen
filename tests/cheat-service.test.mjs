@@ -156,3 +156,16 @@ test('phone imports require same-origin session and write token, and never apply
   const response = await fetch(origin + '/api/cheats/import', { method: 'POST', headers: { ...headers, 'X-TacHen-CSRF': session.csrf }, body });
   assert.equal(response.status, 200);assert.equal((await response.json()).result.sha256, f.entry.sha256);assert.equal(f.calls.length, 0);
 });
+
+
+test('unequal patches remain loadable but never promise exact history undo',async t=>{
+  const f=await fixture(t),source=JSON.parse(doc());source.mods[0].memory[0].on='90919293';
+  const entry=await f.runtime.cheats.packs.import({source:JSON.stringify(source),...game});
+  const inspected=await f.runtime.cheats.inspect(entry.sha256);assert.equal(inspected.cheats[0].supported,true);assert.equal(inspected.cheats[0].exactUndo,false);
+  const job=await f.runtime.jobs.enqueue('cheat.set',{sha256:entry.sha256,cheatId:'0',enabled:true},f.runtime.id());
+  const result=await f.settled(job.id);assert.equal(result.status,'completed');assert.equal(result.args.exactUndo,false);
+  assert.equal(Buffer.from(f.calls[0].packet).readUInt32LE(4),3);
+  const reverse=f.runtime.changes.preview(job);assert.equal(reverse.available,false);assert.match(reverse.reason,/different On\/Off lengths/);
+  const disabled=await f.runtime.jobs.enqueue('cheat.set',{sha256:entry.sha256,cheatId:'0',enabled:false},f.runtime.id());
+  assert.equal((await f.settled(disabled.id)).status,'completed');
+});

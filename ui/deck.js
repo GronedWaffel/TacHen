@@ -113,6 +113,7 @@ function drawCheats() {
       actions.append(button);
     }
     node.append(actions);
+    if (cheat.exactUndo === false) node.append(el('p', 'fine', 'This file changes different byte counts when enabled and disabled. Disabling applies its Off bytes; extra On bytes may remain until the game closes. Exact history undo is unavailable.'));
     if (!cheat.supported) node.append(el('p', 'fine', 'This cheat needs a nonzero-section adapter; it cannot be applied by this build yet.'));
     return node;
   }));

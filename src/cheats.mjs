@@ -34,10 +34,9 @@ export function importCheatJson(source, { titleId, version }) {
       invariant(!patch.codeCaveReloc, 'CHEAT_ADDRESS_MODE', 'Executable code-cave relocation is not integrated.');
       const offset = BigInt(patch.offset.startsWith('0x') ? patch.offset : '0x' + patch.offset);
       const on = hex(patch.on, 'enabled'), off = hex(patch.off, 'disabled');
-      invariant(on.length === off.length, 'CHEAT_LENGTH', 'Enabled and disabled patches must have matching lengths.');
       const section = patch.section == null || patch.section === '' ? 0 : Number(patch.section);
       invariant(Number.isSafeInteger(section) && section >= 0 && section < 16, 'CHEAT_SECTION', 'Invalid module section.');
-      totalBytes += on.length / 2;
+      totalBytes += Math.max(on.length, off.length) / 2;
       return { offset: '0x' + offset.toString(16), section, on, off, ...(patch.absolute ? { absolute: true } : {}) };
     });
     invariant(totalBytes <= 1024 * 1024, 'CHEAT_SIZE', 'Cheat patches exceed the total size limit.');
@@ -56,18 +55,20 @@ export function cheatPacket(pack, cheatId, enabled) {
     invariant(item.absolute || item.section === 0, 'CHEAT_SECTION_UNSUPPORTED', 'This cheat requires a nonzero section adapter that is not yet integrated.');
     return { absolute: Boolean(item.absolute), offset: BigInt(item.offset), before: Buffer.from(enabled ? item.off : item.on, 'hex'), after: Buffer.from(enabled ? item.on : item.off, 'hex') };
   }).sort((a, b) => Number(a.absolute) - Number(b.absolute) || (a.offset < b.offset ? -1 : a.offset > b.offset ? 1 : 0));
-  invariant(patches.every(p => p.offset >= 0n && p.offset <= 0xffffffffffffffffn - BigInt(p.before.length)), 'PATCH_BOUNDS', 'A patch offset overflows the native address width.');
-  invariant(patches.every(p => !p.absolute || p.offset >= 0x10000n && p.offset + BigInt(p.before.length) <= 0x800000000000n),
+  invariant(patches.every(p => p.offset >= 0n && p.offset <= 0xffffffffffffffffn - BigInt(Math.max(p.before.length, p.after.length))), 'PATCH_BOUNDS', 'A patch offset overflows the native address width.');
+  invariant(patches.every(p => !p.absolute || p.offset >= 0x10000n && p.offset + BigInt(Math.max(p.before.length, p.after.length)) <= 0x800000000000n),
     'PATCH_BOUNDS', 'An absolute patch must stay within user process address space.');
-  invariant(patches.every((p, i) => !i || patches[i - 1].absolute !== p.absolute || patches[i - 1].offset + BigInt(patches[i - 1].before.length) <= p.offset),
+  invariant(patches.every((p, i) => !i || patches[i - 1].absolute !== p.absolute || patches[i - 1].offset + BigInt(Math.max(patches[i - 1].before.length, patches[i - 1].after.length)) <= p.offset),
     'PATCH_OVERLAP', 'This cheat contains overlapping patches.');
-  const bytes = 16 + patches.reduce((sum, p) => sum + 16 + p.before.length * 2, 0), packet = Buffer.alloc(bytes);
-  packet.writeUInt32LE(0x54435031, 0); packet.writeUInt32LE(patches.some(p => p.absolute) ? 2 : 1, 4); packet.writeUInt32LE(patches.length, 8); packet.writeUInt32LE(bytes, 12);
+  const unequal = patches.some(p => p.before.length !== p.after.length), header = unequal ? 20 : 16;
+  const bytes = 16 + patches.reduce((sum, p) => sum + header + p.before.length + p.after.length, 0), packet = Buffer.alloc(bytes);
+  packet.writeUInt32LE(0x54435031, 0); packet.writeUInt32LE(unequal ? 3 : patches.some(p => p.absolute) ? 2 : 1, 4); packet.writeUInt32LE(patches.length, 8); packet.writeUInt32LE(bytes, 12);
   let at = 16;
   for (const patch of patches) {
-    const view = new DataView(packet.buffer, packet.byteOffset + at, 16);
-    view.setBigUint64(0, patch.offset, true); view.setUint32(8, patch.before.length, true); view.setUint32(12, patch.absolute ? 1 : 0, true);
-    patch.before.copy(packet, at + 16); patch.after.copy(packet, at + 16 + patch.before.length); at += 16 + patch.before.length * 2;
+    const view = new DataView(packet.buffer, packet.byteOffset + at, header);
+    view.setBigUint64(0, patch.offset, true); view.setUint32(8, patch.before.length, true); view.setUint32(unequal ? 16 : 12, patch.absolute ? 1 : 0, true);
+    if (unequal) view.setUint32(12, patch.after.length, true);
+    patch.before.copy(packet, at + header); patch.after.copy(packet, at + header + patch.before.length); at += header + patch.before.length + patch.after.length;
   }
   return packet;
 }
@@ -89,20 +90,21 @@ export class CheatSession {
       const patches = [];
       for (const memory of cheat.memory) {
         invariant(!memory.absolute || typeof lease.absolute === 'function', 'CHEAT_ADDRESS_MODE', 'The memory adapter does not implement absolute range validation.');
-        const section = memory.absolute ? await lease.absolute(pack.process, BigInt(memory.offset), memory.on.length / 2) : await lease.section(pack.process, memory.section);
+        const span = Math.max(memory.on.length, memory.off.length) / 2;
+        const section = memory.absolute ? await lease.absolute(pack.process, BigInt(memory.offset), span) : await lease.section(pack.process, memory.section);
         invariant(section && section.readable === true && section.patchable === true, 'SECTION_UNAVAILABLE', 'The target module section is not safely patchable.');
         const address = (memory.absolute ? 0n : BigInt(section.base)) + BigInt(memory.offset), bytes = Buffer.from(enabled ? memory.on : memory.off, 'hex');
         const expected = Buffer.from(enabled ? memory.off : memory.on, 'hex');
-        invariant(!memory.absolute || address >= 0x10000n && address + BigInt(bytes.length) <= 0x800000000000n, 'PATCH_BOUNDS', 'Absolute address is outside user process memory.');
-        invariant(address >= BigInt(section.base) && address + BigInt(bytes.length) <= BigInt(section.base) + BigInt(section.size),
+        invariant(!memory.absolute || address >= 0x10000n && address + BigInt(span) <= 0x800000000000n, 'PATCH_BOUNDS', 'Absolute address is outside user process memory.');
+        invariant(address >= BigInt(section.base) && address + BigInt(span) <= BigInt(section.base) + BigInt(section.size),
           'PATCH_BOUNDS', 'A cheat patch extends outside its module section.');
-        const original = Buffer.from(await lease.read(address, bytes.length));
-        invariant(original.length === bytes.length && original.equals(expected), 'PATCH_MISMATCH',
+        const original = Buffer.from(await lease.read(address, span));
+        invariant(original.length === span && original.subarray(0, expected.length).equals(expected), 'PATCH_MISMATCH',
           'Game bytes differ from this cheat’s expected state.', { action: 'Check the game version and conflicting mods. No changes were applied.' });
-        patches.push({ address, bytes, original });
+        patches.push({ address, bytes, span, original: original.subarray(0, bytes.length) });
       }
       patches.sort((a, b) => a.address < b.address ? -1 : 1);
-      invariant(patches.every((patch, i) => !i || patches[i - 1].address + BigInt(patches[i - 1].bytes.length) <= patch.address),
+      invariant(patches.every((patch, i) => !i || patches[i - 1].address + BigInt(patches[i - 1].span) <= patch.address),
         'PATCH_OVERLAP', 'This cheat contains overlapping patches.');
       invariant(sameGame(await lease.identity(), game), 'GAME_CHANGED', 'The game instance changed before patching.');
       for (const patch of patches) {

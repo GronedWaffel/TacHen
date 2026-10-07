@@ -55,7 +55,11 @@ write, verifies writes and rolls back partial failure before resuming. Durable
 intent is saved before stopping the game; uncertain results prevent replay.
 The current adapter supports module-relative section-zero and explicitly absolute
 user-address patches, including mixed-mode overlap checks after module resolution.
-Absolute addresses are used as supplied; ASLR correction is never guessed. Other
+Absolute addresses are used as supplied; ASLR correction is never guessed. Unequal
+On/Off lengths retain the file's semantics: every supplied expected byte is
+checked, and a failed transaction restores captured original bytes. Successful
+disable may leave extra On bytes beyond a shorter Off sequence, so these cheats
+are marked in both interfaces and do not offer exact history undo. Other
 relative section layouts, code-cave relocation and binary cheat formats remain
 work in progress. Local tests do not establish real-game compatibility.
 

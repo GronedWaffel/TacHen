@@ -24,6 +24,7 @@ export class CheatService {
       cheats: pack.cheats.map(cheat => {
         const latest = jobs.filter(job => job.kind === 'cheat.set' && job.args.sha256 === sha256 && job.args.cheatId === cheat.id && job.args.generation === game?.generation).at(-1);
         return { id: cheat.id, name: cheat.name, description: cheat.description, supported: cheat.memory.every(p => p.absolute || p.section === 0),
+          exactUndo: cheat.memory.every(p => p.on.length === p.off.length),
           lastApplied: latest?.status === 'completed' && latest.result?.phase === 'applied' ? latest.args.enabled : null,
           operation: latest ? { id: latest.id, status: latest.status, message: latest.error?.message || latest.result?.message } : null };
       }) };
@@ -72,6 +73,7 @@ export class CheatService {
         game.generation.startsWith(probe.boot + '/' + game.pid + '/'), 'CHEAT_READINESS', 'Wait for verified kernel services and game identity.');
       const accepted = { sha256: input.sha256, cheatId: input.cheatId, enabled: input.enabled, module: pack.process, planHash: packetHash(packet),
         boot: probe.boot, pid: game.pid, generation: game.generation, titleId: game.titleId, version: game.version, metadataHash: game.metadataHash };
+      if (packet.readUInt32LE(4) === 3) accepted.exactUndo = false;
       if (input.developerSession !== undefined) Object.assign(accepted, { developerSession: input.developerSession, developerGrant: input.developerGrant });
       if (input.undoOf !== undefined) accepted.undoOf = clone(input.undoOf);
       runtime.changes.guardJobUndo(accepted, 'cheat.set', { jobId });

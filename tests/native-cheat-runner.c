@@ -26,8 +26,17 @@ static void packet(unsigned char out[56]){
   u64(out+36,32);u32(out+44,2);out[52]=3;out[53]=4;out[54]=0x91;out[55]=0x91;
 }
 static void reset(Fixture *f){memset(f,0,sizeof *f);f->memory[16]=1;f->memory[17]=2;f->memory[32]=3;f->memory[33]=4;}
-static TacCheatResult run(Fixture *f,unsigned char wire[56]){TacCheatPlan plan;CHECK(!tac_cheat_plan(wire,56,&plan));
+static TacCheatResult runAny(Fixture *f,unsigned char *wire,size_t size){TacCheatPlan plan;CHECK(!tac_cheat_plan(wire,size,&plan));
   TacCheatOps ops={f,attach,detach,identity,deadline,module,range,readbytes,writebytes,journal,healthy};return tac_cheat_apply(&plan,&ops);}
+static TacCheatResult run(Fixture *f,unsigned char wire[56]){return runAny(f,wire,56);}
+static void variable(unsigned char out[66],int enabled){
+ memset(out,0,66);u32(out,TAC_CHEAT_PLAN_MAGIC);u32(out+4,3);u32(out+8,2);u32(out+12,66);
+ u64(out+16,16);u32(out+24,enabled?2:4);u32(out+28,enabled?4:2);
+ const unsigned char off[]={1,2},on[]={0x90,0x91,0x92,0x93};
+ memcpy(out+36,enabled?off:on,enabled?2:4);memcpy(out+(enabled?38:40),enabled?on:off,enabled?4:2);
+ u64(out+42,32);u32(out+50,2);u32(out+54,2);
+ out[62]=enabled?3:0x91;out[63]=enabled?4:0x91;out[64]=enabled?0x91:3;out[65]=enabled?0x91:4;
+}
 int main(int argc,char **argv){
   (void)argv;if(argc>1)CHECK(0);Fixture f;TacCheatResult r;unsigned char wire[56];TacCheatPlan plan;packet(wire);
   CHECK(!tac_cheat_plan(wire,56,&plan));CHECK(plan.count==2&&plan.bytes==4);
@@ -65,5 +74,23 @@ int main(int argc,char **argv){
   // Absolute patches can target another mapped user region outside the module.
   u64(wire+16,0x400100);reset(&f);f.moduleSize=128;f.memory[256]=1;f.memory[257]=2;
   r=run(&f,wire);CHECK(r.status==TAC_CHEAT_APPLIED&&r.resumed&&f.memory[256]==0x90&&f.memory[32]==0x91);
+  unsigned char varied[66];variable(varied,1);
+  CHECK(!tac_cheat_plan(varied,66,&plan));CHECK(plan.bytes==6&&plan.patches[0].beforeSize==2&&plan.patches[0].afterSize==4);
+  for(unsigned i=0;i<66;i++)CHECK(tac_cheat_plan(varied,i,&plan));
+  u32(varied+28,0);CHECK(tac_cheat_plan(varied,66,&plan));variable(varied,1);
+  u32(varied+28,4097);CHECK(tac_cheat_plan(varied,66,&plan));variable(varied,1);
+  u32(varied+32,2);CHECK(tac_cheat_plan(varied,66,&plan));variable(varied,1);
+  u64(varied+42,19);CHECK(tac_cheat_plan(varied,66,&plan));variable(varied,1);
+  reset(&f);f.memory[18]=0x55;f.memory[19]=0x66;r=runAny(&f,varied,66);
+  CHECK(r.status==TAC_CHEAT_APPLIED&&f.memory[18]==0x92&&f.memory[19]==0x93);
+  variable(varied,0);f.writes=f.journals=0;r=runAny(&f,varied,66);
+  CHECK(r.status==TAC_CHEAT_APPLIED&&f.memory[16]==1&&f.memory[17]==2&&f.memory[18]==0x92&&f.memory[19]==0x93);
+  variable(varied,1);reset(&f);f.memory[18]=0x55;f.memory[19]=0x66;f.writeFail=2;r=runAny(&f,varied,66);
+  CHECK(r.status==TAC_CHEAT_REJECTED&&r.restored&&r.resumed&&f.writes==4);
+  CHECK(f.memory[16]==1&&f.memory[17]==2&&f.memory[18]==0x55&&f.memory[19]==0x66&&f.memory[32]==3);
+  reset(&f);f.memory[32]=99;r=runAny(&f,varied,66);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes&&!f.journals);
+  reset(&f);f.moduleSize=19;r=runAny(&f,varied,66);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes&&!f.reads);
+  variable(varied,0);reset(&f);f.memory[16]=0x90;f.memory[17]=0x91;f.memory[18]=0x92;f.memory[19]=0xff;
+  r=runAny(&f,varied,66);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes&&!f.journals);
   puts("Native cheat transaction preflight, partial rollback, deadlines and resume checks passed");return 0;
 }

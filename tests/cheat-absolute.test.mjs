@@ -57,3 +57,16 @@ test('resolved mixed-mode aliases cannot reach a write', async () => {
   await assert.rejects(f.session.set(game, pack([{ ...relative, off: '0304' }, absolute]), '0', true), { code: 'PATCH_OVERLAP' });
   assert.equal(f.writes(), 0); assert.equal(f.releases(), 1);
 });
+
+
+test('version 3 encodes independent expected and desired counts with full-span bounds and overlaps',()=>{
+  const input=pack([{...relative,on:'90919293'}]);
+  const on=cheatPacket(input,'0',true),off=cheatPacket(input,'0',false);
+  assert.equal(on.readUInt32LE(4),3);assert.equal(on.length,42);
+  assert.equal(on.readUInt32LE(24),2);assert.equal(on.readUInt32LE(28),4);assert.equal(on.readUInt32LE(32),0);
+  assert.equal(on.subarray(36).toString('hex'),'010290919293');
+  assert.equal(off.readUInt32LE(24),4);assert.equal(off.readUInt32LE(28),2);
+  assert.equal(off.subarray(36).toString('hex'),'909192930102');
+  assert.throws(()=>cheatPacket(pack([{...relative,on:'90919293'},{...relative,offset:'13'}]),'0',true),{code:'PATCH_OVERLAP'});
+  assert.throws(()=>cheatPacket(pack([{...absolute,offset:'7ffffffffffd',on:'90919293'}]),'0',true),{code:'PATCH_BOUNDS'});
+});

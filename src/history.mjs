@@ -90,6 +90,7 @@ export class SessionHistory {
     else if (this.runtime.graph.safe) reason = 'Native reversals are held during recovery startup.';
     else if (job.kind === 'cheat.set') {
       if (job.result?.phase !== 'applied') reason = 'A successful live patch was not confirmed.';
+      else if (job.args.exactUndo === false) reason = 'This cheat uses different On/Off lengths. Use its ordinary disable control; exact history undo is unavailable.';
       else if (!sameGame(job.args, this.runtime.game)) reason = 'The original game instance ended or changed.';
     } else if (job.kind === 'library.mount') {
       if (job.args.priorMounted === job.args.mounted) reason = 'The game already had the requested mount state; there is no change to undo.';

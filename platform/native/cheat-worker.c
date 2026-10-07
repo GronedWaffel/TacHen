@@ -226,7 +226,7 @@ static JSValue start_js(JSContext *c,JSValueConst self,int argc,JSValueConst *ar
   Work *w=calloc(1,sizeof *w);if(!w)return JS_ThrowOutOfMemory(c);const char *s[7]={0};int32_t pid=0;size_t length=0;
   int valid=!JS_ToInt32(c,&pid,argv[1]);for(unsigned i=0;i<6;i++)if(i!=1){s[i]=JS_ToCString(c,argv[i]);if(!s[i])valid=0;}
   unsigned char *wire=JS_GetArrayBuffer(c,&length,argv[6]);
-  valid=valid&&wire&&length>=16&&length<=16+TAC_CHEAT_MAX_PATCHES*16+TAC_CHEAT_MAX_BYTES*2&&hex(s[0],32)&&pid>1&&strlen(s[2])>0&&strlen(s[2])<128&&tac_game_title(s[3])&&hex(s[4],64)&&strlen(s[5])>0&&strlen(s[5])<128;
+  valid=valid&&wire&&length>=16&&length<=16+TAC_CHEAT_MAX_PATCHES*20+TAC_CHEAT_MAX_BYTES*2&&hex(s[0],32)&&pid>1&&strlen(s[2])>0&&strlen(s[2])<128&&tac_game_title(s[3])&&hex(s[4],64)&&strlen(s[5])>0&&strlen(s[5])<128;
   if(valid){
     w->wire=malloc(length);if(w->wire){memcpy(w->wire,wire,length);w->wireSize=length;valid=!tac_cheat_plan(w->wire,length,&w->plan);}else valid=0;
   }

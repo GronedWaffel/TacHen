@@ -5,12 +5,13 @@
 #define TAC_CHEAT_MAX_PATCHES 256
 #define TAC_CHEAT_MAX_BYTES 1048576
 #define TAC_CHEAT_PLAN_MAGIC UINT32_C(0x54435031)
-typedef struct {uint64_t offset,address;uint32_t size,absolute;const unsigned char *before,*after;} TacCheatPatch;
+typedef struct {uint64_t offset,address;uint32_t size,absolute,beforeSize,afterSize;size_t originalAt;const unsigned char *before,*after;} TacCheatPatch;
 typedef struct {unsigned count;size_t bytes;TacCheatPatch patches[TAC_CHEAT_MAX_PATCHES];} TacCheatPlan;
-// Wire: LE magic, version=1 or 2, patch count, total bytes (four uint32s).
+// Wire: LE magic, version=1, 2 or 3, patch count, total bytes (four uint32s).
 // Each record: uint64 offset, uint32 byte count, uint32 address mode,
 // mode=0 is module-relative. Version 2 additionally accepts mode=1 (absolute).
-// Followed by expected/desired bytes. Absolute targets are resolved only in the
+// Version 3: uint64 offset, uint32 expected count, desired count, address mode.
+// Followed by expected/desired bytes at their respective lengths. Absolute targets are resolved only in the
 // verified game, with user-address, mapping, overlap and expected-byte checks.
 int tac_cheat_plan(const void*,size_t,TacCheatPlan*);
 typedef struct {

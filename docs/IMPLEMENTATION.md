@@ -2100,3 +2100,34 @@ All **358 local tests**, the production build with embedded-asset checks and the
 embedded QuickJS fixture pass. Checkpoint logs are in `.local/checkpoint42-*`.
 No console connection, deployment or release occurred. The goal remains active;
 lower-firmware package ABI evidence and final console acceptance are still open.
+
+
+## Checkpoint 43 — native transactions for independent On/Off lengths
+
+The last rejected pack in the pinned public sample exposed unequal patch lengths.
+The upstream etaHEN path writes the respective On/Off byte counts. TacHen now
+implements that behavior in both its portable transaction and native worker,
+with version 3 packets when the counts differ. Equal-length packets stay version
+1/2. Full-span mapping, address bounds and mixed-mode overlap checks precede all
+writes. Every supplied expected byte is compared before mutation; the full span
+is captured in bounded RAM for rollback, including unknown original tail bytes.
+A failed transaction restores those original bytes rather than padding a shorter
+Off sequence with invented values.
+
+Successful disable applies the author's Off bytes only, so a shorter Off can
+leave extra On bytes until game exit. Both interfaces disclose this, and durable
+job validation derives an exact-undo restriction from the actual packet. Session
+history refuses exact reversal for these jobs; ordinary toggles remain available.
+No arbitrary address heuristic or missing code-cave allocation was added.
+
+All 36 sampled packs now import (297 cheats), with 281 bidirectional packets and
+16 still held for nonzero sections. The latter include ordinary section numbers
+as well as possible master-code cases; treating every such section as an ELF
+segment or guessing a new base is not justified by the available evidence.
+
+All **361 local tests**, embedded QuickJS, production cross-build and embedded
+asset checks pass. Native tests exercise shorter/longer writes, restore original
+tails after partial failure, and reject malformed lengths, out-of-bounds spans,
+resolved overlaps and mismatched expected tails. Checkpoint logs are under
+`.local/checkpoint43-*`. No console connection, release or deployment occurred.
+The full goal remains active; console validation is still the final phase.
