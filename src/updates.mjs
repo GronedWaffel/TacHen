@@ -18,9 +18,29 @@ export async function installUpdates(runtime,native,root='/data/tachen/updates')
   const inbox=await new PayloadInbox(path.join(root,'incoming'),{id:runtime.id,reservationGroup:runtime.inbox?.reservations,policy:{minimum:UPDATE_HEADER+64,maximum:UPDATE_HEADER+UPDATE_MAX,
     names:/^[^/\\\x00-\x1f]{1,180}\.tachen$/i,nameMessage:'Choose a .tachen update package.',sizeMessage:'TacHen update packages are limited to 64 MiB plus their header.',
     inspect:(file,prefix,status)=>inspect(file,prefix,status,runtime.identity.firmware)}}).init();
-  let state=null,fault=null,items=await inbox.list();
+  let state=null,fault=null,items=await inbox.list(),retained=[],retainedTotal=0,inventoryError=null;
   const refresh=()=>{try{state=native.updateStatus();fault=null;}catch(error){fault=publicError(error);}runtime.sequence++;return snapshot();};
-  const snapshot=()=>({available:!fault,state:clone(state),error:clone(fault),items:clone(items)});
+  const protectedBy=hash=>[['good','Verified startup'],['previous','Previous build'],['candidate','Next selection'],['attempt','Recorded launch']].filter(([key])=>state?.[key]?.sha256===hash).map(([,label])=>label);
+  const snapshot=()=>({available:!fault,state:clone(state),error:clone(fault),items:clone(items),retained:retained.map(entry=>{
+    const reasons=protectedBy(entry.sha256);return {...entry,retainedBy:reasons,removable:entry.status==='inspected'&&!reasons.length&&!fault&&!state?.recovered};
+  }),retainedTotal,inventoryError:clone(inventoryError)});
+  async function inventory(){
+    try{
+      const names=(await fs.readdir(root)).filter(name=>/^[a-f0-9]{64}\.tachen$/.test(name)).sort(),next=[];
+      for(const name of names.slice(0,128)){
+        const sha256=name.slice(0,64),file=path.join(root,name);let input;
+        try{
+          const st=await fs.lstat(file);invariant(st.isFile()&&!st.isSymbolicLink(),'UPDATE_FILE','Not a regular package file.');
+          input=await fs.open(file,'r');const prefix=Buffer.alloc(UPDATE_HEADER);let offset=0;
+          while(offset<prefix.length){const {bytesRead}=await input.read(prefix,offset,prefix.length-offset,offset);invariant(bytesRead>0,'UPDATE_TRUNCATED','The update header ended early.');offset+=bytesRead;}
+          const h=parseUpdateHeader(prefix,{totalBytes:st.size});invariant(h.sha256===sha256,'UPDATE_CHANGED','Package name and header differ.');
+          next.push({sha256,label:h.label,source:h.source,bytes:st.size,status:'inspected'});
+        }catch{next.push({sha256,label:'Unreadable package',bytes:null,status:'unreadable'});}
+        finally{if(input)await input.close();}
+      }
+      retained=next;retainedTotal=names.length;inventoryError=null;
+    }catch(error){inventoryError=publicError(error);}runtime.sequence++;
+  }
   const syncDir=async()=>{if(process.platform==='win32')return;const dir=await fs.open(root,'r');try{await dir.sync();}finally{await dir.close();}};
   async function verifyFile(file,args){
     const stat=await fs.lstat(file);invariant(stat.isFile()&&!stat.isSymbolicLink()&&stat.size===args.bytes+UPDATE_HEADER,'UPDATE_FILE','The staged update has changed.');
@@ -64,22 +84,33 @@ export async function installUpdates(runtime,native,root='/data/tachen/updates')
         await verifyFile(final,args);selectionAttempted=true;state=native.updateStage(args.payloadHash,args.revision);fault=null;runtime.sequence++;
         return {completed:true,payloadHash:args.payloadHash,source:args.source,message:'Update staged and verified. The running runtime has not changed. Review and activate it for the next boot.'};
       }catch(error){if(!selectionAttempted)error.noSideEffects=true;throw error;}
-      finally{items=await inbox.list();runtime.sequence++;}
+      finally{items=await inbox.list();await inventory();runtime.sequence++;}
     },
     verify(_result,args){refresh();return !fault&&(matches(state?.candidate,args)||matches(state?.good,args));},
     reconcile(job){refresh();if(fault)return null;if(matches(state?.candidate,job.args)||matches(state?.good,job.args))return {completed:true,reconciled:true};
       return state.revision===job.args.revision&&state.phase==='idle'?{absent:true}:null;}
   });
-  const service={inbox,snapshot,refresh,
+  const idleSelection=()=>invariant(!runtime.jobs.snapshot().some(j=>j.kind==='update.stage'&&!['completed','failed','cancelled'].includes(j.status)),'UPDATE_BUSY','Finish or reconcile the current update staging operation first.');
+  const service={inbox,snapshot,async refresh(){refresh();await inventory();return snapshot();},
     async begin(args){const result=await inbox.begin(args);items=await inbox.list();return result;},status:args=>inbox.status(args.id),
     async list(){items=await inbox.list();return items;},
     select(action,args){
-      invariant(!runtime.jobs.snapshot().some(j=>j.kind==='update.stage'&&!['completed','failed','cancelled'].includes(j.status)),'UPDATE_BUSY','Finish or reconcile the current update staging operation first.');
+      idleSelection();
       invariant(['arm','revert','discard'].includes(action),'UPDATE_ACTION','Unknown update action.');
       if(action==='arm')invariant(state?.good,'UPDATE_BASELINE','Run tachen.elf and finish its startup once before activating an update. This establishes a verified fallback build.');
       state=action==='arm'?native.updateArm(args.revision):action==='revert'?native.updateRevert(args.revision):native.updateDiscard(args.revision);fault=null;runtime.sequence++;return snapshot();
     },
+    async retire(args){
+      idleSelection();refresh();invariant(!fault&&!state.recovered,'UPDATE_STATE',fault?.message||'Update selection needs repair.');
+      invariant(args.revision===state.revision,'UPDATE_CHANGED','Refresh retained builds before removing a package.');
+      invariant(typeof args.sha256==='string'&&/^[a-f0-9]{64}$/.test(args.sha256),'UPDATE_FILE','Choose a retained package.');
+      invariant(!protectedBy(args.sha256).length,'UPDATE_RETAINED','Startup still retains this build.');
+      invariant(retained.some(entry=>entry.sha256===args.sha256&&entry.status==='inspected'),'UPDATE_FILE','Refresh and inspect this retained package before removing it.');
+      try{state=native.updateRetire(args.sha256,args.revision);fault=null;}
+      finally{refresh();await inventory();}
+      return snapshot();
+    },
     confirmStartup(){try{state=native.updateAcknowledge();fault=null;}catch(error){fault=publicError(error);}runtime.sequence++;return snapshot();}
   };
-  runtime.updates=service;refresh();runtime.capability('updates',true,'Verified packages and deferred next-boot selection through the TacHen launcher.');return service;
+  runtime.updates=service;refresh();await inventory();runtime.capability('updates',true,'Verified packages and deferred next-boot selection through the TacHen launcher.');return service;
 }

@@ -1427,3 +1427,67 @@ There is no updater signing/deployment infrastructure or automatic remote update
 No console was contacted and no artifact was published. The goal remains active,
 including final original presentation, remaining cheat formats, save recovery,
 older-firmware installer ABIs and deferred hardware acceptance.
+
+## Checkpoint twenty-eight — native update I/O failure tests and retained packages
+
+The host runner now compiles the production `update-io.c` against a bounded
+in-memory syscall boundary. It injects short reads/writes, EINTR, no-progress I/O,
+open/stat/write/sync/close/rename failures, corrupt or mis-slotted snapshots,
+symlinks, nonregular files, lock contention and invalid boot identities. A simple
+directory-barrier restart model tests both visible-but-uncommitted state and
+committed state after a reported failure. It is a model of application ordering,
+not an emulation of the PS5 filesystem or proof of actual power-loss behavior.
+
+One regression test failed on the prior implementation: after a package rename
+succeeded but the directory sync failed, a retry accepted the matching visible
+file without completing the directory barrier. The next modeled restart lost
+that supposedly saved package. Retrying an existing verified package now syncs
+the file and directory before success. Directory close failures also propagate.
+Nonblocking opens allow the type checks to reject FIFOs instead of waiting for a
+writer. All success/failure tests check that descriptors are released.
+
+Phone Components and controller Preferences now share explicit retained-package
+removal. The inventory inspects at most 128 matching package headers per refresh;
+this is not payload verification and does not imply a trusted publisher. The
+native removal command holds the same selection lock as staging/launch, rereads
+selection, checks the expected revision and refuses all four retained roles:
+good, previous, candidate and attempt. It validates the exact hash-named regular
+package and removes only that path, then syncs the directory. An already absent,
+otherwise eligible path can complete that barrier on retry. Corrupt selection,
+stale revisions, protected packages and invalid file types remain untouched.
+
+The shared API additionally blocks removal during unfinished staging. Controller
+and phone actions require confirmation. Existing uploads, interrupted staging
+files and selection records are retained. This is deliberately explicit package
+retirement, not automatic cleanup or a solution for damaged private files.
+
+All **297 local tests** pass (`.local/checkpoint28-tests.txt`). The new native tests
+exercise the actual I/O functions and retirement protections. Shared-runtime tests
+cover all retained roles, stale/corrupt requests, queued staging and controller
+confirmation, and verify uploaded sources/unrelated files survive removal. The
+embedded QuickJS checks pass. All five rebuilt ELFs pass native image inspection
+and the machine-code process-lookup regression (including its negative fixture).
+The three update C sources pass `-Wall -Wextra -Werror` against the target SDK with
+SDK/QuickJS headers classified as external; vendor inline unused-parameter
+warnings were excluded without weakening warnings for TacHen sources.
+
+The actual 390-pixel loopback browser rendered protected and unused fixture
+packages, opened the confirmation and verified Back preserved the list. The
+preview deliberately disabled final native deletion; host tests cover removal.
+After fixing narrow-row wrapping, `.local/update-retained-phone.png` captures the
+final phone view. Browser console warnings/errors were empty. Its tab and both
+preview-server instances were closed and the viewport override reset.
+
+Runtime **9,006,216 bytes**, SHA-256
+`ed120031ed6034b75b75b1d501792a99de4274fab3f1ed75797080e07662be45`.
+Launcher **9,135,168 bytes**, SHA-256
+`38cf54f6e1b96fb38438e26d7ad3b97b6b1905ec51c4c1a88da61ecf64ab4d7d`.
+Update package **9,006,472 bytes**, SHA-256
+`6b4390b5a0a0e34aecad0b454a3d5cc396318f18696b394da31f207506855502`.
+Source fingerprint
+`a9bb740555e8f688f298d7c2333fd148b7ad276be8c1eea1882acdee1fc4de0e`.
+
+No PS5 was contacted and nothing was published or deployed. Overall completion
+remains unproven. The full goal stays active: original native presentation and
+control coverage, remaining cheat formats, save recovery, older-firmware package
+installer ABI coverage and deferred console acceptance still need work.

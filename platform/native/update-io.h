@@ -8,3 +8,5 @@ int tac_update_write(TacUpdateState*);
 int tac_update_boot(int64_t*,int64_t*);
 int tac_update_read_image(const TacUpdateHeader*,uint32_t,uint8_t**,size_t*);
 int tac_update_save_image(const void*,size_t,uint32_t,TacUpdateHeader*);
+// Caller must hold selection.lock and supply a freshly read, unrecovered state.
+int tac_update_retire_image(const TacUpdateState*,const char*,uint64_t);

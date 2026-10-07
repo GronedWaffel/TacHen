@@ -33,3 +33,10 @@ input[type=file]{width:100%;max-width:340px;height:auto;min-width:0;font-size:12
 .adaptive-notice p { margin: 8px 0 14px; overflow-wrap: anywhere; }
 .adaptive-notice[data-level="attention"] { border-color: #e7ba76; }
 .adaptive-notice[hidden] { display: none; }
+#update-retained .row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+#update-retained .row>div, #update-retained .status { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+#update-retained .row>button { justify-self: start; max-width: 100%; }
+@media(max-width:760px) {
+  #update-builds .row, #update-files .row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #update-builds .status, #update-files .status { white-space: normal; overflow-wrap: anywhere; }
+}

@@ -20,33 +20,35 @@ static JSValue snapshot(JSContext *c,const TacUpdateState *s,int recovered){
   JS_SetPropertyStr(c,v,"rolledBack",JS_NewBool(c,s->attempt_kind==TAC_BOOT_ROLLBACK));return v;
 }
 static int read_header(const char *hash,TacUpdateHeader *out){
-  uint8_t digest[32];if(tac_update_unhex(hash,digest))return -1;char path[256];snprintf(path,sizeof path,TAC_UPDATE_ROOT "/%s.tachen",hash);int fd=open(path,O_RDONLY|O_NOFOLLOW);if(fd<0)return -1;
+  uint8_t digest[32];if(tac_update_unhex(hash,digest))return -1;char path[256];snprintf(path,sizeof path,TAC_UPDATE_ROOT "/%s.tachen",hash);int fd=open(path,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);if(fd<0)return -1;
   struct stat st;TacUpdateHeader h;size_t at=0;int bad=fstat(fd,&st)||!S_ISREG(st.st_mode);
   while(!bad&&at<sizeof h){ssize_t n=read(fd,(uint8_t*)&h+at,sizeof h-at);if(n<0&&errno==EINTR)continue;if(n<=0){bad=1;break;}at+=(size_t)n;}close(fd);
   if(bad||tac_update_header(&h,sizeof h,out)||st.st_size!=(int64_t)(sizeof h+h.bytes)||memcmp(h.payload_hash,digest,32)||!tac_update_supported(&h,kernel_get_fw_version()))return -1;return 0;
 }
 static JSValue command(JSContext *c,JSValueConst self,int argc,JSValueConst *args,int op){
   (void)self;uint64_t revision=0;const char *text=NULL,*hash=NULL;
-  if((op>=1&&op<=3)||op==5){
-    if(argc!=(op==1?2:1))return JS_ThrowTypeError(c,"Expected update selection revision");
-    text=JS_ToCString(c,args[op==1?1:0]);if(!text)return JS_EXCEPTION;
+  if((op>=1&&op<=3)||op==5||op==6){
+    if(argc!=(op==1||op==6?2:1))return JS_ThrowTypeError(c,"Expected update selection revision");
+    text=JS_ToCString(c,args[op==1||op==6?1:0]);if(!text)return JS_EXCEPTION;
     int valid=*text!=0;for(const char *p=text;*p;p++)if(*p<'0'||*p>'9')valid=0;errno=0;char *end=NULL;revision=strtoull(text,&end,10);valid=valid&&!errno&&end&&!*end&&revision<=INT64_MAX;JS_FreeCString(c,text);
     if(!valid)return JS_ThrowTypeError(c,"Invalid update selection revision");
   }
   int lock=tac_update_lock();if(lock<0)return error(c,"UPDATE_BUSY","Update selection is busy or unavailable.");
   TacUpdateState s;int recovered=0;if(tac_update_read(&s,&recovered)){close(lock);return error(c,"UPDATE_STATE","Saved update selection is unreadable. Preserve its files before repair.");}
   if(op&&recovered){close(lock);return error(c,"UPDATE_STATE","An update snapshot is corrupt. No selection was changed.");}
-  int result=0,changed=op!=0;
+  int result=0,changed=op!=0&&op!=6;
   if(op==1){hash=JS_ToCString(c,args[0]);TacUpdateHeader h;result=!hash||read_header(hash,&h)||tac_update_stage(&s,&h,revision);if(hash)JS_FreeCString(c,hash);}
   else if(op==2)result=tac_update_arm(&s,revision);
   else if(op==3)result=tac_update_revert(&s,revision);
   else if(op==5)result=tac_update_discard(&s,revision);
+  else if(op==6){hash=JS_ToCString(c,args[0]);result=!hash||tac_update_retire_image(&s,hash,revision);if(hash)JS_FreeCString(c,hash);}
   else if(op==4){int64_t sec,usec;uint8_t source[32];result=tac_update_boot(&sec,&usec)||tac_update_unhex(TACHEN_SOURCE_HASH,source);
     if(!result&&s.pid!=getpid())changed=0;
     else if(!result)result=tac_update_ack(&s,sec,usec,getpid(),source);
   }
   if(!result&&changed)result=tac_update_write(&s);close(lock);
-  if(result)return error(c,"UPDATE_SELECTION","The update selection changed or could not be saved. Refresh before retrying.");
+  if(result)return op==6?error(c,"UPDATE_RETIRE","Package removal could not be confirmed. It may be retained by startup or the selection may have changed. Refresh retained builds before retrying."):
+    error(c,"UPDATE_SELECTION","The update selection changed or could not be saved. Refresh before retrying.");
   return snapshot(c,&s,recovered);
 }
-void tac_update_bind(JSContext *c,JSValue api){const char *names[]={"updateStatus","updateStage","updateArm","updateRevert","updateAcknowledge","updateDiscard"};for(int i=0;i<6;i++)JS_SetPropertyStr(c,api,names[i],JS_NewCFunctionMagic(c,command,names[i],i==1?2:i==2||i==3||i==5?1:0,JS_CFUNC_generic_magic,i));}
+void tac_update_bind(JSContext *c,JSValue api){const char *names[]={"updateStatus","updateStage","updateArm","updateRevert","updateAcknowledge","updateDiscard","updateRetire"};for(int i=0;i<7;i++)JS_SetPropertyStr(c,api,names[i],JS_NewCFunctionMagic(c,command,names[i],i==1||i==6?2:i==2||i==3||i==5?1:0,JS_CFUNC_generic_magic,i));}

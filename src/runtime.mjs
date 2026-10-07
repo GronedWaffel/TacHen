@@ -154,10 +154,12 @@ export class TacRuntime {
       case 'update.arm':
       case 'update.revert':
       case 'update.discard':
+      case 'update.retire':
         invariant(this.updates,'FEATURE_UNAVAILABLE','Update recovery is not installed.');
         if(command==='update.begin')return this.updates.begin(args);
         if(command==='update.status')return this.updates.status(args);
         if(command==='update.refresh')return this.updates.refresh();
+        if(command==='update.retire')return this.updates.retire(args);
         return this.updates.select(command.slice(7),args);
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);

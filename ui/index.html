@@ -81,6 +81,7 @@
         <label class="package-hash">Expected package SHA-256 (optional)<input id="update-hash" maxlength="64" autocomplete="off" spellcheck="false"></label>
         <p id="update-progress" class="fine" role="status">No update transfer running.</p>
         <div id="update-builds" class="stack"></div><div class="actions"><button id="update-refresh">Refresh update status</button><button id="update-arm">Use staged build next boot</button><button id="update-revert">Use previous build next boot</button><button id="update-discard">Cancel pending selection</button></div>
+        <h3>Retained packages</h3><p id="update-retained-status" class="fine"></p><div id="update-retained" class="stack"></div>
         <p class="fine">Next boot, load tachen.elf using your payload loader. A trial without verified startup falls back on the following boot. This does not reboot the console or replace running hooks.</p>
         <div id="update-files" class="stack"></div></article>
         <div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>

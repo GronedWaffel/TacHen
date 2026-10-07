@@ -192,7 +192,7 @@ actual embedded JavaScript engine on Windows. `ZIG` and `PS5_PAYLOAD_SDK` can
 override the local Zig 0.14.1 and PS5 payload SDK v0.43 paths in build scripts.
 The artifact link regression also requires Python 3 with Capstone 5; `PYTHON`
 can select that interpreter. `python scripts/audit-process-links.py` checks all
-four built ELFs for calls or relocations into the SDK's obsolete PID cache.
+five built ELFs for calls or relocations into the SDK's obsolete PID cache.
 Build the artifacts before running that check. It runs entirely on the host.
 
 Original work lives in `src/`, `ui/` and `tests/`. Reused low-level foundations
@@ -320,6 +320,14 @@ another boot. Cancelling a selection retains files and does not stop anything.
 Format 1 updates require backward-compatible state schema 1 and an exact declared
 firmware profile. Their checksums establish integrity, **not publisher identity**;
 there is no automatic remote updater or signing authority. A corrupt selection
-snapshot blocks changes and launch for inspection. Native disk-failure tests,
-console cold-boot acceptance and bounded retirement of unused update files remain
-work in progress. Do not claim these builds are release-ready.
+snapshot blocks changes and launch for inspection. Host fault-injection tests now
+exercise the actual native I/O implementation, including interrupted commits and
+retry durability. They do not replace PS5 disk and cold-boot acceptance.
+
+**Retained packages** lists at most 128 package headers per refresh. Unused builds
+can be removed individually after confirmation on the phone or controller. The
+native selection lock and current revision protect the verified build, previous
+build, pending selection and recorded launch. Unfinished staging blocks removal.
+Unreadable packages, uploads, temporary files and selection snapshots are preserved;
+this is not a directory sweep. Refresh after removing an entry to expose additional
+packages beyond the display limit. Do not claim these builds are release-ready.

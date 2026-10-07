@@ -288,6 +288,14 @@ function draw() {
   $('#update-revert').disabled=!updateAvailable||updating||!(selection?.phase==='trial'?selection.good:selection?.previous);
   $('#update-discard').disabled=!updateAvailable||updating||!['staged','armed'].includes(selection?.phase);
   $('#update-builds').replaceChildren(...[['Verified startup',selection?.good],['Previous build',selection?.previous],['Next selection',selection?.candidate]].filter(([,build])=>build).map(([label,build])=>row(label,build.label,build.sha256.slice(0,12))));
+  $('#update-retained-status').textContent=updates?.inventoryError?.message||`${updates?.retained?.length||0} of ${updates?.retainedTotal||0} packages shown. Startup and rollback builds are protected. Uploaded files are kept.`;
+  $('#update-retained').replaceChildren(...(updates?.retained||[]).map(item=>{const reason=item.retainedBy.length?item.retainedBy.join(' · '):item.status==='unreadable'?'Preserved for inspection':'Unused package';
+    const node=row(item.label,`${item.sha256.slice(0,12)} · ${item.bytes==null?'Unknown size':formatBytes(item.bytes)}`,reason);
+    if(item.removable){const button=el('button','','Remove unused package');button.disabled=updating||updateUploading;button.onclick=()=>{
+      const revision=selection.revision,dialog=el('dialog','storage-dialog'),status=el('p','fine',`Remove ${item.label} (${formatBytes(item.bytes)}) from retained packages? Uploaded files are kept. This does not change the running build.`),apply=el('button','','Remove package'),back=el('button','','Back');
+      back.onclick=()=>dialog.close();apply.onclick=async()=>{apply.disabled=true;try{await api('/api/command',{command:'update.retire',args:{sha256:item.sha256,revision}});dialog.close();await refresh();}catch(error){status.textContent=error.message;await refresh();}};
+      dialog.append(el('h2','','Remove unused update'),status,apply,back);dialog.onclose=()=>dialog.remove();document.body.append(dialog);dialog.showModal();
+    };node.append(button);}return node;}));
   $('#update-files').replaceChildren(...(updates?.items||[]).map(item=>{const node=row(item.name,`${formatBytes(item.offset||0)} / ${formatBytes(item.bytes||0)}`,item.status),button=el('button','',item.offset===item.bytes?'Stage this upload':'Resume transfer');
     button.disabled=!updateAvailable||updateUploading||updating||selection?.phase!=='idle'||item.status==='unreadable';button.onclick=()=>{if(item.offset===item.bytes)command('job.enqueue',{kind:'update.stage',input:{id:item.id,revision:selection.revision},key:requestKey()});else{updateResume=item;$('#update-progress').textContent='Choose the exact original update file to resume.';$('#update-file').click();}};node.append(button);return node;}));
   for (const [selector, key] of [['#startup-shadowmount', 'shadowmount'], ['#startup-payload-manager', 'payloadManager']]) {

@@ -163,6 +163,7 @@ export class ConsoleDeck {
         if(selection?.phase==='staged')row('Use staged build next boot',selection.good?'Requires tachen.elf launcher; running build stays in place':'First complete one launcher startup to establish a verified fallback',available&&selection.good?'update.arm':null,{revision:selection.revision},{confirm:true});
         if(selection?.phase==='trial'?selection.good:selection?.previous)row('Use previous build next boot','Retain current session; switch on another boot',available?'update.revert':null,{revision:selection.revision},{confirm:true});
         if(['staged','armed'].includes(selection?.phase))row('Cancel pending selection','Retain uploaded files and the running build',available?'update.discard':null,{revision:selection.revision},{confirm:true});
+        for(const build of updates.retained||[])if(build.removable)row('Remove unused: '+build.label,'Free '+Math.ceil(build.bytes/1048576)+' MiB; original upload retained',available?'update.retire':null,{sha256:build.sha256,revision:selection.revision},{confirm:true});
       }
       row('Adaptive notices', state.settings.overlay.adaptive ? 'Brief session updates are on' : 'Off; results remain in Activity', 'settings.update',
         { revision: state.revision, patch: { overlay: { adaptive: !state.settings.overlay.adaptive } } }, { on: state.settings.overlay.adaptive });

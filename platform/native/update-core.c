@@ -47,6 +47,12 @@ int tac_update_stage(TacUpdateState *s,const TacUpdateHeader *header,uint64_t re
 }
 int tac_update_arm(TacUpdateState *s,uint64_t revision){if(s->revision!=revision||s->phase!=TAC_UPDATE_STAGED||!s->good.bytes)return -1;s->phase=TAC_UPDATE_ARMED;return 0;}
 int tac_update_discard(TacUpdateState *s,uint64_t revision){if(s->revision!=revision||s->phase==TAC_UPDATE_TRIAL)return -1;s->phase=TAC_UPDATE_IDLE;memset(&s->candidate,0,sizeof s->candidate);return 0;}
+int tac_update_retirable(const TacUpdateState *s,const uint8_t hash[32],uint64_t revision){
+  if(s->revision!=revision||zero(hash,32))return -1;
+  const TacUpdateHeader *keep[]={&s->good,&s->previous,&s->candidate,&s->attempt};
+  for(unsigned i=0;i<sizeof keep/sizeof keep[0];i++)if(keep[i]->bytes&&!memcmp(hash,keep[i]->payload_hash,32))return -1;
+  return 0;
+}
 int tac_update_revert(TacUpdateState *s,uint64_t revision){
   if(s->revision!=revision)return -1;
   // A failed trial returns to the last confirmed build; a confirmed update can
