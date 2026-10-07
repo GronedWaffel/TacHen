@@ -87,3 +87,19 @@ test('production renderer avoids idle managed mutations and releases failed or r
   assert.equal(compiled.status,0,compiled.stderr||compiled.error?.message);
   const run=spawnSync(target,[],{encoding:'utf8'});assert.equal(run.status,0,run.stderr||run.error?.message);
 });
+
+
+test('all native accents match phone colors without recoloring warnings or changing geometry',async t=>{
+  const expected={mint:[0.722,0.953,0.545,1],amber:[1,0.827,0.565,1],ice:[0.584,0.851,1,1]};
+  let base;
+  for(const [accent,color] of Object.entries(expected)){
+    const data=frame({accent}),view=await render(t,data,1,2),panels=await render(t,data,1,2,true);
+    assert.deepEqual(view[0].color,color);assert.deepEqual(view[41].color,color);
+    assert.deepEqual(panels[6].color,color);assert.deepEqual(panels[8].color,color);
+    assert.equal(view[39].ink,4);assert.deepEqual(view[39].color,[1,0.76,0.38,1]);
+    const geometry={labels:view.map(({x,y,size,text})=>({x,y,size,text})),panels:panels.map(({color,...p})=>p)};
+    if(base)assert.deepEqual(geometry,base);else base=geometry;
+    const closed=await render(t,{...data,notices:{sequence:1,current:{level:'attention',count:1,remainingMs:1000,title:'Attention',detail:'Check Activity'}}},0,0);
+    assert.equal(closed[43].ink,4);assert.deepEqual(closed[41].color,color);
+  }
+});

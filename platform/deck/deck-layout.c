@@ -3,9 +3,10 @@
 #include <string.h>
 #include <stdio.h>
 const int tac_deck_font_sizes[TAC_DECK_STYLES]={44,32,26,21,17};
-const float tac_deck_ink[TAC_DECK_STYLES][4]={
- {0.36f,1.0f,0.77f,1},{0.95f,0.97f,1,1},{0.67f,0.74f,0.79f,1},
- {0.47f,0.54f,0.60f,1},{1,0.76f,0.38f,1}
+const float tac_deck_ink[TAC_DECK_INKS][4]={
+ {184/255.0f,243/255.0f,139/255.0f,1},{0.95f,0.97f,1,1},{0.67f,0.74f,0.79f,1},
+ {0.47f,0.54f,0.60f,1},{1,0.76f,0.38f,1},
+ {1,211/255.0f,144/255.0f,1},{149/255.0f,217/255.0f,1,1}
 };
 const float tac_deck_background[TAC_DECK_BACKGROUNDS][4]={
  {0.015f,0.025f,0.035f,0.78f}, // game dimmer
@@ -13,8 +14,12 @@ const float tac_deck_background[TAC_DECK_BACKGROUNDS][4]={
  {0.025f,0.040f,0.055f,1.0f},  // navigation rail
  {0.060f,0.095f,0.115f,1.0f},  // focus card
  {0.080f,0.195f,0.170f,1.0f},  // selection
- {0.36f,1.0f,0.77f,1.0f},     // accent line
- {0.20f,0.29f,0.33f,1.0f}     // quiet divider
+ {184/255.0f,243/255.0f,139/255.0f,1},     // accent line
+ {0.20f,0.29f,0.33f,1.0f},    // quiet divider
+ {0.20f,0.155f,0.09f,1},     // amber selection
+ {1,211/255.0f,144/255.0f,1}, // amber accent
+ {0.075f,0.165f,0.22f,1},    // ice selection
+ {149/255.0f,217/255.0f,1,1} // ice accent
 };
 // Conservative display-cell accounting; CJK/emoji occupy two cells. Native
 // UIFont remains responsible for shaping. Input comes from UTF-8 checked frames.
@@ -58,6 +63,8 @@ static void panel(TacDeckLayout* l,unsigned index,float x,float y,float width,fl
 }
 void tac_deck_layout(const TacDeckFrame* f,int open,unsigned selected,TacDeckLayout* l){
  memset(l,0,sizeof *l);
+ unsigned accent=(f->flags>>3)&3; if(accent>2)accent=0;
+ const unsigned selections[]={4,7,9},accents[]={5,8,10},inks[]={0,5,6};
  int menu=open&&(f->flags&1),focus=menu&&selected<f->count&&selected<8;
  unsigned selectedRow=selected<8?selected:0,page=f->page<6?f->page:0;
  panel(l,0,0,0,1920,1080,0,menu);
@@ -65,10 +72,10 @@ void tac_deck_layout(const TacDeckFrame* f,int open,unsigned selected,TacDeckLay
  panel(l,2,64,52,328,912,2,menu);
  panel(l,3,424,205,1380,1,6,menu);
  panel(l,4,1080,250,724,560,3,menu);
- panel(l,5,424,268+selectedRow*66,624,60,4,focus);
- panel(l,6,78,278+page*66,4,40,5,menu);
+ panel(l,5,424,268+selectedRow*66,624,60,selections[accent],focus);
+ panel(l,6,78,278+page*66,4,40,accents[accent],menu);
  panel(l,7,390,80,1,850,6,menu);
- panel(l,8,424,278+selectedRow*66,3,40,5,focus);
+ panel(l,8,424,278+selectedRow*66,3,40,accents[accent],focus);
  panel(l,9,72,60,1776,112,1,!open&&(f->flags&1)&&f->notice.kind&&f->notice.remainingMs);
  panel(l,10,80,970,1120,44,1,(f->flags&1)&&f->metrics[0]);
  panel(l,11,1400,1004,430,48,1,(f->flags&2)&&f->ip[0]);
@@ -116,4 +123,5 @@ void tac_deck_layout(const TacDeckFrame* f,int open,unsigned selected,TacDeckLay
   if(!open&&f->notice.kind&&f->notice.remainingMs){lines(l,43,1,50,f->notice.title);lines(l,44,1,82,f->notice.detail);}
  }
  if(f->flags&2)lines(l,41,1,19,f->ip);
+ for(unsigned i=0;i<TAC_DECK_LABELS;i++)if(l->labels[i].ink==TAC_INK_ACCENT)l->labels[i].ink=inks[accent];
 }

@@ -118,9 +118,12 @@ static void set_text(TacDeckView* v,uint32_t label,const char* text,int* ok){
 static int styles(TacDeckView* v){
  int ok=1;
  for(unsigned i=0;i<TAC_DECK_STYLES&&ok;i++){
-  v->fonts[i]=object(v,v->font);v->colors[i]=object(v,v->color);if(!v->fonts[i]||!v->colors[i])return 0;
+  v->fonts[i]=object(v,v->font);if(!v->fonts[i])return 0;
   int size=tac_deck_font_sizes[i],style=0,weight=0;void* fa[]={&size,&style,&weight};
   call(v,v->fontCtor,v->mono.mono_object_unbox(target(v,v->fonts[i])),fa,&ok);
+ }
+ for(unsigned i=0;i<TAC_DECK_INKS&&ok;i++){
+  v->colors[i]=object(v,v->color);if(!v->colors[i])return 0;
   float r=tac_deck_ink[i][0],g=tac_deck_ink[i][1],b=tac_deck_ink[i][2],a=tac_deck_ink[i][3];
   void* ca[]={&r,&g,&b,&a};call(v,v->colorCtor,v->mono.mono_object_unbox(target(v,v->colors[i])),ca,&ok);
  }
@@ -134,6 +137,8 @@ static int styles(TacDeckView* v){
 static void release_styles(TacDeckView* v){
  for(unsigned i=0;i<TAC_DECK_STYLES;i++){
   if(v->fonts[i])v->mono.mono_gchandle_free(v->fonts[i]);v->fonts[i]=0;
+ }
+ for(unsigned i=0;i<TAC_DECK_INKS;i++){
   if(v->colors[i])v->mono.mono_gchandle_free(v->colors[i]);v->colors[i]=0;
  }
  for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++){

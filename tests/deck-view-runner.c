@@ -47,16 +47,21 @@ int main(void){
  view.height=(void*)HEIGHT;view.textColor=(void*)COLOR;view.labelFont=(void*)FONT;
  view.panel=(void*)3;view.panelCtor=(void*)PCTOR;view.panelWidth=(void*)PWIDTH;view.panelHeight=(void*)PHEIGHT;
  view.panelColor=(void*)PCOLOR;view.panelVisible=(void*)VISIBLE;
- for(unsigned i=0;i<TAC_DECK_STYLES;i++){view.fonts[i]=handle_new(object_new(NULL,NULL),1);view.colors[i]=handle_new(object_new(NULL,NULL),1);}
+ for(unsigned i=0;i<TAC_DECK_STYLES;i++)view.fonts[i]=handle_new(object_new(NULL,NULL),1);
+ for(unsigned i=0;i<TAC_DECK_INKS;i++)view.colors[i]=handle_new(object_new(NULL,NULL),1);
  for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++)view.backgrounds[i]=handle_new(object_new(NULL,NULL),1);
  TacDeckFrame frame={.flags=3,.sequence=1,.metricsSequence=1,.count=2,.page=1};
  strcpy(frame.title,"TacHen / Plugins");strcpy(frame.rows[0].label,"Start watcher");strcpy(frame.rows[0].detail,"Ready to start.");frame.rows[0].flags=1;
  strcpy(frame.rows[1].label,"Load game module");strcpy(frame.rows[1].detail,"Open the target game first.");strcpy(frame.metrics,"60 FPS");
- CHECK(tac_deck_view_render(&view,&frame,1,0,1000));CHECK(allocated==TAC_DECK_STYLES*2+TAC_DECK_BACKGROUNDS+TAC_DECK_PANELS+TAC_DECK_LABELS);
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1000));CHECK(allocated==TAC_DECK_STYLES+TAC_DECK_INKS+TAC_DECK_BACKGROUNDS+TAC_DECK_PANELS+TAC_DECK_LABELS);
  CHECK(((Obj*)handle_target(view.panels[0]))->visible);CHECK(((Obj*)handle_target(view.panels[5]))->y==268);
  CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
  unsigned calls=invocations,allocations=stringCount;
  CHECK(tac_deck_view_render(&view,&frame,1,0,1001));CHECK(invocations==calls&&stringCount==allocations);
+ unsigned themeWrites=textCalls,themeObjects=allocated;frame.flags|=16;frame.sequence++;
+ CHECK(tac_deck_view_render(&view,&frame,1,0,1001));CHECK(view.painted.labels[0].ink==6);
+ CHECK(view.painted.panels[6].ink==10);CHECK(textCalls==themeWrites&&allocated==themeObjects);
+ calls=invocations;CHECK(tac_deck_view_render(&view,&frame,1,0,1001));CHECK(invocations==calls);
  unsigned writes=textCalls;strcpy(frame.metrics,"59.8 FPS");frame.metricsSequence++;
  CHECK(tac_deck_view_render(&view,&frame,1,0,1002));CHECK(textCalls==writes+1);
  CHECK(!strcmp(((Obj*)handle_target(view.labels[29]))->text,"Start watcher"));
@@ -91,7 +96,8 @@ int main(void){
  calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,3200));CHECK(calls==invocations);
  CHECK(!tac_deck_view_render(&view,&frame,1,0,3251));CHECK(view.failed&&!view.root&&!view.panels[0]);
  CHECK(!handle_target(retained)&&failingObject->removed&&!failingObject->visible);
- for(unsigned i=0;i<TAC_DECK_STYLES;i++)CHECK(!view.fonts[i]&&!view.colors[i]);
+ for(unsigned i=0;i<TAC_DECK_STYLES;i++)CHECK(!view.fonts[i]);
+ for(unsigned i=0;i<TAC_DECK_INKS;i++)CHECK(!view.colors[i]);
  for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++)CHECK(!view.backgrounds[i]);
  calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,5000));CHECK(calls==invocations);
  puts("Production native view cache, metric isolation, scene replacement and failure release passed");return 0;

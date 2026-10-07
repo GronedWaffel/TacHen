@@ -11,7 +11,8 @@ static void feed(TacDeck *d,TacDeckRoute *r,TacDeckInput *input,uint64_t at,uint
 int main(int argc,char** argv){
  CHECK(argc==2);FILE* f=fopen(argv[1],"rb");CHECK(f);unsigned char bytes[sizeof(TacDeckFrame)+1];size_t length=fread(bytes,1,sizeof bytes,f);fclose(f);
  TacDeckFrame frame;CHECK(tac_deck_decode(bytes,length,&frame));CHECK(frame.count==3);CHECK(!strcmp(frame.rows[1].label,"Payload 二"));
- TacDeckFrame legacy=frame;legacy.version=4;CHECK(!tac_deck_decode(&legacy,sizeof legacy,&legacy));
+ TacDeckFrame legacy=frame;legacy.version=5;CHECK(!tac_deck_decode(&legacy,sizeof legacy,&legacy));
+ TacDeckFrame badAccent=frame;badAccent.flags|=24;CHECK(!tac_deck_decode(&badAccent,sizeof badAccent,&badAccent));
  TacDeck nested;tac_deck_init(&nested);TacDeckFrame nestedFrame=frame;nestedFrame.flags|=4;
  CHECK(tac_deck_receive(&nested,&nestedFrame,sizeof nestedFrame,0));nested.open=1;
  tac_deck_present(&nested,nested.frame.sequence,1,0);tac_deck_input(&nested,0,TAC_CIRCLE,1);

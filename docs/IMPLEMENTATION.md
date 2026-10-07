@@ -2052,3 +2052,30 @@ Runtime **9,121,496 bytes**, SHA-256 `5c565c33d493e7a534b1d3b5300397400abc426bbf
 Launcher **9,282,624 bytes**, SHA-256 `40ef2b40ac65344fc4ab385cc724d004d7661c368754e7af964828649c6f5c7e`.
 Update package **9,121,752 bytes**, SHA-256 `5dd742974ca3637d610333fd511d445c3ea2812f8f68209e3873d59d684e995b`.
 Source fingerprint `398ae641dadedf19d6aae315eca7f900cec4b758b31365473192ba5985a590ce`.
+
+
+## Checkpoint 41 — shared phone and controller appearance
+
+The controller Preferences page now cycles the same mint/amber/ice setting used
+by the phone. Changes flow through revision-checked settings commands and advance
+the frame sequence, so a stale controller action cannot overwrite a phone edit.
+Wire version 6 carries a bounded accent enum; old versions, undefined accents and
+unknown flag bits are rejected. Frame size and input/notice offsets are unchanged.
+
+The native layout uses the phone's accent RGB values for selected navigation,
+accent labels and the IP overlay, with coordinated selection backplates. Warning
+text keeps its independent color. Fonts and color tables have separate bounds;
+all palette handles are created once, reused by updates, and included in failure
+cleanup. The native renderer fixture confirms color changes without text churn
+or new objects and confirms that unchanged frames retain their idle cache.
+
+All **357 local tests**, the embedded QuickJS fixture, production build and
+embedded-asset checks pass. The process-link audit reports zero legacy references
+in all five artifacts. The production C layout preview now offers all three
+accents; mint, amber and ice were inspected off-console, including the unavailable
+action state. Screenshot: `.local/native-deck-themes.png`. These browser checks do
+not establish PUI rendering or input correctness on console.
+
+No PS5 connection, release or deployment occurred. Hardware acceptance remains
+last. Native PKG installation below 13.60 still lacks independent interface
+layout evidence; this checkpoint does not remove that gate or complete the goal.

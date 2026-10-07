@@ -394,3 +394,8 @@ controller behavior still need hardware acceptance.
 port 8797. It compiles the production C layout and uses example frames with browser
 fonts and production panel geometry/colors. It neither connects to a console nor proves PUI
 appearance. Close it with Ctrl+C; `--write-only` just writes the preview HTML.
+
+The accent preference is shared by the phone and native deck. Choose mint, amber
+or ice from either interface; native focus markers, accent text and the IP display
+update together. Attention messages retain their warning color. Theme changes
+reuse existing native widgets and do not repeatedly allocate managed objects.

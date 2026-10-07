@@ -6,7 +6,7 @@ import { telemetryText } from './telemetry.mjs';
 import { pluginDeckRows } from './deck-plugins.mjs';
 import { packageDeckRows } from './deck-packages.mjs';
 
-export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 5, bytes: 6424, rows: 8, rowBytes: 292 });
+export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 6, bytes: 6424, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
@@ -17,9 +17,11 @@ function text(buffer, offset, bytes, value) {
 }
 export function encodeDeck(frame) {
   invariant(frame.rows.length <= 8, 'DECK_LIMIT', 'Too many deck rows.');
+  const accent = ['mint', 'amber', 'ice'].indexOf(frame.accent ?? 'mint');
+  invariant(accent >= 0, 'DECK_ACCENT', 'Unknown deck accent.');
   const out = Buffer.alloc(DECK_WIRE.bytes);
   out.writeUInt32LE(DECK_WIRE.magic, 0); out.writeUInt16LE(DECK_WIRE.version, 4);
-  out.writeUInt16LE((frame.ready ? 1 : 0) | (frame.ipVisible ? 2 : 0) | (frame.canBack ? 4 : 0), 6);
+  out.writeUInt16LE((frame.ready ? 1 : 0) | (frame.ipVisible ? 2 : 0) | (frame.canBack ? 4 : 0) | (accent << 3), 6);
   out.writeUInt32LE(frame.sequence, 8); out.writeUInt16LE(frame.page, 12); out.writeUInt16LE(frame.rows.length, 14);
   text(out, 16, 64, frame.title); text(out, 80, 160, frame.subtitle);
   text(out, 240, 160, frame.footer); text(out, 400, 64, frame.ip);
@@ -173,6 +175,9 @@ export class ConsoleDeck {
           { revision: state.revision, patch: { overlay: { [key]: !state.settings.overlay[key] } } }, { on: state.settings.overlay[key] });
       row('Reduced motion', state.settings.appearance.reducedMotion ? 'On' : 'Off', 'settings.update',
         { revision: state.revision, patch: { appearance: { reducedMotion: !state.settings.appearance.reducedMotion } } }, { on: state.settings.appearance.reducedMotion });
+      const accents = ['mint', 'amber', 'ice'], accent = state.settings.appearance.accent;
+      row('Accent: ' + accent, 'Change the console and phone accent together', 'settings.update',
+        { revision: state.revision, patch: { appearance: { accent: accents[(accents.indexOf(accent) + 1) % accents.length] } } });
       if(state.updates){const updates=state.updates,selection=updates.state,available=updates.available&&!selection?.recovered;
         row('TacHen updates',updates.error?.message||`${selection?.phase || 'unknown'} · Upload packages from Components on your phone`,'update.refresh');
         if(selection?.candidate)row(selection.candidate.label,'Staged build · '+selection.candidate.sha256.slice(0,12));
@@ -204,7 +209,7 @@ export class ConsoleDeck {
     let selected = items.slice(this.offset, this.offset + 6);
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
-    const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
+    const data = { ready: true, accent: state.settings.appearance.accent, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
       canBack: Boolean(this.page || this.confirmation || this.pluginView || this.packageView || this.loadoutPreview || this.saveView || this.historyView || this.startupReview),
       page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.pluginView ? 'Plugins' : this.packageView ? 'Packages' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),

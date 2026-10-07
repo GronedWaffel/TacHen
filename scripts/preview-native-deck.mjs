@@ -26,13 +26,16 @@ const frame={ready:true,sequence:1,page:1,title:'TacHen / Plugins',subtitle:'Das
   notices:{sequence:1,current:{level:'attention',remainingMs:5000,count:1,title:'A job needs your attention',detail:'Open Activity to review the result before retrying.'}},
   rows:labels.map(([label,detail,enabled,on],i)=>({label,detail,enabled,on,token:String(i).repeat(32)}))};
 await fs.mkdir(path.join(root,'.local'),{recursive:true});
-const input=path.join(root,'.local/deck-preview-frame.bin');await fs.writeFile(input,encodeDeck(frame));
+const input=path.join(root,'.local/deck-preview-frame.bin');
 const views=[];
+for(const accent of ['mint','amber','ice']){
+await fs.writeFile(input,encodeDeck({...frame,accent}));
 for(let selected=0;selected<=labels.length;selected++){
   const args=[input,selected===labels.length?'0':'1',String(selected%labels.length)];
   const result=spawnSync(exe,args,{encoding:'utf8'}),panels=spawnSync(exe,[...args,'panels'],{encoding:'utf8'});
   if(result.status!==0||panels.status!==0)throw Error(result.stderr||panels.stderr||'Native layout preview failed');
   views.push({labels:JSON.parse(result.stdout),panels:JSON.parse(panels.stdout)});
+}
 }
 const escape=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 const color=item=>`rgb(${item.color.slice(0,3).map(x=>Math.round(x*255)).join(' ')})`;
@@ -41,9 +44,9 @@ const svgs=views.map(view=>'<svg viewBox="0 0 1920 1080" role="img" aria-label="
   view.labels.filter(item=>item.text).map(item=>`<text x="${item.x}" y="${item.y+item.size}" font-size="${item.size}" fill="${color(item)}">${escape(item.text)}</text>`).join('')+'</svg>');
 const html=`<!doctype html><meta charset="utf-8"><title>TacHen native layout preview</title>
 <style>body{margin:0;background:#070e15;color:#c2d1da;font:14px system-ui}header{padding:15px 24px;display:flex;align-items:center;gap:20px}b{color:#75ffd0}select{font:inherit;background:#13202b;color:white;border:1px solid #405263;padding:8px}#screen{background:#101d29}svg{width:100%;display:block;font-family:Arial,sans-serif}svg text{white-space:pre}footer{padding:14px 24px;color:#95a6b5}</style>
-<header><b>Native layout · PC preview</b><label>Focus <select id="focus">${labels.map((row,i)=>`<option value="${i}">${escape(row[0])}</option>`).join('')}<option value="8">Deck closed</option></select></label></header>
+<header><b>Native layout · PC preview</b><label>Focus <select id="focus">${labels.map((row,i)=>`<option value="${i}">${escape(row[0])}</option>`).join('')}<option value="8">Deck closed</option></select></label><label>Accent <select id="accent"><option value="0">Mint</option><option value="1">Amber</option><option value="2">Ice</option></select></label></header>
 <main id="screen">${svgs[0]}</main><footer>Production C panel and text layout with example data. Browser fonts approximate native text; console compositing and input still need hardware acceptance. No PS5 connection.</footer>
-<script>const views=${JSON.stringify(svgs).replaceAll('<','\\u003c')};document.querySelector('#focus').addEventListener('change',event=>{document.querySelector('#screen').innerHTML=views[Number(event.target.value)]});</script>`;
+<script>const views=${JSON.stringify(svgs).replaceAll('<','\\u003c')};const redraw=()=>{document.querySelector('#screen').innerHTML=views[Number(document.querySelector('#accent').value)*9+Number(document.querySelector('#focus').value)]};for(const id of ['#focus','#accent'])document.querySelector(id).addEventListener('change',redraw);</script>`;
 await fs.writeFile(path.join(root,'.local/native-deck-preview.html'),html);
 if(!process.argv.includes('--write-only')){
   const server=http.createServer((req,res)=>{if(req.url!=='/'){res.writeHead(404);return res.end();}

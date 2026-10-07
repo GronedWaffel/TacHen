@@ -104,3 +104,23 @@ test('native publication implementation preserves stopped-thread atomicity and r
   assert.equal(compile.status, 0, compile.stderr);
   const result = spawnSync(path.resolve('build/tests/publication.exe'), [], { encoding: 'utf8' });assert.equal(result.status, 0, result.stderr);
 });
+
+
+test('accent changes share state between phone and controller and invalidate stale selections', async t => {
+  const runtime=await fixture(t),deck=runtime.consoleDeck;
+  deck.page=4;
+  const before=deck.frame(), stale=action(runtime,'select',5);
+  assert.equal(before.accent,'mint');
+  await runtime.settings({appearance:{accent:'ice'}},runtime.snapshot().revision);
+  const changed=deck.frame();assert.equal(changed.accent,'ice');
+  assert.notEqual(changed.sequence,before.sequence);
+  assert.equal(encodeDeck(changed).readUInt16LE(6)>>3,2);
+  await assert.rejects(deck.action(stale),{code:'DECK_STALE'});
+  assert.equal(changed.rows[5].label,'Accent: ice');
+  await deck.action(action(runtime,'select',5));
+  assert.equal(runtime.snapshot().settings.appearance.accent,'mint');
+  await deck.action(action(runtime,'select',5));
+  assert.equal(runtime.snapshot().settings.appearance.accent,'amber');
+  assert.equal(encodeDeck(deck.frame()).readUInt16LE(6)>>3,1);
+  assert.throws(()=>encodeDeck({...changed,accent:'unknown'}),{code:'DECK_ACCENT'});
+});
