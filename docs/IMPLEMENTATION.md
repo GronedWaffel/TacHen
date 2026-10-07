@@ -1611,3 +1611,55 @@ No console was contacted, rebooted or tested. Nothing was released or deployed.
 The user reiterated that all implementation comes first and console testing last.
 The full goal remains active with the remaining requirements in checkpoint 29,
 including the visual/compositing work described above.
+
+
+## Checkpoint 31 — interrupted save publication recovery
+
+Activity's Check result now starts an explicit, bounded-state native background
+check for interrupted save catalog/export jobs. The worker claims the existing
+save lock and native-operation gate, binds the exact active request and receipt
+checksum, and proves the original helper cannot still execute. A changed, valid
+boot identity is sufficient; on the same boot it requires a recorded PID proven
+absent. Missing PID, an ambiguous process result or an unreadable boot identity
+remains held. An old heartbeat or an available lock alone is not proof.
+
+The worker then verifies private staging has no foreign filesystem/mount. It
+never unmounts, recopies or removes staged files. Published archives require the
+expected path/size/checksum, full byte hashing, unchanged file and destination
+identities and storage barriers. USB identity is checked before and after the
+operation, including absent-directory outcomes. Receipt changes prevent commit.
+If publication is absent and the process/mount checks pass, the operation settles
+as failed with an explicit retained-staging message, releasing its queue resource.
+A verified publication instead settles as completed. An existing archive without
+matching evidence remains held. Interrupted catalog files without a recorded
+checksum are retained and cannot be claimed as completed.
+
+Parent directory creation now has a persistence barrier before child publication.
+Concurrent controller/phone checks coalesce, polling occurs only after an explicit
+check, and the queue remains locked while hashing. A failed check stops polling
+and permits another explicit check after the cause is resolved. Closing the
+runtime stops the observer; it does not pretend to cancel an active native worker.
+
+Production C recovery code is exercised with a path-aware syscall boundary
+fixture: live/missing/unknown helpers, boot errors, held locks, mounted/foreign
+staging, symlinks, missing/corrupt/swapped files, receipt races, swapped destination
+directories, USB loss, commit/sync/close failures, and descriptor cleanup. This
+verifies logic and failure propagation, not PS5 filesystem or process semantics.
+Shared-runtime tests verify explicit initiation, duplicate checks, queue blocking,
+background completion, retained staging, malformed/failed evidence, receipt binding,
+and the controller Activity action.
+
+All **317 local tests** passed (`.local/checkpoint31-tests.txt`), along with the
+QuickJS runtime checks, native build, embedded-image equality checks and all five
+process-link audits. No PS5 was contacted. Nothing was deployed or released.
+
+Remaining save scope: verified private archives are not automatically republished
+or resumed; retained staging has no user cleanup control yet. Console acceptance
+for PFS/decryption, directory fsync, PID/boot evidence and USB removal stays last.
+This checkpoint does not complete the full TacHen goal; other remaining feature
+and presentation requirements from checkpoints 29–30 still apply.
+
+Runtime **9,023,192 bytes**, SHA-256 `ee4b4564dacadf83469a9f07bfcc4c3c996255da545d6e0ea147caa90a36437c`.
+Launcher **9,184,320 bytes**, SHA-256 `91cdefbf3a6ecab4a36d1f707c1ab2ffe234be768c0d1cc161d97a1b37f20c7c`.
+Update package **9,023,448 bytes**, SHA-256 `9e23cae68c8d0bd1c17dc1e32db31978c3df76023d2f9f276bdc47d5a015477e`.
+Source fingerprint `e13a94e1cfeba1970ae72cc44bb16abc87a19ef2fcebad01eed82c1de1a4cca0`.

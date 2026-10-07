@@ -10,6 +10,7 @@ export class JobQueue {
     this.evidence = evidence;
     this.admit = admit;
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
+    this.reconciling = new Map();
   }
   register(kind, handler) {
     invariant(!this.handlers.has(kind) && typeof handler.run === 'function' && typeof handler.validate === 'function',
@@ -201,17 +202,28 @@ export class JobQueue {
     await this.patch(id, { status: 'queued', error: null }); this.kick();
   }
   async reconcile(id) {
+    if (this.reconciling.has(id)) return this.reconciling.get(id);
+    const task = this.reconcileOnce(id); this.reconciling.set(id, task);
+    try { return await task; } finally { this.reconciling.delete(id); }
+  }
+  async reconcileOnce(id) {
     invariant(!this.running.has(id), 'JOB_BUSY', 'Execution has not settled.');
     const job = this.snapshot().find(job => job.id === id), handler = this.handlers.get(job?.kind);
     invariant(job?.status === 'interrupted' && handler?.reconcile, 'RECONCILE_UNAVAILABLE', 'This operation cannot yet be reconciled automatically.');
     const outcome = await handler.reconcile(clone(job));
-    if (outcome?.completed === true && await handler.verify(outcome, job.args))
+    if (outcome?.pending === true) {
+      invariant(typeof outcome.message === 'string' && outcome.message.length <= 191 &&
+        Number.isSafeInteger(outcome.completed) && outcome.completed >= 0 && Number.isSafeInteger(outcome.total) && outcome.total >= outcome.completed,
+      'RECONCILE_PROGRESS', 'Recovery returned invalid progress.');
+      await this.patch(id, { error: null, progress: { completed: outcome.completed, total: outcome.total, phase: outcome.message } });
+    } else if (outcome?.completed === true && await handler.verify(outcome, job.args))
       await this.patch(id, { status: 'completed', result: outcome, error: null });
     else if (outcome?.expired === true && await handler.verifyExpired?.(outcome, clone(job)))
       await this.patch(id, { status: 'failed', result: { phase: 'boot-ended', priorOutcome: 'unknown' },
         error: { code: 'PREVIOUS_BOOT_ENDED', message: 'This startup attempt belonged to an earlier console boot. Its earlier outcome is unknown; it is no longer running.' } });
     else if (outcome?.absent === true)
-      await this.patch(id, { status: 'failed', result: outcome, error: { code: 'NOT_APPLIED', message: 'The operation was verified as not applied.' } });
+      await this.patch(id, { status: 'failed', result: outcome, error: { code: 'NOT_APPLIED', message:
+        typeof outcome.message === 'string' && outcome.message.length <= 191 ? outcome.message : 'The operation was verified as not applied.' } });
     else throw new TacError('OUTCOME_UNKNOWN', 'The result remains uncertain. No retry was issued.');
     this.kick();
   }

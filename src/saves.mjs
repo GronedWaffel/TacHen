@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { clone, invariant, TacError } from './errors.mjs';
+import { clone, invariant, TacError, publicError } from './errors.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -15,9 +15,39 @@ function save(value) {
   'SAVE_CATALOG', 'A save catalog entry is invalid.');
   return { user: value.user, platform: value.platform, titleId: value.titleId, slot: value.slot, stamp: value.stamp, bytes: value.bytes };
 }
-export function installSaves(runtime, native, { delay = sleep, now = Date.now } = {}) {
+export function installSaves(runtime, native, { delay = sleep, now = Date.now, recoveryInterval = 1000 } = {}) {
   const available = ['saveStart', 'savePoll', 'saveCatalog', 'systemProbe'].every(key => typeof native[key] === 'function');
   let catalog = null;
+  const recoveryAvailable = typeof native.saveRecoverStart === 'function' && typeof native.saveRecoverPoll === 'function';
+  const recovering = new Set();let recoveryTimer = null, stopped = false;
+  function watchRecovery() {
+    if (stopped || recoveryTimer || !recovering.size) return;
+    recoveryTimer = setTimeout(async () => {
+      recoveryTimer = null;
+      for (const id of [...recovering]) {
+        if (stopped) break;
+        if (runtime.jobs.snapshot().find(job => job.id === id)?.status !== 'interrupted') { recovering.delete(id); continue; }
+        try { await runtime.jobs.reconcile(id); }
+        catch (error) {
+          recovering.delete(id);
+          try { await runtime.store.transaction(state => {
+            const job=state.jobs.find(item=>item.id===id);
+            if(job?.status==='interrupted'){job.error=publicError(error);job.updatedAt=now();}
+          });runtime.sequence++; } catch (commitError) { runtime.jobs.halt(commitError); }
+        }
+      }
+      watchRecovery();
+    }, recoveryInterval);
+    recoveryTimer.unref?.();
+  }
+  function recoveryStatus(id) {
+    const status = native.saveRecoverPoll(id);
+    invariant(status?.request === id && typeof status.running === 'boolean' && typeof status.finished === 'boolean' &&
+      status.running !== status.finished && typeof status.ok === 'boolean' && integer(status.completed) && integer(status.total) &&
+      status.total <= maxArchive && status.completed <= status.total && typeof status.message === 'string' && status.message.length <= 191,
+    'SAVE_RECOVERY_RECEIPT', 'The background save check has no matching status; the operation stays held.');
+    return status;
+  }
   runtime.capability('saves', available, available
     ? 'PS4/PS5 staged-copy decryption and verified USB/FTP exports. Console validation is pending.'
     : 'Native save helper is unavailable in this build.');
@@ -103,10 +133,37 @@ export function installSaves(runtime, native, { delay = sleep, now = Date.now } 
       }
     },
     verify(result, input) { const current = outcome(receipt(result.request, input), input); return current?.sha256 === result.sha256 && current.mode === result.mode; },
-    reconcile(job) { const r = receipt(job.id, job.args); if (r.stage === 9 && r.noSideEffects && !r.mounted) return { absent: true }; return outcome(r, job.args); }
+    reconcile(job) {
+      const r = receipt(job.id, job.args);
+      const result = outcome(r, job.args);
+      if (result || r.stage === 9 && r.noSideEffects && !r.mounted) {
+        recovering.delete(job.id);
+        return result || { absent: true, message: r.message, stagingRetained: true };
+      }
+      if (!recoveryAvailable) return null;
+      if (recovering.has(job.id)) {
+        const check = recoveryStatus(job.id);
+        if (check.running) return { pending: true, completed: check.completed, total: check.total, message: 'Checking the retained save export in the background.' };
+        recovering.delete(job.id);
+        invariant(check.ok, 'SAVE_RECOVERY_HELD', check.message || 'Save recovery could not verify a safe outcome.');
+        // Completion may have committed between reading the receipt and status.
+        const latest = receipt(job.id, job.args), done = outcome(latest, job.args);
+        if (done) return done;
+        if (latest.stage === 9 && latest.noSideEffects && !latest.mounted) return { absent: true, message: latest.message, stagingRetained: true };
+        throw new TacError('SAVE_RECOVERY_HELD', 'The background check finished without a verified save result.');
+      }
+      invariant(hash(r.receiptHash), 'SAVE_RECOVERY_RECEIPT', 'This receipt cannot be bound to a background recovery check.');
+      try { native.saveRecoverStart(job.id, r.receiptHash); }
+      catch (error) { throw new TacError('SAVE_RECOVERY_HELD', error.code === 'NATIVE_BUSY'
+        ? 'Another native operation is active. Check this save result again after it finishes.'
+        : 'The save receipt or helper state changed. Check the result again; no export was restarted.'); }
+      recovering.add(job.id);watchRecovery();
+      return { pending: true, completed: 0, total: 0, message: 'Checking the retained save export in the background.' };
+    }
   });
   runtime.saves = {
-    snapshot: () => ({ available, count: catalog?.entries.length ?? 0, updatedAt: catalog?.updatedAt ?? null, skipped: catalog?.skipped ?? 0 }),
+    snapshot: () => ({ available, recoveryAvailable, recovering: [...recovering], count: catalog?.entries.length ?? 0, updatedAt: catalog?.updatedAt ?? null, skipped: catalog?.skipped ?? 0 }),
+    stop() { stopped = true;if (recoveryTimer) clearTimeout(recoveryTimer);recoveryTimer = null; },
     list({ query = '', offset = 0, limit = 30 } = {}) {
       invariant(typeof query === 'string' && query.length <= 128 && integer(offset) && integer(limit) && limit >= 1 && limit <= 50, 'SAVE_QUERY', 'Invalid save list request.');
       const entries = (catalog?.entries || []).filter(item => `${item.titleId} ${item.slot} ${item.user}`.toLowerCase().includes(query.toLowerCase()));

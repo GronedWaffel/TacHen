@@ -6,7 +6,7 @@ import { installSaves } from '../src/saves.mjs';
 import { ConsoleDeck } from '../src/deck.mjs';
 import { ids, store, until } from './helpers.mjs';
 const selection = { user: '123abc', titleId: 'PPSA00001', slot: 'sdimg_profile', platform: 5, stamp: 'a'.repeat(64), bytes: 8192 };
-async function fixture({ mutate = () => {}, listing } = {}) {
+async function fixture({ mutate = () => {}, listing, recovery = {}, recoveryInterval = 5 } = {}) {
   const nativeRequests = new Map();let starts = 0;
   const native = {
     systemProbe: () => ({ kstuff: { state: 'installed', injectionReady: true } }),
@@ -16,16 +16,17 @@ async function fixture({ mutate = () => {}, listing } = {}) {
     savePoll(request) {
       const input = nativeRequests.get(request);if (!input) return null;
       const r = { ...input, stage: 8, pid: 99, ageMs: 0, sameBoot: true, noSideEffects: true, mounted: false, error: 0,
-        completedBytes: 8192, totalBytes: 8192, archiveBytes: 8192, files: 1, sha256: 'b'.repeat(64), message: 'Verified',
+        completedBytes: 8192, totalBytes: 8192, archiveBytes: 8192, files: 1, sha256: 'b'.repeat(64), receiptHash: 'e'.repeat(64), message: 'Verified',
         output: input.mode === 1 ? `/data/tachen/save-export/${request}.catalog.json` :
           `${input.destination ? `/mnt/usb${input.destination - 1}/TacHen/Saves` : '/data/tachen/share/saves'}/${request}/save.tar` };
       mutate(r);return r;
     },
     saveCatalog: () => JSON.stringify(listing || { version: 1, saves: [selection], skipped: 0,
-      volumes: [{ destination: 1, path: '/mnt/usb0', stamp: 'c'.repeat(64), freeBytes: 100000000 }] })
+      volumes: [{ destination: 1, path: '/mnt/usb0', stamp: 'c'.repeat(64), freeBytes: 100000000 }] }),
+    ...recovery
   };
   const runtime = await new TacRuntime(await store(), { identity: async () => ({ mode: 'development', firmware: '13.60' }),
-    install: r => { installSaves(r, native, { delay: () => new Promise(resolve => setTimeout(resolve, 1)) }); } }, { id: ids() }).start();
+    install: r => { installSaves(r, native, { recoveryInterval, delay: () => new Promise(resolve => setTimeout(resolve, 1)) }); } }, { id: ids() }).start();
   let key = 0;
   async function queue(kind, input = {}) {
     const job = await runtime.jobs.enqueue(kind, input, `save-fixture-${++key}`);
@@ -95,4 +96,85 @@ test('save helpers remain held during recovery startup even when called directly
   const f = await fixture();t.after(() => f.runtime.close());f.runtime.graph.safe = true;
   await assert.rejects(f.runtime.execute('job.enqueue', { kind: 'save.refresh', input: {}, key: 'recovery-save-test' }), { code: 'SAFE_STARTUP' });
   assert.equal(f.starts(), 0);
+});
+
+async function recoveryFixture(t, options = {}) {
+  const control = { terminal: false, absent: false, starts: 0, polls: 0, status: null, receiptHash: 'e'.repeat(64) };
+  const f = await fixture({ ...options, mutate(r) {
+    if (r.mode !== 2) return;
+    r.receiptHash = control.receiptHash;
+    if (!control.terminal) { r.stage = 5;r.mounted = true;r.noSideEffects = false;r.ageMs = 91000; }
+    else if (control.absent) { r.stage = 9;r.message = 'No completed export found; private staging retained.'; }
+  }, recovery: {
+    saveRecoverStart(request, receiptHash) {
+      assert.equal(receiptHash, 'e'.repeat(64));control.starts++;
+      control.status = { request, running: true, finished: false, ok: false, message: '', completed: 0, total: 8192 };
+    },
+    saveRecoverPoll() { control.polls++;return control.status; }
+  } });
+  t.after(() => f.runtime.close());await f.queue('save.refresh');
+  const job = await f.queue('save.export', f.exportInput);
+  assert.equal(job.status, 'interrupted');
+  return { ...f, control, job, current: () => f.runtime.jobs.snapshot().find(j => j.id === job.id) };
+}
+
+test('save recovery is explicit, coalesces repeated checks and holds the queue while hashing off-thread', async t => {
+  const f = await recoveryFixture(t);
+  const next = await f.runtime.jobs.enqueue('save.refresh', {}, 'after-export-recovery');
+  await new Promise(resolve => setTimeout(resolve, 15));assert.equal(f.control.starts, 0);
+  await Promise.all([f.runtime.execute('job.reconcile', { id: f.job.id }), f.runtime.jobs.reconcile(f.job.id)]);
+  assert.equal(f.control.starts, 1);assert.equal(f.current().status, 'interrupted');
+  f.control.status.completed = 4096;
+  await until(() => f.current().progress?.completed === 4096);
+  assert.equal(f.runtime.jobs.snapshot().find(j => j.id === next.id).status, 'queued');
+  assert.equal(f.starts(), 2, 'the original save helper is never replayed');
+  f.control.terminal = true;
+  await until(() => f.current().status === 'completed');
+  await until(() => f.runtime.jobs.snapshot().find(j => j.id === next.id).status === 'completed');
+  assert.equal(f.control.starts, 1);assert.equal(f.starts(), 3, 'only the separately queued catalog runs');
+  assert.deepEqual(f.runtime.saves.snapshot().recovering, []);
+});
+
+test('save recovery reports retained staging when no export was published', async t => {
+  const f = await recoveryFixture(t);await f.runtime.jobs.reconcile(f.job.id);
+  f.control.absent = f.control.terminal = true;
+  await until(() => f.current().status === 'failed');
+  assert.equal(f.current().result.stagingRetained, true);
+  assert.match(f.current().error.message, /private staging retained/);
+  assert.equal(f.starts(), 2);
+});
+
+test('failed or malformed recovery evidence stays held and permits a later explicit check', async t => {
+  for (const fault of ['failed', 'malformed', 'uncommitted']) {
+    const f = await recoveryFixture(t);await f.runtime.jobs.reconcile(f.job.id);
+    if (fault === 'malformed') f.control.status.completed = 999999;
+    else Object.assign(f.control.status, { running: false, finished: true, ok: fault === 'uncommitted', message: 'Staging may still be mounted.' });
+    await until(() => f.current().error?.code?.startsWith('SAVE_RECOVERY'));
+    assert.equal(f.current().status, 'interrupted');assert.equal(f.starts(), 2);
+    assert.deepEqual(f.runtime.saves.snapshot().recovering, []);
+    const polls = f.control.polls;await new Promise(resolve => setTimeout(resolve, 15));assert.equal(f.control.polls, polls);
+    await f.runtime.jobs.reconcile(f.job.id);assert.equal(f.control.starts, 2);
+  }
+});
+
+test('save recovery requires a receipt hash and does not replay busy native work', async t => {
+  const f = await recoveryFixture(t);f.control.receiptHash = '';
+  await assert.rejects(f.runtime.jobs.reconcile(f.job.id), { code: 'SAVE_RECOVERY_RECEIPT' });
+  assert.equal(f.control.starts, 0);
+  f.control.receiptHash = 'e'.repeat(64);
+  f.native.saveRecoverStart = () => { throw Object.assign(Error('private native data'), { code: 'NATIVE_BUSY' }); };
+  await assert.rejects(f.runtime.jobs.reconcile(f.job.id), error => error.code === 'SAVE_RECOVERY_HELD' && !error.message.includes('private native data'));
+  assert.equal(f.starts(), 2);assert.deepEqual(f.runtime.saves.snapshot().recovering, []);
+});
+
+test('controller Activity starts the same recovery and disables its row while checking', async t => {
+  const f = await recoveryFixture(t);const deck = new ConsoleDeck(f.runtime);deck.page = 3;
+  const frame = deck.frame(), row = frame.rows.findIndex(r => r.label === 'save.export');
+  assert.ok(row >= 0);assert.equal(frame.rows[row].enabled, true);
+  await deck.action({ kind: 'select', sequence: frame.sequence, row, request: f.runtime.id() });
+  assert.equal(f.control.starts, 1);
+  const checking = deck.frame().rows.find(r => r.label === 'save.export');
+  assert.equal(checking.enabled, false);assert.match(checking.detail, /Checking export/);
+  f.runtime.saves.stop();const polls = f.control.polls;
+  await new Promise(resolve => setTimeout(resolve, 20));assert.equal(f.control.polls, polls);
 });

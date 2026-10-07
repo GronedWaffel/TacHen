@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "quickjs.h"
 #include "save-io.h"
+#include "save-recovery.h"
 #include "native-operation.h"
 #include "kstuff-probe.h"
 #include "elf-image.h"
@@ -17,6 +18,7 @@
 extern const unsigned char tachen_save_start[],tachen_save_end[];
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static TacSaveRequest current;static int running;static pid_t child;
+static struct {char request[33],message[192];unsigned char expected[32];int active,finished,ok;uint64_t completed,total;} recovery;
 static void reap(void){if(child>0){int status;pid_t got=waitpid(child,&status,WNOHANG);if(got==child||(got<0&&errno==ECHILD))child=0;}}
 static void* worker(void* unused){
  (void)unused;TacSaveReceipt receipt={.stage=TAC_SAVE_REJECTED,.clean=1};
@@ -86,6 +88,7 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
 #define NUM(key,value) JS_SetPropertyStr(c,out,key,JS_NewFloat64(c,(double)(value)))
  STR("request",r.input.request);STR("user",r.input.user);STR("titleId",r.input.title);STR("slot",r.input.slot);STR("stamp",r.input.stamp);STR("volume",r.input.volume);
  STR("message",r.message);STR("output",r.output);STR("sha256",r.sha256);
+ char receiptHash[65];tac_save_hash_text(r.checksum,receiptHash);STR("receiptHash",receiptHash);
  NUM("mode",r.input.mode);NUM("destination",r.input.destination);NUM("platform",r.input.platform);NUM("stage",r.stage);NUM("pid",r.pid);NUM("error",r.error);
  NUM("completedBytes",r.completed);NUM("totalBytes",r.total);NUM("archiveBytes",r.archiveBytes);NUM("files",r.files);
  uint64_t now=tac_save_millis();NUM("ageMs",now&&now>=r.updated?now-r.updated:UINT64_MAX);
@@ -93,6 +96,42 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
 #undef STR
 #undef NUM
  return out;
+}
+static void recovery_progress(void* unused,uint64_t completed,uint64_t total){
+ (void)unused;pthread_mutex_lock(&mutex);recovery.completed=completed;recovery.total=total;pthread_mutex_unlock(&mutex);
+}
+static void* recover_worker(void* unused){
+ (void)unused;char message[192];int rc=tac_save_recover(recovery.request,recovery.expected,message,recovery_progress,NULL);
+ pthread_mutex_lock(&mutex);snprintf(recovery.message,sizeof recovery.message,"%s",message);
+ recovery.ok=!rc;recovery.finished=1;recovery.active=0;running=0;tac_native_release();pthread_mutex_unlock(&mutex);return NULL;
+}
+static JSValue recover_start_js(JSContext* c,JSValueConst self,int argc,JSValueConst* argv){
+ (void)self;if(argc!=2)return JS_ThrowTypeError(c,"Expected save request and receipt hash");
+ const char* id=JS_ToCString(c,argv[0]);const char* hash=JS_ToCString(c,argv[1]);TacSaveReceipt r;char actual[65];int bad=1;
+ if(!id||!hash||!tac_save_hex(id,32)||!tac_save_hex(hash,64)){errno=EINVAL;goto done;}
+ pthread_mutex_lock(&mutex);reap();
+ if(recovery.active&&!strcmp(recovery.request,id)){tac_save_hash_text(recovery.expected,actual);if(!strcmp(actual,hash)){bad=0;goto unlock;}}
+ if(running||child>0||tac_native_busy()){errno=EBUSY;goto unlock;}
+ if(tac_save_receipt_load(id,&r)){goto unlock;}tac_save_hash_text(r.checksum,actual);
+ if(strcmp(actual,hash)){errno=EALREADY;goto unlock;}
+ if(!tac_native_claim()){errno=EBUSY;goto unlock;}
+ memset(&recovery,0,sizeof recovery);strcpy(recovery.request,id);memcpy(recovery.expected,r.checksum,32);
+ recovery.active=1;running=1;pthread_t thread;int rc=pthread_create(&thread,NULL,recover_worker,NULL);
+ if(rc){running=0;recovery.active=0;recovery.finished=1;tac_native_release();errno=rc;}
+ else{pthread_detach(thread);bad=0;}
+unlock:pthread_mutex_unlock(&mutex);
+done:if(id)JS_FreeCString(c,id);if(hash)JS_FreeCString(c,hash);return bad?failure(c,1):JS_UNDEFINED;
+}
+static JSValue recover_poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* argv){
+ (void)self;if(argc!=1)return JS_ThrowTypeError(c,"Expected save request ID");const char* id=JS_ToCString(c,argv[0]);if(!id)return JS_EXCEPTION;
+ pthread_mutex_lock(&mutex);JSValue result=JS_NULL;
+ if(!strcmp(recovery.request,id)){
+  result=JS_NewObject(c);JS_SetPropertyStr(c,result,"request",JS_NewString(c,recovery.request));
+  JS_SetPropertyStr(c,result,"running",JS_NewBool(c,recovery.active));JS_SetPropertyStr(c,result,"finished",JS_NewBool(c,recovery.finished));
+  JS_SetPropertyStr(c,result,"ok",JS_NewBool(c,recovery.ok));JS_SetPropertyStr(c,result,"message",JS_NewString(c,recovery.message));
+  JS_SetPropertyStr(c,result,"completed",JS_NewFloat64(c,(double)recovery.completed));JS_SetPropertyStr(c,result,"total",JS_NewFloat64(c,(double)recovery.total));
+ }
+ pthread_mutex_unlock(&mutex);JS_FreeCString(c,id);return result;
 }
 static JSValue catalog_js(JSContext* c,JSValueConst self,int argc,JSValueConst* argv){
  (void)self;if(argc!=1)return JS_ThrowTypeError(c,"Expected completed catalog request");const char* id=JS_ToCString(c,argv[0]);if(!id)return JS_EXCEPTION;
@@ -112,4 +151,6 @@ void tac_save_bind(JSContext* c,JSValue api){
  JS_SetPropertyStr(c,api,"saveStart",JS_NewCFunction(c,start_js,"saveStart",9));
  JS_SetPropertyStr(c,api,"savePoll",JS_NewCFunction(c,poll_js,"savePoll",1));
  JS_SetPropertyStr(c,api,"saveCatalog",JS_NewCFunction(c,catalog_js,"saveCatalog",1));
+ JS_SetPropertyStr(c,api,"saveRecoverStart",JS_NewCFunction(c,recover_start_js,"saveRecoverStart",2));
+ JS_SetPropertyStr(c,api,"saveRecoverPoll",JS_NewCFunction(c,recover_poll_js,"saveRecoverPoll",1));
 }

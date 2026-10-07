@@ -15,6 +15,7 @@
 int tac_save_child_directory(int fd,const char* name,int create){
  if(!tac_save_relative(name)||strchr(name,'/')){errno=EINVAL;return -1;}
  if(create&&mkdirat(fd,name,0700)&&errno!=EEXIST)return -1;
+ if(create&&fsync(fd))return -1;
  return openat(fd,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
 }
 int tac_save_directory(const char* path,int create){
@@ -104,7 +105,7 @@ int tac_save_receipt_load(const char* id,TacSaveReceipt* r){
  if(!tac_save_request_valid(&r->input)||strcmp(id,r->input.request)||memcmp(sum,r->checksum,32)||r->stage<1||r->stage>TAC_SAVE_UNKNOWN||r->clean>1||r->mounted>1||
   r->files>TAC_SAVE_MAX_FILES||r->total>TAC_SAVE_MAX_ARCHIVE||r->archiveBytes>TAC_SAVE_MAX_ARCHIVE||r->completed>r->total||r->output[255]||r->sha256[64]||r->message[191]){errno=EINVAL;return -1;}return 0;
 }
-int tac_save_boot(TacSaveRequest* r,int compare){struct timeval boot;size_t n=sizeof boot;int mib[]={CTL_KERN,KERN_BOOTTIME};if(sysctl(mib,2,&boot,&n,0,0)||n!=sizeof boot)return -1;
+int tac_save_boot(TacSaveRequest* r,int compare){struct timeval boot;size_t n=sizeof boot;int mib[]={CTL_KERN,KERN_BOOTTIME};if(sysctl(mib,2,&boot,&n,0,0)||n!=sizeof boot||boot.tv_sec<=0||boot.tv_usec<0||boot.tv_usec>=1000000)return -1;
  if(compare)return r->bootSec==boot.tv_sec&&r->bootUsec==boot.tv_usec?0:-1;r->bootSec=boot.tv_sec;r->bootUsec=boot.tv_usec;return 0;}
 uint64_t tac_save_millis(void){struct timespec now;if(clock_gettime(CLOCK_MONOTONIC,&now))return 0;return (uint64_t)now.tv_sec*1000+now.tv_nsec/1000000;}
 static int transfer(int source,int target,uint64_t bytes,char sha[65],TacSaveProgress progress,void* context){

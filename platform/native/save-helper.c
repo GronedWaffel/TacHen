@@ -92,6 +92,7 @@ static int prepare(void* context){
  if(!volume_current(c))return reason(c,"Selected USB drive is unavailable or changed");
  if(!available(c->root,(uint64_t)c->source.imageStat.st_size))return reason(c,"Not enough console storage for a verified encrypted copy");
  if(mkdirat(c->root,r->request,0700))return reason(c,"This export already has staging data; it will not be overwritten");
+ if(fsync(c->root))return reason(c,"Private staging directory could not be committed");
  c->stage=tac_save_child_directory(c->root,r->request,0);if(c->stage<0)return -1;
  snprintf(c->stagePath,sizeof c->stagePath,TAC_SAVE_ROOT "/%s",r->request);
  snprintf(c->mountPath,sizeof c->mountPath,"%s/mount",c->stagePath);
@@ -221,7 +222,7 @@ static int publish_archive(void* context){
   parent=tac_save_child_directory(folder,"Saves",1);close(folder);snprintf(base,sizeof base,"%s/TacHen/Saves",usb);
  }else{strcpy(base,"/data/tachen/share/saves");parent=tac_save_directory(base,1);}
  if(parent<0)return -1;
- if(!volume_current(c)||mkdirat(parent,r->request,0700)){close(parent);return -1;}
+ if(!volume_current(c)||mkdirat(parent,r->request,0700)||fsync(parent)){close(parent);return -1;}
  c->destination=tac_save_child_directory(parent,r->request,0);close(parent);if(c->destination<0)return -1;
  snprintf(c->targetPath,sizeof c->targetPath,"%s/%s/save.tar",base,r->request);
  strcpy(c->receipt.output,c->targetPath);if(tac_save_receipt_save(&c->receipt))return -1;

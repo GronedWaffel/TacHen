@@ -155,7 +155,11 @@ export class ConsoleDeck {
     } else if (this.page === 3) {
       row('Session history', 'Review changes and supported undo', '$history');
       row('Dismiss active notice', 'Hide the current popup on all screens', '$notice-dismiss');
-      for (const job of [...state.jobs].reverse()) row(job.kind, `${job.result?.phase === 'loadout-stopped' ? 'Stopped; review steps' : job.status}: ${job.error?.message || job.result?.message || job.progress?.phase || ''}`);
+      for (const job of [...state.jobs].reverse()) {
+        const checking=state.saves?.recovering?.includes(job.id);
+        row(job.kind, `${checking?'Checking export':job.result?.phase === 'loadout-stopped' ? 'Stopped; review steps' : job.status}: ${job.error?.message || job.result?.message || job.progress?.phase || ''}`,
+          job.status==='interrupted'&&!checking?'job.reconcile':null,{id:job.id});
+      }
       if (!items.length) row('Nothing is running', 'Transfers and payload jobs appear here');
     } else if (this.page === 4) {
       for (const [key, label, capability] of [['ip', 'IP address on screen', 'ip-overlay'], ['fps', 'Game FPS', 'fps'],

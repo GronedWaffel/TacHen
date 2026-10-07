@@ -259,8 +259,13 @@ identities and durable operation receipts prevent silent retries after uncertain
 outcomes. Catalogs and exports are explicit jobs, not background save scans.
 This path is cross-built and locally tested; the PFS calls, filesystem behavior
 and real exported saves still need console acceptance. It does not restore or
-resign saves. Unknown mount/publication states retain private staging for
-inspection and currently require support reconciliation.
+resign saves. Activity → Check result verifies an interrupted export in a native
+background worker. A verified published archive can complete; an abandoned,
+unmounted operation with no publication can release its queue reservation while
+retaining private staging. Unresolved processes, mounts, mismatched receipts or
+changed USB drives stay held. Recovery never repeats the export or unmounts a
+save. Private partial archives are retained for inspection, not automatically
+republished.
 
 Activity now shares session history between phone and controller. Review a change
 before restoring its previous preferences, plugin-autostart choice or saved

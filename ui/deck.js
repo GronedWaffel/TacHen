@@ -376,7 +376,7 @@ function draw() {
         list.append(el('li', '', `${step.label || child?.kind || 'Recorded step'}: ${child?.status || 'Receipt unavailable'}${step.adopted ? ' · already applied' : ''}`));
       }node.append(list);
     }
-    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || ['library.storage', 'package.verify'].includes(job.kind) && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
+    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || ['library.storage', 'package.verify'].includes(job.kind) && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted' && !state.saves?.recovering?.includes(job.id)]]) {
       if (!show) continue; const button = el('button', '', label); button.onclick = () => command('job.' + action, { id: job.id }); actions.append(button);
     }
     if (actions.children.length) node.append(actions); return node;
