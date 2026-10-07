@@ -20,7 +20,7 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=2||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=3||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
  for(unsigned i=0;i<f.count;i++){
@@ -28,6 +28,11 @@ int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
   for(unsigned j=0;j<32;j++)if(!((row->token[j]>='0'&&row->token[j]<='9')||(row->token[j]>='a'&&row->token[j]<='f')))return 0;
   if((row->flags&~3u)||!text_valid(row->label,sizeof row->label)||!text_valid(row->detail,sizeof row->detail))return 0;
  }
+ if(f.reserved||f.input.reserved||f.input.active>2||f.input.captured>1||f.input.count>128||f.input.connection>255||
+  (f.input.active==1&&(!f.input.epoch||!f.input.deadline))||
+  (f.input.captured&&(f.input.active!=1||f.input.owner<0||!f.input.captureAt||f.input.captureAt>=f.input.deadline))||
+  (f.input.count&&(!f.input.serial||f.input.active!=1)))return 0;
+ for(unsigned i=0;i<f.input.count;i++)if(f.input.events[i].handle<0||f.input.events[i].connection>255||!f.input.events[i].at)return 0;
  *out=f;return 1;
 }
 void tac_deck_init(TacDeck* d){memset(d,0,sizeof(*d));}
@@ -55,8 +60,8 @@ static void action(TacDeck* d,unsigned kind){
  if(++d->serial==0){d->valid=0;d->open=0;return;} // no request ID reuse
  d->event=(TacDeckEvent){kind,d->frame.sequence,d->selected,d->serial};d->pending=1;
 }
-int tac_deck_input(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now){
- if(device>=8)return 0;tac_deck_tick(d,now);
+int tac_deck_input_at(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now,uint64_t receivedNow){
+ if(device>=8||now>receivedNow||receivedNow-now>400)return 0;tac_deck_tick(d,receivedNow);
  uint32_t pressed=buttons&~d->previous[device];d->previous[device]=buttons;
  const uint32_t chord=TAC_L3|TAC_R3;
  if((buttons&chord)!=chord){d->chordActive[device]=0;d->chordLatched[device]=0;}
@@ -92,5 +97,6 @@ int tac_deck_input(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now){
  }
  return 1;
 }
+int tac_deck_input(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now){return tac_deck_input_at(d,device,buttons,now,now);}
 int tac_deck_event(const TacDeck* d,TacDeckEvent* event){if(!d->pending)return 0;*event=d->event;return 1;}
 void tac_deck_ack(TacDeck* d,uint32_t serial){if(d->pending&&d->event.serial==serial)d->pending=0;}

@@ -929,3 +929,53 @@ transport alone does not deliver a usable in-game menu. Full presentation,
 saves, remaining cheat formats, per-game loadouts, recovery/update flows and
 older-firmware installer ABIs remain outstanding. No console was contacted and
 no artifact was published.
+
+## Checkpoint twenty — renderer-to-game input handoff
+
+The coordinator now relays normal game-pad events to the native deck. Its private
+wire is version 3, **6,120 bytes**: menu identity and telemetry retain their
+original offsets, with a separate input epoch, packet serial, lease deadline,
+capture acknowledgement and up to 128 events. Input traffic does not replace
+menu action tokens. The loopback-only authenticated `/native/deck/sync` endpoint
+carries renderer feedback and any existing deduplicated menu action together.
+Phone cookies and browser-origin requests cannot access that endpoint.
+
+The native route maps standard pad button bits to the shared controller engine.
+L3 + R3 requests menu ownership; the menu is presented only after a matching
+capture grant. Actions additionally require a render acknowledgement. Events
+collected before capture was granted update held-button state but cannot select
+an item; the initial grant timestamp survives subsequent renewals. Controller
+handles are bound to connection generations, with eight bounded native slots.
+Another controller cannot operate the owned menu, and a reconnect resets its
+ownership. Normal ShellUI input is not fed into the menu during game routing.
+
+The JavaScript supervisor uses the native monotonic clock, serial-matched native
+worker results, short renderer-feedback deadlines and acknowledged event packets.
+It never replaces a still-running worker. Stale feedback, late results, changed
+games, uncertain startup or mismatched receipts withdraw capture. A fresh epoch
+flushes previous events. Invalid or missing game identity blocks game input
+routing rather than treating the unknown state as dashboard input. Queue jobs
+take precedence; leases expire if a long operation prevents renewal. A confirmed
+short input worker defers the game census for 25 ms, avoiding a false game-loss
+transition. Resident service checks likewise distinguish native contention from
+actual readiness-loss evidence.
+
+The build and **211 local tests** passed, plus the embedded QuickJS fixture.
+After the service-contention correction, its affected 16 tests passed again and
+the rebuilt ELF process-link audit passed. Native C tests cover chord ownership,
+capture/render acknowledgement, pre-grant presses, other controllers, reconnects,
+stale input, packet deduplication and returning to dashboard routing. JavaScript
+tests exercise relay receipts, withheld acknowledgements, renderer loss, worker
+stalls, generation changes and wire encoding. A real localhost HTTP fixture
+checks the sync endpoint's credential/origin boundary. The platform kernel and
+managed renderer APIs remain untested on PS5. Runtime **8,642,040 bytes**, SHA-256
+`9d509fd362151bc4f1b62bcc772e5ed2b1e16330c0b7368c3cb58435c2bd40aa`.
+
+This completes the code connection between the current game callback and native
+controller menu; it does not establish hardware usability, focus behavior,
+performance or compatibility with every game. Extended/device-specific pad APIs
+still need separate adapters. The original visual design remains to be finished.
+Next substantial scope includes save extraction/decryption/export, runtime
+loadouts, remaining cheat formats, recovery/update flows and older-firmware
+installer ABIs. The full TacHen goal remains active. No console connection,
+hardware test, public deployment or release occurred.

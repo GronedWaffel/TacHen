@@ -132,8 +132,9 @@ with controller navigation and a shared phone/console command bridge. It starts
 after verified kstuff and requires a fresh render heartbeat before exposing deck
 or IP-overlay controls. The internal module is injected by the coordinator; it is
 not a separately loadable user payload. Its initial list presentation, managed
-metadata checks and injector are cross-built only. Final visual design and
-in-game input arbitration remain unfinished; all console testing is deferred.
+metadata checks, injector and game-input handoff are cross-built only. Final
+visual design and console acceptance remain unfinished; all console testing is
+deferred.
 
 Before starting Payload Manager, TacHen backs up its existing configuration and
 disables its independent autoload, automatic browser opening, disc-player kill
@@ -198,16 +199,18 @@ separate GNM flip-submission counter, installed once per game instance through
 the job queue. Its durable receipt prevents automatic reinstallation after an
 interrupted or rejected attempt. Sampling checks the live hook and control
 cookie before accepting readings. Turning FPS off stops sampling; an installed
-PS4 entry counter remains until that game exits. Full in-game rendering remains
-unfinished; none of these native sampling or display paths has been tested on a
-console.
+PS4 entry counter remains until that game exits. The native renderer uses the
+same readings in its Game scene; actual in-game presentation and these native
+sampling paths have not been tested on a console.
 
-The game callback now also stages a typed post-read controller bridge. Its
-capture path is disabled in the current build: the renderer-to-game lease
-supervisor is not connected yet. The bridge preserves native read results,
-records bounded input events, and can filter only the controller identified by
-a short-lived capture lease. Host machine-code tests cover this path; it is not
-yet a usable in-game menu and has not been run on a PS5.
+The game callback also stages a typed post-read controller bridge. It preserves
+native read results, records bounded input events, and filters only the
+controller identified by a short-lived capture lease. A coordinator relay now
+connects those events to the native deck. Holding L3 + R3 requests ownership;
+menu actions wait for the capture acknowledgement and a presented frame. Stale
+renderer feedback, changed games or interrupted exchanges release ownership.
+Host tests exercise the bridge machine code and controller routing. Actual
+in-game usability remains unverified on PS5.
 
 Game input preparation now starts independently of PRX loading and shares its
 callback ownership, queue exclusions and durable receipt. It requires a verified
@@ -216,4 +219,6 @@ are retained rather than reinjected. An asynchronous native input exchange is
 also compiled: it drains published events and writes only the private pad
 lease/cursors, with bounded leases and fresh process/page checks. Host tests run
 that protocol against the actual bridge machine code. The renderer supervisor
-and event routing are still unfinished, so this build does not enable capture.
+enables capture only for a fresh renderer and observed controller, using the
+console's monotonic clock. Extended/device-specific pad APIs need separate
+adapters; this implementation handles normal scePadRead/scePadReadState.

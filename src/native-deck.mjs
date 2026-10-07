@@ -8,9 +8,8 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
   function enable(ready) {
     for (const feature of ['deck', 'ip-overlay']) runtime.capability(feature, ready,
       ready ? 'Native ShellUI renderer heartbeat verified.' : 'Native renderer is not ready. Use the phone interface.');
-    // ShellUI's GamePad callback does not establish input isolation inside a
-    // game's own process. The game overlay remains unavailable until that
-    // separate native adapter is implemented and its readiness is established.
+    // The separate game-input relay owns game-overlay readiness. ShellUI's
+    // heartbeat alone cannot establish game-process input isolation.
   }
   function inspect() {
     if (!request) return { absent: true, ready: false };

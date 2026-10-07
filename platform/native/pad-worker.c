@@ -126,7 +126,11 @@ static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *arg
  }
  JS_SetPropertyStr(c,out,"events",events);return out;
 }
+static JSValue clock_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+ (void)self;(void)argc;(void)argv;return JS_NewFloat64(c,(double)(monotonic(NULL)/1000000));
+}
 void tac_pad_worker_bind(JSContext *c,JSValue api){
+ JS_SetPropertyStr(c,api,"gameInputClock",JS_NewCFunction(c,clock_js,"gameInputClock",0));
  JS_SetPropertyStr(c,api,"gameInputExchange",JS_NewCFunction(c,start_js,"gameInputExchange",7));
  JS_SetPropertyStr(c,api,"gameInputExchangePoll",JS_NewCFunction(c,poll_js,"gameInputExchangePoll",1));
 }

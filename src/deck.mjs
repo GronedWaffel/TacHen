@@ -4,7 +4,7 @@
 import { invariant } from './errors.mjs';
 import { telemetryText } from './telemetry.mjs';
 
-export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 2, bytes: 2996, rows: 8, rowBytes: 292 });
+export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 3, bytes: 6120, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
@@ -29,6 +29,15 @@ export function encodeDeck(frame) {
     out.writeUInt32LE((row.enabled ? 1 : 0) | (row.on ? 2 : 0), at + 288);
   });
   out.writeUInt32LE(frame.metricsSequence || 1, 2800);text(out, 2804, 192, frame.metrics);
+  const input = frame.input;
+  if (input) {
+    invariant(input.events.length <= 128, 'DECK_INPUT_LIMIT', 'Too many controller events.');
+    for (const [offset, value] of [[3000, input.epoch], [3004, input.serial], [3008, input.active], [3012, input.captured ? 1 : 0], [3020, input.connection], [3024, input.events.length]]) out.writeUInt32LE(value, offset);
+    out.writeInt32LE(input.owner, 3016);out.writeBigUInt64LE(BigInt(Math.floor(input.deadline)), 3032);
+    out.writeBigUInt64LE(BigInt(Math.ceil(input.captureAt || 0)), 3040);
+    input.events.forEach((e, i) => { const at = 3048 + i * 24;out.writeUInt32LE(e.buttons, at);out.writeInt32LE(e.handle, at + 4);
+      out.writeUInt32LE(e.connection, at + 8);out.writeUInt32LE(e.sequence, at + 12);out.writeBigUInt64LE(BigInt(Math.floor(e.time)), at + 16); });
+  }
   return out;
 }
 
@@ -113,7 +122,7 @@ export class ConsoleDeck {
     const metrics = telemetryText(state);
     if (metrics !== this.metrics) { this.metrics = metrics;this.metricsSequence = (this.metricsSequence + 1) >>> 0 || 1; }
     // Telemetry never changes action tokens or the selected menu's sequence.
-    return { ...this.current, metrics, metricsSequence: this.metricsSequence };
+    return { ...this.current, metrics, metricsSequence: this.metricsSequence, input: runtime.gameInputRelay?.frame() };
   }
   action(input) {
     invariant(input && /^[a-f0-9]{32}$/.test(input.request || ''), 'DECK_REQUEST', 'Invalid controller request.', { status: 400 });

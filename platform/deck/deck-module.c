@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "deck-core.h"
+#include "deck-route.h"
 #include "deck-view.h"
 #include "deck-http.h"
 #include "deck-bootstrap.h"
@@ -17,6 +18,8 @@ typedef struct { uint8_t skip,pad[3];uint32_t buttons,previous,down,up;float lef
 _Static_assert(sizeof(TacPad)==36,"Managed controller value ABI");
 _Static_assert(offsetof(TacPad,rightY)==32,"Managed right stick ABI");
 static TacDeck deck;static TacDeckView view;
+static TacDeckRoute route;static uint64_t renderedAt;
+static unsigned gameRouting;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static volatile TacDeckBoot* boot;static unsigned ready,visible,workerRunning,workerStop,rendering;
 static void (*originalUpdate)(void*);static TacPad (*originalInput)(int);
@@ -33,12 +36,12 @@ static void render(void* instance){
  }
  TacDeckFrame frame;int open=0;unsigned selected=0;
  if(pthread_mutex_trylock(&mutex)){__atomic_store_n(&rendering,0,__ATOMIC_RELEASE);return;}
- tac_deck_tick(&deck,millis());frame=deck.frame;open=deck.open;selected=deck.selected;
+ tac_deck_tick(&deck,millis());tac_deck_route_tick(&deck,&route,millis());frame=deck.frame;open=tac_deck_route_visible(&deck,&route);selected=deck.selected;
  if(!deck.valid){open=0;frame.flags=0;frame.sequence=0;frame.metricsSequence=0;}
  pthread_mutex_unlock(&mutex);
  int rendered=tac_deck_view_render(&view,&frame,open,selected,millis());
  if(rendered&&!pthread_mutex_trylock(&mutex)){
-  tac_deck_present(&deck,frame.sequence,open,selected);pthread_mutex_unlock(&mutex);
+  tac_deck_present(&deck,frame.sequence,open,selected);renderedAt=millis();pthread_mutex_unlock(&mutex);
  }
  __atomic_store_n(&ready,rendered,__ATOMIC_RELEASE);
  __atomic_store_n(&visible,rendered&&open,__ATOMIC_RELEASE);
@@ -52,8 +55,9 @@ static TacPad input(int device){
  TacPad result=originalInput(device);int consume=0;
  if(!__atomic_load_n(&ready,__ATOMIC_ACQUIRE))return result;
  if(!pthread_mutex_trylock(&mutex)){
+  if(route.active){pthread_mutex_unlock(&mutex);return result;}
   consume=tac_deck_input(&deck,(unsigned)device,result.buttons,millis());pthread_mutex_unlock(&mutex);
- }else consume=__atomic_load_n(&visible,__ATOMIC_ACQUIRE);
+ }else consume=!__atomic_load_n(&gameRouting,__ATOMIC_ACQUIRE)&&__atomic_load_n(&visible,__ATOMIC_ACQUIRE);
  if(consume){result.buttons=result.previous=result.down=result.up=0;result.leftX=result.leftY=result.rightX=result.rightY=0;}
  return result;
 }
@@ -65,13 +69,16 @@ static void* worker(void* ignored){
  if(boot->state==3||__atomic_load_n(&workerStop,__ATOMIC_ACQUIRE))return NULL;
  __atomic_store_n(&workerRunning,1,__ATOMIC_RELEASE);
  while(!__atomic_load_n(&workerStop,__ATOMIC_ACQUIRE)){
-  TacDeckEvent event;int pending;
-  pthread_mutex_lock(&mutex);pending=tac_deck_event(&deck,&event);pthread_mutex_unlock(&mutex);
-  TacDeckFrame frame;int status=tac_deck_http(8780,credential,pending?&event:NULL,&frame);
+  TacDeckEvent event;int pending;TacDeckFeedback feedback;
+  pthread_mutex_lock(&mutex);tac_deck_route_tick(&deck,&route,millis());pending=tac_deck_event(&deck,&event);
+  feedback=tac_deck_route_feedback(&deck,&route,__atomic_load_n(&ready,__ATOMIC_ACQUIRE),renderedAt);pthread_mutex_unlock(&mutex);
+  TacDeckFrame frame;int status=tac_deck_http(8780,credential,pending?&event:NULL,&feedback,&frame);
   int frameStatus=status;
-  if(pending&&(status<0||status>=500))frameStatus=tac_deck_http(8780,credential,NULL,&frame);
+  if(pending&&(status<0||status>=500))frameStatus=tac_deck_http(8780,credential,NULL,&feedback,&frame);
   pthread_mutex_lock(&mutex);
-  if(frameStatus==200)tac_deck_receive(&deck,&frame,sizeof frame,millis());
+  if(frameStatus==200&&tac_deck_receive(&deck,&frame,sizeof frame,millis())){
+   tac_deck_route_receive(&deck,&route,&frame.input,millis());__atomic_store_n(&gameRouting,route.active!=0,__ATOMIC_RELEASE);
+  }
   // An HTTP rejection is a definitive reply. A broken connection is unknown:
   // keep the exact request for deduplicated retry; no second user action.
   if(pending&&(status==200||(status>=400&&status<600)))tac_deck_ack(&deck,event.serial);

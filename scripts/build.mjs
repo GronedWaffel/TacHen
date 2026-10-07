@@ -66,7 +66,7 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-package-helper.elf']);
 await fs.appendFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_package_start\n.global tachen_package_end\ntachen_package_start:\n.incbin "build/tachen-package-helper.elf"\ntachen_package_end:\n');
 const deckObjects = [];
-for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
+for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
   'platform/deck/deck-view.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-Iplatform/deck', '-Ivendor/deck', '-DHDE_DECODE_ONLY',
@@ -96,9 +96,9 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },
   padBridge: { ...padBridge, nativeInjectorCompiled: true, independentPreparationWired: true,
-    exchangeWorkerCompiled: true, coordinatorWired: false, captureEnabled: false },
+    exchangeWorkerCompiled: true, coordinatorWired: true, captureMode: 'fresh-renderer-and-controller-lease' },
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
-    hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: false },
+    hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: true },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),
     firmware: ['13.60'], hardwareVerified: false, isolatedProcess: true },
   components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');

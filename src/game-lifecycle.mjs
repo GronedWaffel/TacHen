@@ -42,8 +42,15 @@ export class GameLifecycle {
     if (changed) await this.emit('unavailable', null, this.current);
   }
   async inspect() {
+    this.deferred = false;
     const probe = this.native.systemProbe();
-    if (probe.busy) { await this.invalidate('A native operation is active; game actions are temporarily held.'); return; }
+    if (probe.busy) {
+      // A confirmed live, short input-exchange worker only touches its private
+      // callback block. Retry the census after it returns instead of declaring
+      // the game unavailable on every ordinary controller exchange.
+      if (this.runtime.gameInputRelay?.observationBusy()) { this.deferred = true;return; }
+      await this.invalidate('A native operation is active; game actions are temporarily held.'); return;
+    }
     invariant(probe.appInfoAvailable === true, 'GAME_API_UNAVAILABLE', 'Native application identity API is unavailable.');
     const process = selectGameProcess(probe.processes);
     if (!process) {
@@ -72,7 +79,7 @@ export class GameLifecycle {
   }
   start() {
     if (!this.stopped) return; this.stopped = false;
-    const tick = async () => { if (this.stopped) return; await this.refresh(); if (!this.stopped) this.timer = setTimeout(tick, this.runtime.gameStatus.phase === 'idle' ? 5000 : this.interval); };
+    const tick = async () => { if (this.stopped) return; await this.refresh(); if (!this.stopped) this.timer = setTimeout(tick, this.deferred ? 25 : this.runtime.gameStatus.phase === 'idle' ? 5000 : this.interval); };
     tick();
   }
   stop() { this.stopped = true; this.lease?.abort(); clearTimeout(this.timer); this.timer = null; }

@@ -94,6 +94,10 @@ test('readiness monitoring tolerates one missed check and invalidates a lost dep
   await runtime.nativeServices.startConfigured(); const count = calls.length;
   state.kstuff = { state: 'unknown', injectionReady: false };
   await runtime.nativeServices.checkResident(); assert.equal(runtime.graph.ready('kstuff'), true);
+  state.busy = true;
+  await runtime.nativeServices.checkResident();await runtime.nativeServices.checkResident();
+  assert.equal(runtime.graph.ready('kstuff'), true);assert.equal(runtime.graph.ready('shadowmount'), true);
+  state.busy = false;
   await runtime.nativeServices.checkResident();
   assert.equal(runtime.graph.ready('kstuff'), false); assert.equal(runtime.graph.ready('shadowmount'), false);
   assert.equal(runtime.graph.ready('payload-manager'), false); assert.equal(calls.length, count);

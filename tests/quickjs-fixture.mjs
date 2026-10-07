@@ -16,6 +16,7 @@ import { installMcp } from '../src/mcp.mjs';
 import { CounterWindow } from '../src/telemetry.mjs';
 import { installPs4Fps } from '../src/ps4-fps.mjs';
 import { installGameInput } from '../src/game-input.mjs';
+import { installGameInputRelay } from '../src/game-input-relay.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -36,7 +37,7 @@ globalThis.testPassed = false;
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
   const frame = encodeDeck({ sequence: 7, page: 1, ready: true, title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',
     rows: [{ token: 'a'.repeat(32), label: 'Payload 二', detail: 'Ready', enabled: true }] });
-  assert(frame.length === 2996 && frame.readUInt16LE(4) === 2 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1 && frame.readUInt32LE(2800) === 1, 'QuickJS deck wire failed');
+  assert(frame.length === 6120 && frame.readUInt16LE(4) === 3 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1 && frame.readUInt32LE(2800) === 1, 'QuickJS deck wire failed');
   const packageHeader = Buffer.alloc(0x438), packageSize = 180 * 1024 ** 3;
   packageHeader.writeUInt32BE(0x7f434e54); packageHeader.write('UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP', 0x40);
   packageHeader.writeUInt32BE(0x1a, 0x74); packageHeader.writeBigUInt64BE(BigInt(packageSize), 0x430);
@@ -136,6 +137,16 @@ globalThis.testPassed = false;
     gameInputPoll: () => inputReceipt });
   const inputTarget = inputHandler.validate({}), inputResult = await inputHandler.run(inputTarget, { id: '7'.repeat(32), signal: { aborted: false } });
   assert(inputHandler.verify(inputResult, inputTarget) && inputResult.phase === 'prepared', 'QuickJS shared game input preparation failed');
+  let relayNow=1000,relaySample;
+  inputRuntime.jobs.running=new Set();inputRuntime.gameInput.observation={generation:inputTarget.generation,phase:'prepared'};
+  const relay=installGameInputRelay(inputRuntime,{
+    gameInputClock:()=>relayNow,
+    gameInputExchange(pid,generation,metadataHash,epoch){relaySample={serial:1,pid,generation,metadataHash,epoch,result:0,time:relayNow,deadline:relayNow+400,events:[]};return 1;},
+    gameInputExchangePoll:()=>relaySample
+  });
+  relay.receive({epoch:0,serial:0,open:false,owner:-1,connection:0,ready:true,renderedAt:relayNow});relay.tick();relayNow+=25;relay.tick();
+  const inputFrame=encodeDeck({sequence:1,page:0,rows:[],title:'Input',ready:true,input:relay.frame()});
+  assert(inputFrame.readUInt32LE(3008)===1&&inputFrame.readBigUInt64LE(3032)===1300n,'QuickJS input relay wire failed');
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

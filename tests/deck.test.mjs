@@ -70,6 +70,12 @@ test('private deck HTTP transport requires loopback credential and rejects brows
   const bytes = Buffer.from(await response.arrayBuffer()); assert.equal(bytes.length, DECK_WIRE.bytes); assert.equal(bytes.readUInt32LE(), DECK_WIRE.magic);
   const update = await fetch(origin + '/native/deck/action', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(action(runtime, 'next')) });
   assert.equal(update.status, 200); assert.equal(Buffer.from(await update.arrayBuffer()).readUInt16LE(12), 1);
+  const feedback = [], sync = { feedback: { epoch: 0, serial: 0, open: false, owner: -1, connection: 0, ready: true, renderedAt: 1000 } };
+  runtime.gameInputRelay = { receive(value) { feedback.push(value); }, frame: () => undefined, stop() {} };
+  const synced = await fetch(origin + '/native/deck/sync', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(sync) });
+  assert.equal(synced.status, 200);assert.equal((await synced.arrayBuffer()).byteLength, DECK_WIRE.bytes);assert.deepEqual(feedback, [sync.feedback]);
+  assert.equal((await fetch(origin + '/native/deck/sync', { method: 'POST', headers: { ...headers, Origin: origin }, body: JSON.stringify(sync) })).status, 403);
+  assert.equal(feedback.length, 1);
 });
 test('actual C controller engine decodes JS wire and handles input/recovery without native console APIs', async () => {
   await fs.mkdir('build/tests', { recursive: true });
@@ -77,7 +83,7 @@ test('actual C controller engine decodes JS wire and handles input/recovery with
     rows: Array.from({ length: 3 }, (_, i) => ({ token: 'a'.repeat(32), label: i === 1 ? 'Payload 二' : 'Row ' + i, detail: '', enabled: true })) });
   await fs.writeFile('build/tests/deck-frame.bin', binary);
   const zig = process.env.ZIG || path.resolve('../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
-  const compile = spawnSync(zig, ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Iplatform/deck', 'platform/deck/deck-core.c', 'tests/deck-core-runner.c', '-o', 'build/tests/deck-core.exe'], { encoding: 'utf8' });
+  const compile = spawnSync(zig, ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Iplatform/deck', 'platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'tests/deck-core-runner.c', '-o', 'build/tests/deck-core.exe'], { encoding: 'utf8' });
   assert.equal(compile.status, 0, compile.stderr);
   const result = spawnSync(path.resolve('build/tests/deck-core.exe'), ['build/tests/deck-frame.bin'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);

@@ -14,7 +14,7 @@ export function serviceInspector(native, { get = localRequest } = {}) {
   return async function inspect(id) {
     invariant(Object.hasOwn(definitions, id), 'SERVICE_UNKNOWN', 'Unknown native component.');
     const first = native.systemProbe();
-    if (first.busy) return unknown('Native dispatch is still running.');
+    if (first.busy) return { ...unknown('Native operation is still running.'), busy: true };
     invariant(typeof first.boot === 'string' && Array.isArray(first.processes), 'SYSTEM_PROBE', 'Native system evidence is incomplete.');
     if (id === 'kstuff') {
       if (first.kstuff.state === 'installed' && first.kstuff.injectionReady)
@@ -45,7 +45,8 @@ export function serviceInspector(native, { get = localRequest } = {}) {
       }
     } catch (error) { return unknown(error.message || 'The component API is not ready.'); }
     const second = native.systemProbe();
-    if (second.busy || second.boot !== first.boot || second.ports[id] !== 1 || match(second, id).length !== 1 ||
+    if (second.busy) return { ...unknown('Native operation deferred the second readiness observation.'), busy: true };
+    if (second.boot !== first.boot || second.ports[id] !== 1 || match(second, id).length !== 1 ||
       !match(second, id).some(p => p.pid === process.pid && p.generation === process.generation)) return unknown('The component restarted during readiness verification.');
     if (second.kstuff.state !== 'installed' || !second.kstuff.injectionReady) return unknown('kstuff readiness was lost during component verification.');
     return { ready: true, id, boot: first.boot, pid: process.pid, generation: process.generation,
@@ -136,6 +137,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
         if (!runtime.graph.ready(id)) { misses.delete(id); continue; }
         let evidence;
         try { evidence = await inspect(id); } catch (error) { evidence = unknown(error.message); }
+        if (evidence.busy) continue; // Contention supplies no new evidence of service loss.
         if (sameInstance(runtime.graph.states.get(id).evidence, evidence)) { misses.delete(id); continue; }
         const count = (misses.get(id) || 0) + 1; misses.set(id, count);
         if (count < 2) continue;

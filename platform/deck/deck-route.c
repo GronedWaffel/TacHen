@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "deck-route.h"
+#include <string.h>
+static void reset(TacDeck *d){
+ memset(d->previous,0,sizeof d->previous);memset(d->chordAt,0,sizeof d->chordAt);
+ memset(d->chordActive,0,sizeof d->chordActive);memset(d->chordLatched,0,sizeof d->chordLatched);memset(d->drain,0,sizeof d->drain);
+ d->open=d->pending=d->owner=d->presentedOpen=0;d->repeatAt=d->repeatDirection=0;
+}
+static uint32_t buttons(uint32_t raw){
+ uint32_t out=0;const uint32_t from[]={0x80,0x10,0x20,0x40,0x2000,0x4000,0x400,0x800,2,4};
+ const uint32_t to[]={TAC_LEFT,TAC_UP,TAC_RIGHT,TAC_DOWN,TAC_CIRCLE,TAC_CROSS,TAC_L1,TAC_R1,TAC_L3,TAC_R3};
+ for(unsigned i=0;i<10;i++)if(raw&from[i])out|=to[i];return out;
+}
+void tac_deck_route_tick(TacDeck *d,TacDeckRoute *r,uint64_t now){
+ if(r->active==1&&(!r->deadline||now>=r->deadline)){reset(d);r->active=2;r->captured=0;}
+}
+int tac_deck_route_visible(const TacDeck *d,const TacDeckRoute *r){
+ if(!r->active)return d->open;
+ if(r->active!=1||!r->captured||!d->open||d->owner>=8)return 0;
+ const TacDeckController *c=&r->controllers[d->owner];return c->used&&c->handle==r->owner&&c->connection==r->connection;
+}
+void tac_deck_route_receive(TacDeck *d,TacDeckRoute *r,const TacDeckInput *input,uint64_t now){
+ if(r->epoch!=input->epoch||r->active!=input->active){reset(d);memset(r,0,sizeof *r);r->epoch=input->epoch;r->active=input->active;}
+ r->deadline=input->deadline;r->captureAt=input->captureAt;r->captured=input->captured;r->owner=input->owner;r->connection=input->connection;
+ tac_deck_route_tick(d,r,now);if(r->active!=1)return;
+ if(!input->serial||input->serial==r->serial)return;
+ if(r->serial&&(int32_t)(input->serial-r->serial)<0){reset(d);r->active=2;return;}
+ r->serial=input->serial;
+ for(unsigned i=0;i<input->count;i++){
+  const TacDeckPad *p=&input->events[i];if(p->at>now||now-p->at>250){reset(d);r->active=2;return;}
+  int slot=-1;
+  for(unsigned j=0;j<8;j++)if(r->controllers[j].used&&r->controllers[j].handle==p->handle){slot=(int)j;break;}
+  if(slot>=0&&r->controllers[slot].connection!=p->connection){
+   if(d->open&&d->owner==slot){reset(d);r->captured=0;}
+   r->controllers[slot]=(TacDeckController){p->handle,p->connection,1,0};d->previous[slot]=d->chordActive[slot]=d->chordLatched[slot]=d->drain[slot]=0;
+  }
+  if(slot<0)for(unsigned j=0;j<8;j++)if(!r->controllers[j].used||
+    ((!d->open||d->owner!=j)&&now>r->controllers[j].at&&now-r->controllers[j].at>2000)){
+    slot=(int)j;r->controllers[j]=(TacDeckController){p->handle,p->connection,1,0};d->previous[j]=d->chordActive[j]=d->chordLatched[j]=d->drain[j]=0;break;
+  }
+  if(slot<0||p->at<r->controllers[slot].at)continue;r->controllers[slot].at=p->at;
+  if(d->open&&d->owner!=slot)continue;
+  uint32_t mapped=buttons(p->buttons);
+  // Opening requests ownership, but cannot select anything until the matching
+  // native capture acknowledgement has returned and a render tick presents it.
+  if(d->open&&(!tac_deck_route_visible(d,r)||p->at<r->captureAt)){d->previous[slot]=mapped;d->drain[slot]=1;continue;}
+  tac_deck_input_at(d,(unsigned)slot,mapped,p->at,now);
+ }
+}
+TacDeckFeedback tac_deck_route_feedback(const TacDeck *d,const TacDeckRoute *r,int ready,uint64_t renderedAt){
+ TacDeckFeedback f={.epoch=r->epoch,.serial=r->serial,.open=r->active==1&&d->open,.owner=-1,.ready=!!ready,.renderedAt=renderedAt};
+ if(f.open&&d->owner<8&&r->controllers[d->owner].used){f.owner=r->controllers[d->owner].handle;f.connection=r->controllers[d->owner].connection;}
+ return f;
+}

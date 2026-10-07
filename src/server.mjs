@@ -38,7 +38,7 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-      if (req.url === '/native/deck' || req.url === '/native/deck/action') {
+      if (req.url === '/native/deck' || req.url === '/native/deck/action' || req.url === '/native/deck/sync') {
         // This private bridge is for the injected renderer. A LAN browser never
         // receives its process-session credential and cannot use phone cookies
         // as a substitute. Native credential is not included in snapshots/logs.
@@ -50,6 +50,10 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
           'NATIVE_SESSION', 'Native renderer session required.', { status: 403 });
         let frame;
         if (req.method === 'GET' && req.url === '/native/deck') frame = runtime.consoleDeck.frame();
+        else if (req.method === 'POST' && req.url === '/native/deck/sync') {
+          const input = await json(req);runtime.gameInputRelay?.receive(input.feedback);
+          frame = input.action ? await runtime.consoleDeck.action(input.action) : runtime.consoleDeck.frame();
+        }
         else if (req.method === 'POST' && req.url === '/native/deck/action') frame = await runtime.consoleDeck.action(await json(req));
         else return send(res, 405, { error: { code: 'METHOD', message: 'Method not allowed.' } });
         const body = encodeDeck(frame);
