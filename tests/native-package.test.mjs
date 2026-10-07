@@ -11,6 +11,7 @@ before(async () => {
     'tests/native-package-runner.c', 'platform/native/package-core.c', '-o', exe],
   { cwd: root, encoding: 'utf8', env: { ...process.env, ZIG_GLOBAL_CACHE_DIR: path.join(root, 'build/zig-cache') } });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const failure = spawnSync(exe, ['--fail-check'], { encoding: 'utf8' }); assert.equal(failure.status, 90); assert.match(failure.stderr, /CHECK failed/);
 });
 function run(args) { const result = spawnSync(exe, args, { encoding: 'utf8' }); assert.equal(result.status, 0, result.stdout + result.stderr); return result.stdout; }
 async function inspect(t, bytes, virtual = false) {

@@ -5,6 +5,7 @@
 #include "firmware-profiles.h"
 #include "kstuff-state.h"
 #include "kstuff-probe.h"
+#include "game-info.h"
 #include <ps5/kernel.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -39,6 +40,7 @@ static JSValue probe(JSContext *c,JSValueConst self,int argc,JSValueConst *args)
   const SnipersFirmwareProfile *p=snipers_firmware_profile(kernel_get_fw_version());
   if(!p){JS_FreeValue(c,out);return JS_ThrowInternalError(c,"Unsupported native firmware profile");}
   string(c,out,"firmware",p->name);
+  JS_SetPropertyStr(c,out,"appInfoAvailable",JS_NewBool(c,tac_game_info_available()));
   uint64_t base=KERNEL_ADDRESS_DATA_BASE;
   TacKstuffSnapshot first=tac_kstuff_read(base,p),second=tac_kstuff_read(base,p);
   int consistent=tac_kstuff_snapshot_equal(&first,&second);
@@ -65,6 +67,10 @@ static JSValue probe(JSContext *c,JSValueConst self,int argc,JSValueConst *args)
       JSValue item=JS_NewObject(c);integer(c,item,"pid",info.ki_pid);
       info.ki_comm[COMMLEN]=0;info.ki_tdname[TDNAMLEN]=0;
       string(c,item,"name",info.ki_comm);string(c,item,"thread",info.ki_tdname);
+      TacAppInfo app;
+      if(!tac_game_app_info(info.ki_pid,&app)){
+        string(c,item,"titleId",app.title);integer(c,item,"appId",app.appId);integer(c,item,"appInfoTitleOffset",app.titleOffset);
+      }
       char generation[128];snprintf(generation,sizeof generation,"%s/%d/%lld:%lld",boot_id,info.ki_pid,(long long)info.ki_start.tv_sec,(long long)info.ki_start.tv_usec);
       string(c,item,"generation",info.ki_start.tv_sec>0 && info.ki_start.tv_usec>=0 && info.ki_start.tv_usec<1000000?generation:"");JS_SetPropertyUint32(c,processes,count++,item);
     }

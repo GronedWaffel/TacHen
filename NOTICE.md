@@ -89,3 +89,16 @@ TacHen adds its own isolated lifetime, preflight hashing, checksummed durable
 receipts, duplicate guards, status tracker and coordinator integration. The
 package parser shares the CNT/FIH provenance recorded above. Original upstream
 credit and license obligations continue to apply; no new firmware ABI is claimed.
+
+Game context discovery uses public application-info definitions from the pinned
+ShadowMountPlus 1.7beta4 `include/sm_platform.h` (SHA-256
+`4adccbe89265a8b7bac6e6d00a9b873cac4bcacf6f5f04fd2f086386926ac15f`)
+and the GPL etaHEN/LightningMods source carried by the GronedWaffel port,
+`Source Code/util/source/main.cpp` (SHA-256
+`bd227062b1426b3bcc4a30b02695b50e8d6fcb8319391472e3e4ebb04cd57548`).
+TacHen validates either evidenced title-field location and refuses unrecognized
+responses. The SFO field layout/formats are informed by that port's
+`Source Code/util/include/sfo.hpp` (SHA-256
+`638f430f8cb4b5df73c6d5116c45b2248b5bd88685fa912ba1de6723f8516afb`).
+The bounded metadata parser and lifecycle/lease implementation are original
+TacHen code. Source comparisons do not establish console hardware validation.

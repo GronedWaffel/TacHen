@@ -1,4 +1,5 @@
 // Only portable coordinator code runs here. Native hardware APIs are absent.
+import '../platform/runtime/globals.mjs';
 import { Buffer } from 'buffer';
 import { createHash } from '../platform/runtime/crypto.mjs';
 import { StateStore } from '../src/store.mjs';
@@ -7,7 +8,9 @@ import { inspectPayload } from '../src/payload-format.mjs';
 import { encodeDeck } from '../src/deck.mjs';
 import { inspectPackage } from '../src/package-format.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
+import { GameLifecycle } from '../src/game-lifecycle.mjs';
 globalThis.Buffer = Buffer;
+globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
 function assert(value, message) { if (!value) throw Error(message); }
 globalThis.testPassed = false;
@@ -43,6 +46,13 @@ globalThis.testPassed = false;
   const packageInput = await packageHandler.validate({ id: packageUpload });
   const install = await packageHandler.run(packageInput, { id: packageRequest, signal: { aborted: false }, checkpoint: async () => {} });
   assert(accepted === 1 && await packageHandler.verify(install, packageInput), 'QuickJS installer receipt adapter failed');
-  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer receipt adapter and controller wire passed. Native APIs not tested.');
+  const gameRuntime = { sequence: 0 }, gameMetadata = Buffer.from(JSON.stringify({ titleId: 'PPSA00001', contentVersion: '01.002.003' }));
+  const lifecycle = new GameLifecycle(gameRuntime, { systemProbe: () => ({ appInfoAvailable: true,
+    processes: [{ pid: 101, generation: 'boot/101/100:0', appId: 24, titleId: 'PPSA00001', name: 'eboot.bin' }] }),
+    gameMetadata: () => ({ scope: 'running-sandbox', format: 'json', bytes: gameMetadata }) });
+  await lifecycle.refresh(); assert(!gameRuntime.game, 'QuickJS lifecycle published one unconfirmed observation');
+  await lifecycle.refresh(); assert(gameRuntime.game.version === '01.002.003', 'QuickJS lifecycle metadata failed');
+  lifecycle.stop(); assert(lifecycle.lease.signal.aborted, 'QuickJS native-runtime abort implementation failed');
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer receipts, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

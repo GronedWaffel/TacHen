@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { clone, invariant } from './errors.mjs';
 import { requireGame } from './firmware.mjs';
-const title = /^(PPSA|PPSB|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
+const title = /^(PPSA|PPSB|MOUU|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
 const version = /^(?:\d{2}\.\d{3}\.\d{3}|\d{2}\.\d{2})$/;
 export function validateProfile(input) {
   invariant(input && title.test(input.titleId) && version.test(input.version), 'PROFILE_IDENTITY', 'A loadout must target an exact title and version.');

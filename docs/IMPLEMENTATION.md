@@ -356,3 +356,54 @@ Still required: source-backed adaptation of older firmware installer ABIs,
 actual console installation/fast-completion/restart acceptance, and remaining
 native plugin, cheat/save, in-game input/rendering, telemetry, MCP, loadout and
 update integrations. The overall goal remains active and hardware tests deferred.
+
+## Eighth implementation checkpoint: running-game identity and lifecycle
+
+2026-10-07: **133 local tests pass**. Native application probing, mounted metadata
+reading and a shared game lifecycle are wired into the coordinator. The phone and
+native deck show the same verified title/version context. No PS5 was contacted.
+
+- Application identity comes from `sceKernelGetAppInfo`, correlated to the
+  sysctl process generation. The two inspected public 96-byte definitions put
+  title IDs at 0x10 (ShadowMount) and 0x14 (etaHEN). A pure native decoder accepts
+  exactly one valid title from these evidenced positions; it does not scan for
+  guessed new offsets or accept system title IDs.
+- Candidates are grouped by title/application ID. A unique `eboot.bin` is
+  preferred within that application; a sole candidate can provide context.
+  Multiple unrelated applications or ambiguous main processes remain unverified.
+  This context does not by itself authorize injection: module/entrypoint and
+  exact instance checks remain required in each forthcoming native adapter.
+- Metadata reads use exactly one matching `/mnt/sandbox/<title>_<index>/app0`
+  tree. Directory traversal refuses symlinks, file reads are bounded to 1 MiB,
+  and process generation/file identity are checked before and after the read.
+  Multiple matching sandbox roots are rejected rather than choosing an arbitrary
+  higher index. Compatibility with each actual mount layout still needs hardware
+  acceptance; there is no fallback that treats cached appmeta as a running version.
+- PS5 JSON uses exact `titleId`/`contentVersion`; PS4 SFO uses `TITLE_ID`/`APP_VER`,
+  not a numeric maximum with the base `VERSION`. SFO table/key/value bounds,
+  overlapping ranges, duplicate fields and invalid UTF-8 are rejected. MOUU
+  titles are included consistently in context, cheat identity and profile guards.
+- Two consistent snapshots publish a game instance. Ambiguity, contention or
+  identity changes immediately withhold game actions and abort the old consumer
+  lease. Unknown state is distinguished from observed absence; temporary native
+  work does not invent an exit/relaunch. Subscribers cannot block the poll loop
+  by awaiting long work, and subscriber exceptions are contained in bounded
+  support-only runtime errors. Polls are two seconds active, five seconds idle.
+
+Validation improvements discovered during this checkpoint:
+
+- Zig's optimized C compilation disabled standard `assert` checks in the kstuff
+  and new package test runners. Earlier passing runner exits did not establish
+  those assertion bodies. All three affected runners now use unconditional CHECK
+  guards and each harness proves a deliberate failing check exits nonzero. The
+  actual kstuff classifiers and package tracker/request checks now execute and pass.
+- The actual QuickJS smoke run exposed `abort-controller` resolving to a browser
+  passthrough export, which assumed window/self. Runtime globals now explicitly
+  import the library implementation. The smoke fixture loads the actual runtime
+  globals and executes game lifecycle/abort behavior, in addition to prior core
+  checks, without providing native console APIs.
+
+Remaining work still includes native plugin/cheat/save execution, in-game input
+arbitration and rendering, FPS/resource telemetry, MCP scanning, applied loadouts,
+staged update recovery, older-firmware installer adaptation, and hardware acceptance
+for all new native paths. The full goal remains active.

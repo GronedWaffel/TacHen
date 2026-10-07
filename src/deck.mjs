@@ -46,7 +46,7 @@ export class ConsoleDeck {
       row('Cancel', 'Return without making changes', '$cancel');
     } else if (this.page === 0) {
       row('Your phone is a second controller', `Open http://${state.identity.ip}:8780 on the same network`);
-      row(state.game?.name || 'Dashboard', state.game ? `${state.game.titleId} · ${state.game.version}` : `Firmware ${state.identity.firmware || 'development'}`);
+      row(state.game?.name || 'Dashboard', state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || `Firmware ${state.identity.firmware || 'development'}`);
       for (const service of state.services.slice(0, 5))
         row(service.id, service.error?.message || service.phase || service.status,
           service.status === 'stopped' && !state.safe ? 'service.start' : null, { id: service.id });

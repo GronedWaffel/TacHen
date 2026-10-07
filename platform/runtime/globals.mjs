@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Adapted from PS Neighborhood platform plumbing; see vendor/runtime-provenance.json.
 import {Buffer} from 'buffer';
-import {AbortController,AbortSignal} from 'abort-controller';
+// QuickJS has no browser-provided AbortController. Import the implementation,
+// not the package's browser entry (which merely re-exports window/self).
+import {AbortController,AbortSignal} from 'abort-controller/dist/abort-controller.mjs';
 globalThis.Buffer=Buffer;
 globalThis.AbortController=AbortController;
 globalThis.AbortSignal=AbortSignal;

@@ -53,6 +53,7 @@ export class TacRuntime {
     const state = this.store.snapshot();
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
+      gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       library: this.libraryState ? { count: this.libraryState.games.length,

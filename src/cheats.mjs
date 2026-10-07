@@ -3,7 +3,7 @@
 // Executable code-cave relocation and encrypted formats need separate adapters.
 import { invariant, TacError } from './errors.mjs';
 import { requireGame } from './firmware.mjs';
-const titlePattern = /^(PPSA|PPSB|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
+const titlePattern = /^(PPSA|PPSB|MOUU|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
 const versionPattern = /^(?:\d{2}\.\d{3}\.\d{3}|\d{2}\.\d{2})$/;
 function text(value, maximum, field) {
   invariant(typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\x00-\x08\x0b-\x1f]/.test(value),

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <assert.h>
+#include "check.h"
 typedef struct {FILE* file;int virtual;} Reader;
 static int read_at(void* data,uint64_t at,void* buffer,size_t bytes){
  Reader* r=data;if(r->virtual&&at==UINT64_C(5)*1024*1024*1024)at=0x438;
@@ -15,29 +15,30 @@ static void tracking(void){
  TacPackageTracker t={0};TacPackageProgress p={.state="playable",.downloaded=8192,.total=8192};
  // Returning the old playable status forever never proves a new install.
  t.baseline=p;t.baselineValid=1;
- for(int i=0;i<10;i++)assert(tac_package_track(&t,&p,8192,4)==0);
- p.downloaded=100;assert(tac_package_track(&t,&p,8192,4)==0);assert(t.observed);
- p.downloaded=8192;assert(tac_package_track(&t,&p,8192,4)==0);assert(tac_package_track(&t,&p,8192,4)==1);
- p.error=-1;assert(tac_package_track(&t,&p,8192,4)==-1);assert(!t.terminal);p.error=0;
- p.downloaded=p.total=4096;assert(tac_package_track(&t,&p,8192,4)==0); // old base/patch total
- p.downloaded=p.total=8192;assert(tac_package_track(&t,&p,8192,4)==0); // two fresh confirmations
- memset(p.state,'a',16);assert(tac_package_track(&t,&p,8192,4)==-1);
+ for(int i=0;i<10;i++)CHECK(tac_package_track(&t,&p,8192,4)==0);
+ p.downloaded=100;CHECK(tac_package_track(&t,&p,8192,4)==0);CHECK(t.observed);
+ p.downloaded=8192;CHECK(tac_package_track(&t,&p,8192,4)==0);CHECK(tac_package_track(&t,&p,8192,4)==1);
+ p.error=-1;CHECK(tac_package_track(&t,&p,8192,4)==-1);CHECK(!t.terminal);p.error=0;
+ p.downloaded=p.total=4096;CHECK(tac_package_track(&t,&p,8192,4)==0); // old base/patch total
+ p.downloaded=p.total=8192;CHECK(tac_package_track(&t,&p,8192,4)==0); // two fresh confirmations
+ memset(p.state,'a',16);CHECK(tac_package_track(&t,&p,8192,4)==-1);
  memset(&t,0,sizeof t);p=(TacPackageProgress){.state="playable",.downloaded=256,.total=1024};
- assert(tac_package_track(&t,&p,8192,5)==0);p.downloaded=1024;
- assert(tac_package_track(&t,&p,8192,5)==0);assert(tac_package_track(&t,&p,8192,5)==1); // PS5 status units can differ
- p.downloaded=1025;assert(tac_package_track(&t,&p,8192,5)==-1);
+ CHECK(tac_package_track(&t,&p,8192,5)==0);p.downloaded=1024;
+ CHECK(tac_package_track(&t,&p,8192,5)==0);CHECK(tac_package_track(&t,&p,8192,5)==1); // PS5 status units can differ
+ p.downloaded=1025;CHECK(tac_package_track(&t,&p,8192,5)==-1);
  puts("tracking guards passed");
 }
 static void requests(void){
  TacPackageRequest r={.magic=TAC_PACKAGE_MAGIC,.version=1,.bytes=8192,.bootSec=123,.type=0x1a,.platform=4};
  memset(r.request,'a',32);memset(r.upload,'b',32);memset(r.sha256,'c',64);strcpy(r.content,"UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP");strcpy(r.name,"Game.pkg");
- assert(tac_package_request_valid(&r));r.bytes=TAC_PACKAGE_MAX+1;assert(!tac_package_request_valid(&r));r.bytes=8192;
- r.patch=2;assert(!tac_package_request_valid(&r));r.patch=0;r.platform=5;assert(!tac_package_request_valid(&r));r.platform=4;
- r.sha256[64]='a';assert(!tac_package_request_valid(&r));r.sha256[64]=0;
- r.content[7]='n';assert(!tac_package_request_valid(&r));r.content[7]='C';r.name[0]='\n';assert(!tac_package_request_valid(&r));
+ CHECK(tac_package_request_valid(&r));r.bytes=TAC_PACKAGE_MAX+1;CHECK(!tac_package_request_valid(&r));r.bytes=8192;
+ r.patch=2;CHECK(!tac_package_request_valid(&r));r.patch=0;r.platform=5;CHECK(!tac_package_request_valid(&r));r.platform=4;
+ r.sha256[64]='a';CHECK(!tac_package_request_valid(&r));r.sha256[64]=0;
+ r.content[7]='n';CHECK(!tac_package_request_valid(&r));r.content[7]='C';r.name[0]='\n';CHECK(!tac_package_request_valid(&r));
  puts("request guards passed");
 }
 int main(int argc,char** argv){
+ if(argc==2&&!strcmp(argv[1],"--fail-check"))CHECK(0);
  if(argc==2&&!strcmp(argv[1],"--track")){tracking();return 0;}
  if(argc==2&&!strcmp(argv[1],"--requests")){requests();return 0;}
  if(argc<2)return 2;Reader r={.file=fopen(argv[1],"rb"),.virtual=argc==3};if(!r.file)return 3;

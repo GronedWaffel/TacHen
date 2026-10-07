@@ -30,6 +30,15 @@ then stream a SHA-256 verification. Uploading does not execute a payload. Incomp
 uploads retain their offset so a client can resume. Structural validation does not
 establish compatibility with a particular game, firmware, or plugin API.
 
+Running-game context now combines a native process-generation/application probe
+with bounded reads of that title's mounted sandbox metadata. Two consistent
+observations establish its title/version for the phone and console deck. Ambiguous
+processes, missing metadata and native contention hold game actions; they never
+silently select cached library versions. Lifecycle consumers receive an abort
+signal when the verified instance becomes unavailable. This foundation is
+implemented and cross-built; game plugins, cheats and overlays still need their
+native execution adapters and deferred console acceptance.
+
 On console builds, verified ELF entries offer **Run payload**. A separate native
 worker hashes the exact execution buffer, validates memory/relocation bounds and
 spawns the payload with the PS5 payload ABI. Checksummed dispatch receipts survive

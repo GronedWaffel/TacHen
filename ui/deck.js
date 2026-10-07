@@ -31,7 +31,7 @@ function draw() {
   $('#address').textContent = state.identity.ip;
   $('#firmware').textContent = state.identity.firmware ? 'PS5 · ' + state.identity.firmware : 'Local development · No PS5 connection';
   $('#context-title').textContent = state.game?.name || 'Command deck';
-  $('#context-detail').textContent = state.game ? `${state.game.titleId} · ${state.game.version}` : 'Everything starts with a reliable session.';
+  $('#context-detail').textContent = state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || 'Everything starts with a reliable session.';
   $('#session-title').textContent = state.safe ? 'Safe startup' : state.identity.mode === 'development' ? 'Development workspace' : 'TacHen coordinator online';
   $('#session-detail').textContent = state.safe ? 'Optional components are held while the previous startup is reviewed.' :
     state.identity.mode === 'development' ? 'Explore the deck locally. Native console integrations are listed honestly below.' : 'Use the deck from your console or phone. Component readiness is tracked separately.';

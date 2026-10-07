@@ -11,6 +11,7 @@ test('actual native kstuff classifier accepts complete hooks and withholds trans
   const build = spawnSync(zig, ['cc', '-O1', '-Wall', '-Wextra', '-Werror', '-Iplatform/native', 'tests/kstuff-state-runner.c', '-o', exe],
     { cwd: root, encoding: 'utf8', env: { ...process.env, ZIG_GLOBAL_CACHE_DIR: path.join(root, 'build/zig-cache') } });
   assert.equal(build.status, 0, build.stderr || build.error?.message);
+  const failure = spawnSync(exe, ['--fail-check'], { encoding: 'utf8' }); assert.equal(failure.status, 90); assert.match(failure.stderr, /CHECK failed/);
   const run = spawnSync(exe, [], { encoding: 'utf8' }); assert.equal(run.status, 0, run.stderr); assert.match(run.stdout, /passed/);
 });
 test('native firmware tables exactly match the pinned public profile data and JS support gate', async () => {
