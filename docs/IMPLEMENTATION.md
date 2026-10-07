@@ -72,11 +72,11 @@ Implemented and locally exercised:
 
 ## Next implementation work (goal remains active)
 
-1. Native asynchronous ELF execution adapter with process identity receipts,
-   originally from John Törnblom's loader as used by the tested etaHEN port. Preserve
-   controller-startup fixes in later ShellUI integration. Do not call sent/spawned ready.
-2. FTP-to-inbox/catalog bridge and phone upload resumption controls; library storage
-   adapters for console and USB, replacing the development share's limited scope.
+1. Complete phone upload resumption controls and library storage adapters for
+   console and USB, extending the development share's limited scope.
+2. Service-specific readiness probes over the native dispatch adapter. Preserve
+   controller-startup fixes in later ShellUI integration. Spawn receipts are not
+   readiness evidence and do not verify that a PID still belongs to a resident service.
 3. Native kstuff/ShadowMount/Payload Manager adapters, actual job completion
    receipts, process/game lifecycle, package queue and storage reconciliation.
 4. Native original command-deck presentation/controller arbitration (the phone
@@ -100,3 +100,39 @@ are vendored with original hashes; the import script uses the existing
 It regenerates adapted platform plumbing, so keep adaptations in that script too.
 The native payload engine is 48 MiB capped, uses bounded chunks and a 10 ms event
 loop. No PC companion, VPS, DNS change or production deployment is required.
+
+## Second implementation checkpoint: native dispatch and FTP inbox
+
+2026-10-07: 58 off-console tests pass, including the actual native C ELF validator
+compiled and executed on Windows. The separate QuickJS test also passes. The
+latest cross-build is recorded in `build/manifest.json`; its completion/hardware
+flags remain false. The payload page was inspected at a 390×844 phone viewport.
+
+- Added a native pthread dispatch worker, exact firmware guard, private execution
+  buffer with independent SHA-256, bounded image validation and PS5 payload ABI
+  spawning. The native worker, ptrace calls and process creation are **cross-built
+  only**; they have not been executed on the console.
+- Added atomic checksummed dispatch receipts, boot-bound duplicate protection and
+  explicit unknown outcomes. Native progress is polled without blocking the phone
+  event loop. A deadline does not release a still-running native operation.
+- Corrected virtual-origin mapping, checked relative relocation destinations,
+  supported stripped dynamic relocation tables and shared-page permission unions.
+  SDK CRT library/symbol imports are validated and left to its runtime resolver.
+  The current TacHen ELF and existing etaHEN/card-installer artifacts pass native
+  structural inspection locally; this says nothing about hardware execution.
+- Preserved John Törnblom loader credits, syscall-gate adaptations and import hashes.
+  Removed obsolete shallow image mapping/network reader paths, widened and filled
+  remote-call arguments, and replaced the racing child exec event registration
+  with a waitable trace-stop check that preserves child stack ownership.
+- Added phone Run controls for verified ELFs and honest Dispatched status. Plugins
+  remain excluded from standalone dispatch until their actual loader is integrated.
+- Completed FTP-to-inbox import with actual FTP client tests. Complete `/payloads`
+  uploads are verified; invalid sources stay in the share with an Activity message.
+  Autorun is opt-in and only applies to ELFs through the same durable queue.
+- Fixed queued cancellation racing a durable dispatch claim; a dedicated race
+  regression test verifies it cannot mark executing native work cancelled.
+
+Pending loader acceptance: console worker/receipt I/O, SDK ABI process spawning,
+native failures/timeouts/restart reconciliation, memory pressure with large ELFs,
+per-firmware process entry compatibility and service readiness probes. Console
+hardware testing remains deferred by the user's instruction.

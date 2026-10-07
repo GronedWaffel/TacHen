@@ -100,6 +100,7 @@ export class JobQueue {
     }, handler.timeout ?? this.timeout);
     try {
       const result = await handler.run(clone(job.args), {
+        id: job.id,
         signal: controller.signal,
         progress: value => {
           const now = this.now();
@@ -145,7 +146,17 @@ export class JobQueue {
     const job = this.snapshot().find(job => job.id === id);
     invariant(job, 'JOB_MISSING', 'Operation not found.', { status: 404 });
     if (TERMINAL.has(job.status)) return;
-    if (job.status === 'queued' || job.status === 'held') return this.patch(id, { status: 'cancelled', error: null });
+    if (job.status === 'queued' || job.status === 'held') {
+      // Dispatch may claim a job while this transaction waits for disk I/O.
+      // Never cancel it based on the earlier snapshot after native work starts.
+      const cancelled = await this.store.transaction(state => {
+        const current = state.jobs.find(item => item.id === id);
+        if (!['queued', 'held'].includes(current.status)) return false;
+        current.status = 'cancelled'; current.error = null; current.updatedAt = this.now(); return true;
+      });
+      this.changed(); if (cancelled.result) return;
+      if (TERMINAL.has(this.snapshot().find(item => item.id === id)?.status)) return;
+    }
     const active = this.running.get(id);
     invariant(active && !active.expired, 'JOB_RECONCILE_REQUIRED', 'The operation must be reconciled before another action.');
     invariant(this.handlers.get(job.kind)?.cancellable === true, 'CANCEL_UNSUPPORTED', 'This native operation cannot safely be cancelled.');

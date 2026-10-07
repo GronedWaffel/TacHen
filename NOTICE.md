@@ -23,3 +23,17 @@ The .plugin container interpretation follows etaHEN/etaHEN-Plugins
 documented in our existing GPL etaHEN port. JSON cheat field interpretation follows
 etaHEN's public CheatManager implementation. Format parsing and transaction logic
 in TacHen are original code; cheat authors' credits are preserved during import.
+
+Native process creation and remote-call plumbing in `platform/loader` derive from
+John Törnblom's libelfldr/libNineS (GPL-3.0-or-later), using the existing etaHEN
+port's verified syscall and payload-argument adaptations. Original copyright
+headers are retained. Import inputs and hashes are in `vendor/loader-provenance.json`.
+TacHen adds original full-image validation/mapping, asynchronous dispatch,
+checksummed durable receipts and queue integration in `platform/native` and `src`.
+The SHA-256 implementation is Brad Conte's implementation as vendored by ftpsrv,
+with the existing port's unsigned-shift correction and original author notice.
+
+The loader's treatment of runtime imports was checked against the SDK v0.43
+[payload dynamic linker](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/rtld_payload.c):
+the payload CRT resolves library/symbol imports. TacHen validates referenced data
+and applies relative relocations, leaving runtime symbol resolution to that CRT.

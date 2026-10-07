@@ -8,6 +8,7 @@ import { TacRuntime } from './runtime.mjs';
 import { serve } from './server.mjs';
 import { PayloadInbox } from './inbox.mjs';
 import { startFtp } from './ftp.mjs';
+import { ftpInboxReceiver } from './ftp-inbox.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storage = await new FileStorage(path.join(root, '.local/state')).init();
@@ -20,7 +21,8 @@ const platform = {
     runtime.inboxItems = await runtime.inbox.list();
     runtime.capability('inbox', true, 'File upload and structural verification. Execution requires the native loader.');
     runtime.graph.register({ id: 'ftp', start: async () => {
-      runtime.ftp = await startFtp({ root: path.join(root, '.local/share'), host: '127.0.0.1', address: '127.0.0.1', id });
+      runtime.ftp = await startFtp({ root: path.join(root, '.local/share'), host: '127.0.0.1', address: '127.0.0.1', id,
+        onUpload: ftpInboxReceiver(runtime) });
       return { session: runtime.session, port: runtime.ftp.port };
     }, verify: evidence => evidence.session === runtime.session && evidence.port === 2122 });
     if (runtime.store.snapshot().settings.services.ftp) {

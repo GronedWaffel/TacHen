@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Adapted from PS Neighborhood platform plumbing; see vendor/runtime-provenance.json.
 #include "quickjs.h"
+#include "loader-worker.h"
+extern void tac_loader_bind(JSContext*,JSValue);
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,7 +119,7 @@ static JSValue native(JSContext *c,JSValueConst this_value,int argc,JSValueConst
  case N_IP:{char value[512];result=JS_NewString(c,local_ip(value));break;}
  case N_TRUNCATE:case N_UTIME:p=JS_ToCString(c,v[0]);if(!p||!path_ok(p)){result=fail(c,"Invalid file attribute path");break;}JS_ToInt64(c,&position,v[1]);if(position<0){result=JS_ThrowRangeError(c,"Invalid file attribute");break;}if(op==N_TRUNCATE){if(truncate(p,position))result=fail(c,"Cannot resize workspace file");}else{struct timeval times[2]={{position/1000,(position%1000)*1000},{position/1000,(position%1000)*1000}};if(utimes(p,times))result=fail(c,"Cannot set workspace timestamp");}break;
  case N_ASSET:JS_ToInt64(c,&position,v[0]);JS_ToInt32(c,&n,v[1]);if(position<0||n<0||n>32*1048576||position+n>tachen_assets_end-tachen_assets_start)result=JS_ThrowRangeError(c,"Invalid static asset");else result=JS_NewArrayBufferCopy(c,tachen_assets_start+position,n);break;
- case N_STOP:stopping=1;break;
+ case N_STOP:if(tac_loader_busy()){result=JS_ThrowInternalError(c,"A native dispatch is still active");break;}stopping=1;break;
  case N_FIRMWARE:
 #ifdef __PS5__
  {uint32_t fw=kernel_get_fw_version();char name[16];snprintf(name,sizeof name,"%x.%02x",fw>>24,(fw>>16)&255);result=JS_NewString(c,name);break;}
@@ -142,7 +144,7 @@ int main(int argc,char **argv){(void)argc;(void)argv;signal(SIGPIPE,SIG_IGN);mkd
  FILE *runtimeLog=freopen(ROOT "/runtime.log","w",stderr);if(runtimeLog)setvbuf(runtimeLog,NULL,_IOLBF,0);
 #endif
  JSRuntime *rt=JS_NewRuntime();if(!rt)return 4;JS_SetMemoryLimit(rt,48*1048576);JS_SetMaxStackSize(rt,2*1048576);context=JS_NewContext(rt);if(!context){JS_FreeRuntime(rt);return 4;}JSValue global=JS_GetGlobalObject(context),api=JS_NewObject(context);
- const char *names[]={"log","random","stat","statfs","realpath","mkdir","readdir","rename","unlink","rmdir","open","read","write","fstat","fsync","close","connect","connected","send","recv","shutdown","listen","port","accept","sqlite","native","notify","ip","peer","truncate","utime","asset","stop","firmware"};for(int i=0;i<(int)(sizeof names/sizeof names[0]);i++)JS_SetPropertyStr(context,api,names[i],JS_NewCFunctionMagic(context,native,names[i],4,JS_CFUNC_generic_magic,i));JS_SetPropertyStr(context,global,"__native",api);
+ const char *names[]={"log","random","stat","statfs","realpath","mkdir","readdir","rename","unlink","rmdir","open","read","write","fstat","fsync","close","connect","connected","send","recv","shutdown","listen","port","accept","sqlite","native","notify","ip","peer","truncate","utime","asset","stop","firmware"};for(int i=0;i<(int)(sizeof names/sizeof names[0]);i++)JS_SetPropertyStr(context,api,names[i],JS_NewCFunctionMagic(context,native,names[i],4,JS_CFUNC_generic_magic,i));tac_loader_bind(context,api);JS_SetPropertyStr(context,global,"__native",api);
 #ifdef TACHEN_EMBEDDED
  const char *code=(const char *)tachen_bundle;size_t length=sizeof tachen_bundle-1;
 #else

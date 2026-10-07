@@ -8,6 +8,8 @@ import { TacRuntime } from '../src/runtime.mjs';
 import { serve } from '../src/server.mjs';
 import { PayloadInbox } from '../src/inbox.mjs';
 import { startFtp } from '../src/ftp.mjs';
+import { installPayloadLoader } from '../src/payload-loader.mjs';
+import { ftpInboxReceiver } from '../src/ftp-inbox.mjs';
 import assets from '../build/ui-assets.json';
 
 globalThis.__ready = (async () => {
@@ -19,12 +21,14 @@ globalThis.__ready = (async () => {
     async install(runtime) {
       runtime.inbox = await new PayloadInbox('/data/tachen/inbox', { id }).init();
       runtime.inboxItems = await runtime.inbox.list();
-      runtime.capability('inbox', true, 'File upload and structural verification. Execution requires the native loader.');
+      runtime.capability('inbox', true, 'Resumable file upload and verification.');
+      installPayloadLoader(runtime, __native);
       runtime.graph.register({ id: 'coordinator', start: async () => ({ session: runtime.session }),
         verify: evidence => evidence.session === runtime.session });
       await runtime.graph.start('coordinator');
       runtime.graph.register({ id: 'ftp', start: async () => {
-        runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id });
+        runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
+          onUpload: ftpInboxReceiver(runtime) });
         return { session: runtime.session, port: runtime.ftp.port };
       }, verify: evidence => evidence.session === runtime.session && evidence.port === 2122 });
       if (runtime.store.snapshot().settings.services.ftp) {

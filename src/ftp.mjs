@@ -6,9 +6,10 @@ import { invariant } from './errors.mjs';
 
 // Console-local share. Does not expose the state journal, credentials or arbitrary
 // filesystem roots. Additional console/USB mounts require explicit native adapters.
-export async function startFtp({ root, host, address, port = 2122, id, maxClients = 4 }) {
+export async function startFtp({ root, host, address, port = 2122, id, maxClients = 4, onUpload }) {
   await fs.mkdir(root, { recursive: true });
   root = await fs.realpath(root);
+  if (onUpload) await fs.mkdir(path.join(root, 'payloads'), { recursive: true });
   const clients = new Set();
   const normalize = ip => String(ip).replace(/^::ffff:/, '');
   const server = net.createServer(control => {
@@ -59,8 +60,8 @@ export async function startFtp({ root, host, address, port = 2122, id, maxClient
       reply(150, 'Opening data connection');
       try {
         const socket = await passive.ready; client.data = socket;
-        await action(socket);
-        reply(226, 'Transfer complete');
+        const detail = await action(socket);
+        reply(226, typeof detail === 'string' ? detail.slice(0, 240) : 'Transfer complete');
       } catch { reply(426, 'Transfer interrupted; destination was not committed'); }
       finally { clearPassive(); }
     }
@@ -113,7 +114,7 @@ export async function startFtp({ root, host, address, port = 2122, id, maxClient
           }); break;
         }
         case 'STOR': {
-          const { target } = await resolve(arg, { parent: true });
+          const { target, virtual } = await resolve(arg, { parent: true });
           invariant(target !== root, 'FTP_FILE', 'Choose a file name');
           const temporary = path.join(path.dirname(target), '.tachen-' + id() + '.part');
           await transfer(async socket => {
@@ -128,6 +129,10 @@ export async function startFtp({ root, host, address, port = 2122, id, maxClient
               }
               invariant(!control.destroyed, 'FTP_DISCONNECTED', 'Control connection closed');
               await file.sync(); await file.close(); await fs.rename(temporary, target); committed = true;
+              if (onUpload) {
+                try { return await onUpload({ target, virtual }); }
+                catch { return 'Transfer saved; inbox processing failed. Check the deck.'; }
+              }
             } finally { await file.close(); if (!committed) try { await fs.unlink(temporary); } catch {} }
           }); break;
         }

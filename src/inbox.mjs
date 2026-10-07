@@ -110,4 +110,29 @@ export class PayloadInbox {
     }
     return result;
   }
+  async importFile(source, name) {
+    const stat = await fs.lstat(source);
+    invariant(stat.isFile() && !stat.isSymbolicLink(), 'IMPORT_FILE', 'Only regular payload files can enter the inbox.');
+    const input = await fs.open(source, 'r'); let entry;
+    try {
+      const before = await input.stat();
+      entry = await this.begin({ name, bytes: before.size });
+      const chunk = Buffer.alloc(1024 * 1024);
+      for (let offset = 0; offset < before.size;) {
+        const { bytesRead } = await input.read(chunk, 0, Math.min(chunk.length, before.size - offset), offset);
+        invariant(bytesRead > 0, 'IMPORT_TRUNCATED', 'The source file changed while importing.');
+        await this.append(entry.id, offset, chunk.subarray(0, bytesRead)); offset += bytesRead;
+      }
+      const after = await input.stat();
+      invariant(after.size === before.size && after.mtimeMs === before.mtimeMs,
+        'IMPORT_CHANGED', 'The source file changed while importing.');
+      return await this.verify(entry.id);
+    } catch (error) {
+      // Only this new, unexposed import is removed. The FTP source is preserved.
+      if (entry) for (const suffix of ['.part', '.payload', '.json']) {
+        try { await fs.unlink(this.file(entry.id, suffix)); } catch (removeError) { if (removeError.code !== 'ENOENT') break; }
+      }
+      throw error;
+    } finally { await input.close(); }
+  }
 }

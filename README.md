@@ -15,7 +15,7 @@ operations. `npm run build` produces local artifacts when the documented toolcha
 is available. Console testing is deliberately deferred until the owner returns.
 
 The current native artifact is `build/tachen-runtime.elf`, a coordinator, local
-phone interface on port 8780, and an FTP share on port 2122. The FTP share is
+phone interface on port 8780, native ELF dispatch, and an FTP share on port 2122. The FTP share is
 `/data/tachen/share`, isolated from the coordinator's persistent state. Use FTP
 user `tachen` or `anonymous` with any password on the trusted LAN. Development
 servers bind only to loopback. This is **not** yet a replacement for etaHEN.
@@ -24,6 +24,20 @@ Phone uploads accept ELF, etaHEN plugin containers and native PRX/SELF headers,
 then stream a SHA-256 verification. Uploading does not execute a payload. Incomplete
 uploads retain their offset so a client can resume. Structural validation does not
 establish compatibility with a particular game, firmware, or plugin API.
+
+On console builds, verified ELF entries offer **Run payload**. A separate native
+worker hashes the exact execution buffer, validates memory/relocation bounds and
+spawns the payload with the PS5 payload ABI. Checksummed dispatch receipts survive
+runtime restarts. **Dispatched** does not mean the payload initialized successfully.
+The loader prevents another dispatch of the same payload during a console boot
+and never silently retries a failed or interrupted spawn. These native operations
+are cross-built but still await hardware acceptance.
+
+FTP uploads into `/payloads` are copied into the verified inbox after the transfer
+has committed. Other FTP files are ordinary transfers. Invalid payloads remain in
+the FTP share and generate an actionable entry in Activity. Uploads do not autorun
+unless that setting is explicitly enabled; `.plugin` and PRX files are never sent
+through the standalone ELF loader.
 
 `node scripts/test-quickjs.mjs` additionally executes portable core code in the
 actual embedded JavaScript engine on Windows. `ZIG` and `PS5_PAYLOAD_SDK` can

@@ -21,6 +21,7 @@ function row(name, detail, status, available = true) {
   if (detail) copy.append(el('p', '', detail)); item.append(copy, el('span', 'status' + (available ? '' : ' unavailable'), status)); return item;
 }
 const capability = id => state.capabilities.find(item => item.id === id);
+const requestKey = () => [...crypto.getRandomValues(new Uint8Array(16))].map(byte => byte.toString(16).padStart(2, '0')).join('');
 function draw() {
   document.body.dataset.accent = state.settings.appearance.accent;
   document.body.dataset.reducedMotion = String(state.settings.appearance.reducedMotion);
@@ -39,18 +40,26 @@ function draw() {
   $('#capabilities').replaceChildren(...available.map(item => { const card = el('article', 'cap'); card.append(el('span', 'indicator', 'AVAILABLE'), el('h3', '', item.name), el('p', '', item.reason || 'Connected to the shared TacHen runtime.')); return card; }));
   $('#component-list').replaceChildren(...state.capabilities.map(item => row(item.name, item.reason, item.available ? 'Available' : 'Not integrated', item.available)));
   $('#payload-file').disabled = !capability('inbox')?.available;
-  $('#inbox-items').replaceChildren(...(state.inbox?.length ? state.inbox.map(item => row(item.name,
-    `${(item.offset / 1048576).toFixed(1)} / ${(item.bytes / 1048576).toFixed(1)} MiB`, item.status, item.status === 'verified')) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
+  $('#inbox-items').replaceChildren(...(state.inbox?.length ? state.inbox.map(item => {
+    const node = row(item.name, `${(item.offset / 1048576).toFixed(1)} / ${(item.bytes / 1048576).toFixed(1)} MiB`, item.status, item.status === 'verified');
+    if (item.status === 'verified' && /\.elf$/i.test(item.name) && capability('payloads')?.available) {
+      const button = el('button', '', 'Run payload');
+      button.onclick = () => command('job.enqueue', { kind: 'payload.dispatch', input: { id: item.id }, key: requestKey() });
+      node.append(button);
+    }
+    return node;
+  }) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
-    const node = row(job.kind, job.error?.message || job.progress?.phase || 'Waiting for execution', job.status, job.status === 'completed');
+    const node = row(job.kind, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
+      job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');
     const actions = el('div', 'actions');
     for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status)], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
       if (!show) continue; const button = el('button', '', label); button.onclick = () => command('job.' + action, { id: job.id }); actions.append(button);
     }
     if (actions.children.length) node.append(actions); return node;
   }) : [el('p', 'empty', 'No background operations yet.') ]));
-  $('#history').replaceChildren(...(state.history.length ? [...state.history].reverse().map(item => row(item.message, item.fields?.join(', '), new Date(item.at).toLocaleTimeString())) : [el('p', 'empty', 'Changes made during this session will appear here.') ]));
+  $('#history').replaceChildren(...(state.history.length ? [...state.history].reverse().map(item => row(item.message, item.detail || item.fields?.join(', '), new Date(item.at).toLocaleTimeString())) : [el('p', 'empty', 'Changes made during this session will appear here.') ]));
   $('#accent').value = state.settings.appearance.accent; $('#reduced-motion').checked = state.settings.appearance.reducedMotion;
   for (const input of document.querySelectorAll('[data-overlay]')) {
     const key = input.dataset.overlay; input.checked = state.settings.overlay[key];

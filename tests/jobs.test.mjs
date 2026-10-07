@@ -64,3 +64,20 @@ test('cancellation request does not report cancelled until confirmed', async () 
   gate.resolve({ cancelled: true }); await until(() => queue.running.size === 0);
   assert.equal(queue.snapshot()[0].status, 'cancelled');
 });
+
+test('queued cancellation cannot overwrite a dispatch claim waiting for durable storage', async () => {
+  const state = await store(), queue = new JobQueue(state, { id: ids() }), disk = deferred(), work = deferred();
+  queue.pumping = true;
+  queue.register('native', handler(() => work.promise));
+  const job = await queue.enqueue('native', {}, 'race-request'); queue.pumping = false;
+  const write = state.storage.replace.bind(state.storage); let claimBlocked = false;
+  state.storage.replace = async (name, value) => {
+    if (!claimBlocked) { claimBlocked = true; await disk.promise; }
+    return write(name, value);
+  };
+  const pumping = queue.pump(); await until(() => claimBlocked);
+  const cancel = queue.cancel(job.id); disk.resolve(); await pumping;
+  await assert.rejects(cancel, { code: 'CANCEL_UNSUPPORTED' });
+  assert.equal(queue.snapshot()[0].status, 'running');
+  work.resolve({ completed: true, receipt: 42 }); await until(() => queue.snapshot()[0].status === 'completed');
+});
