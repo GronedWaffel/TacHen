@@ -26,8 +26,11 @@ inferred solely from a firmware version.
 The implementation creates twelve hidden, GC-rooted panels before the text
 labels. Geometry, colors and visibility come from a pure C layout. Unchanged
 frames perform no managed mutations; selection changes update their highlights.
-Scene replacement hides/removes old panels and releases their handles. Errors
-use the same cleanup path. Browser preview uses that C output, with substitute
+Scene replacement hides/removes old panels and releases their handles only
+after removal succeeds. A removal exception retains the widget/root for bounded
+cleanup retries with normal rendering and input disabled. Constructor exceptions
+stop setup before attachment; attachment intent is recorded before AppendChild
+because an exception there may follow a partial side effect. Browser preview uses that C output, with substitute
 browser fonts, and is not proof of native rendering or lower-firmware ABI parity.
 
 Still required during the final console phase: successful metadata preparation,

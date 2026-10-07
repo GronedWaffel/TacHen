@@ -8,9 +8,10 @@
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);return 1;}}while(0)
 enum { FIND=1,ROOT,APPEND,REMOVE,CTOR,FONTCTOR,COLORCTOR,TEXT,NAME,X,Y,WIDTH,HEIGHT,COLOR,FONT,PWIDTH,PHEIGHT,PCOLOR,VISIBLE,PCTOR };
 typedef struct {char text[256];unsigned removed,visible;float x,y,width,height;} Obj;
-static Obj objects[256],roots[2];static void* handles[512];static char strings[512][256];
+static Obj objects[512],roots[2];static void* handles[2048];static char strings[2048][256];
 static unsigned allocated,nextHandle,stringCount,invocations,textCalls,removed,rootIndex,failText,failPanel;
 static int sceneAvailable=1;
+static Obj* failingObject;static unsigned failHide,failRemove,appended;
 int tac_mono_load(TacMono* unused){(void)unused;return 0;}
 static void* object_new(void* domain,void* klass){(void)domain;(void)klass;return &objects[allocated++];}
 static uint32_t handle_new(void* object,int pinned){(void)pinned;handles[++nextHandle]=object;return nextHandle;}
@@ -24,8 +25,9 @@ static void* invoke(void* method,void* object,void** args,void** exception){
   case FIND:return sceneAvailable?(void*)1:NULL;
   case ROOT:return &roots[rootIndex];
   case TEXT:textCalls++;if(failText){failText=0;*exception=(void*)1;break;}snprintf(((Obj*)object)->text,256,"%s",(char*)args[0]);break;
-  case REMOVE:((Obj*)object)->removed=1;removed++;break;
-  case VISIBLE:((Obj*)object)->visible=*(uint8_t*)args[0];break;
+  case APPEND:appended++;break;
+  case REMOVE:if(object==failingObject&&failRemove){failRemove--;*exception=(void*)1;break;}((Obj*)object)->removed=1;removed++;break;
+  case VISIBLE:if(object==failingObject&&failHide){failHide--;*exception=(void*)1;break;}((Obj*)object)->visible=*(uint8_t*)args[0];break;
   case X:((Obj*)object)->x=*(float*)args[0];break;
   case Y:((Obj*)object)->y=*(float*)args[0];break;
   case PWIDTH:((Obj*)object)->width=*(float*)args[0];break;
@@ -74,9 +76,23 @@ int main(void){
  CHECK(!tac_deck_view_render(&view,&frame,1,0,1601));CHECK(view.failed&&!view.root);CHECK(removed==(TAC_DECK_LABELS+TAC_DECK_PANELS)*2);
  calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,1602));CHECK(invocations==calls);
  // A constructor exception must not leave a half-created backplate or roots.
- view.failed=0;failPanel=1;
+ view.failed=0;failPanel=1;unsigned beforeAppend=appended;
  CHECK(!tac_deck_view_render(&view,&frame,1,0,2000));CHECK(view.failed&&!view.root);
  for(unsigned i=0;i<TAC_DECK_PANELS;i++)CHECK(!view.panels[i]);
- CHECK(removed==(TAC_DECK_LABELS+TAC_DECK_PANELS)*2+1);
+ CHECK(removed==(TAC_DECK_LABELS+TAC_DECK_PANELS)*2);CHECK(appended==beforeAppend);
+ // A transient error in both hide and removal retains the orphan's GC root.
+ view.failed=0;CHECK(tac_deck_view_render(&view,&frame,1,0,3000));
+ uint32_t retained=view.panels[0];failingObject=handle_target(retained);CHECK(failingObject->visible);
+ failHide=failRemove=1;failText=1;frame.sequence++;strcpy(frame.rows[0].label,"Another failure");
+ CHECK(!tac_deck_view_render(&view,&frame,1,0,3001));CHECK(view.failed&&view.root);
+ CHECK(view.panels[0]==retained&&handle_target(retained)==failingObject&&failingObject->visible);
+ for(unsigned i=0;i<TAC_DECK_LABELS;i++)CHECK(!view.labels[i]);
+ for(unsigned i=1;i<TAC_DECK_PANELS;i++)CHECK(!view.panels[i]);
+ calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,3200));CHECK(calls==invocations);
+ CHECK(!tac_deck_view_render(&view,&frame,1,0,3251));CHECK(view.failed&&!view.root&&!view.panels[0]);
+ CHECK(!handle_target(retained)&&failingObject->removed&&!failingObject->visible);
+ for(unsigned i=0;i<TAC_DECK_STYLES;i++)CHECK(!view.fonts[i]&&!view.colors[i]);
+ for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++)CHECK(!view.backgrounds[i]);
+ calls=invocations;CHECK(!tac_deck_view_render(&view,&frame,1,0,5000));CHECK(calls==invocations);
  puts("Production native view cache, metric isolation, scene replacement and failure release passed");return 0;
 }

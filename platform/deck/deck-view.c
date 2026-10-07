@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stddef.h>
 static void* call(TacDeckView* v,void* method,void* object,void** args,int* ok){
+ if(!*ok)return NULL;
  if(!method){*ok=0;return NULL;}void* exception=NULL;void* result=v->mono.mono_runtime_invoke(method,object,args,&exception);
  if(exception)*ok=0;return result;
 }
@@ -116,24 +117,58 @@ static void set_text(TacDeckView* v,uint32_t label,const char* text,int* ok){
 }
 static int styles(TacDeckView* v){
  int ok=1;
- for(unsigned i=0;i<TAC_DECK_STYLES;i++){
+ for(unsigned i=0;i<TAC_DECK_STYLES&&ok;i++){
   v->fonts[i]=object(v,v->font);v->colors[i]=object(v,v->color);if(!v->fonts[i]||!v->colors[i])return 0;
   int size=tac_deck_font_sizes[i],style=0,weight=0;void* fa[]={&size,&style,&weight};
   call(v,v->fontCtor,v->mono.mono_object_unbox(target(v,v->fonts[i])),fa,&ok);
   float r=tac_deck_ink[i][0],g=tac_deck_ink[i][1],b=tac_deck_ink[i][2],a=tac_deck_ink[i][3];
   void* ca[]={&r,&g,&b,&a};call(v,v->colorCtor,v->mono.mono_object_unbox(target(v,v->colors[i])),ca,&ok);
  }
- for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++){
+ for(unsigned i=0;i<TAC_DECK_BACKGROUNDS&&ok;i++){
   v->backgrounds[i]=object(v,v->color);if(!v->backgrounds[i])return 0;
   float r=tac_deck_background[i][0],g=tac_deck_background[i][1],b=tac_deck_background[i][2],a=tac_deck_background[i][3];
   void* ca[]={&r,&g,&b,&a};call(v,v->colorCtor,v->mono.mono_object_unbox(target(v,v->backgrounds[i])),ca,&ok);
  }
  return ok;
 }
-static void release_labels(TacDeckView* v){
- int ok=1;for(unsigned i=0;i<TAC_DECK_LABELS;i++)if(v->labels[i]){set_text(v,v->labels[i],"",&ok);call(v,v->remove,target(v,v->labels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->labels[i]);v->labels[i]=0;}
- for(unsigned i=0;i<TAC_DECK_PANELS;i++)if(v->panels[i]){uint8_t hidden=0;set(v,v->panelVisible,target(v,v->panels[i]),&hidden,&ok);call(v,v->remove,target(v,v->panels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->panels[i]);v->panels[i]=0;}
- if(v->root)v->mono.mono_gchandle_free(v->root);v->root=0;v->paintedValid=0;
+static void release_styles(TacDeckView* v){
+ for(unsigned i=0;i<TAC_DECK_STYLES;i++){
+  if(v->fonts[i])v->mono.mono_gchandle_free(v->fonts[i]);v->fonts[i]=0;
+  if(v->colors[i])v->mono.mono_gchandle_free(v->colors[i]);v->colors[i]=0;
+ }
+ for(unsigned i=0;i<TAC_DECK_BACKGROUNDS;i++){
+  if(v->backgrounds[i])v->mono.mono_gchandle_free(v->backgrounds[i]);v->backgrounds[i]=0;
+ }
+ v->initialized=0;
+}
+static int release_labels(TacDeckView* v){
+ int complete=1;
+ for(unsigned i=0;i<TAC_DECK_LABELS;i++)if(v->labels[i]){
+  int ok=1;
+  if(v->attachedLabels&(UINT64_C(1)<<i)){
+   set_text(v,v->labels[i],"",&ok);ok=1; // Try removal even if hiding failed.
+   call(v,v->remove,target(v,v->labels[i]),NULL,&ok);
+  }
+  if(!ok){complete=0;continue;}
+  v->mono.mono_gchandle_free(v->labels[i]);v->labels[i]=0;v->attachedLabels&=~(UINT64_C(1)<<i);
+ }
+ for(unsigned i=0;i<TAC_DECK_PANELS;i++)if(v->panels[i]){
+  int ok=1;
+  if(v->attachedPanels&(1u<<i)){
+   uint8_t hidden=0;set(v,v->panelVisible,target(v,v->panels[i]),&hidden,&ok);ok=1;
+   call(v,v->remove,target(v,v->panels[i]),NULL,&ok);
+  }
+  if(!ok){complete=0;continue;}
+  v->mono.mono_gchandle_free(v->panels[i]);v->panels[i]=0;v->attachedPanels&=~(1u<<i);
+ }
+ if(complete&&v->root){v->mono.mono_gchandle_free(v->root);v->root=0;}
+ v->paintedValid=0;return complete;
+}
+static int hold_cleanup(TacDeckView* v,uint64_t now){v->failed=1;v->cleanupAt=now;return 0;}
+static int fail_view(TacDeckView* v,uint64_t now){
+ hold_cleanup(v,now);
+ if(release_labels(v))release_styles(v);
+ return 0;
 }
 static int labels(TacDeckView* v,uint32_t root){
  v->root=root;if(!v->root)return 0;int ok=1;
@@ -144,7 +179,8 @@ static int labels(TacDeckView* v,uint32_t root){
   v->panels[i]=object(v,v->panel);void* p=target(v,v->panels[i]);if(!p)return 0;
   call(v,v->panelCtor,p,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenPanel_%u",i);
   set(v,v->name,p,v->mono.mono_string_new(v->domain,name),&ok);uint8_t hidden=0;
-  set(v,v->panelVisible,p,&hidden,&ok);void* args[]={p};call(v,v->append,target(v,v->root),args,&ok);
+  set(v,v->panelVisible,p,&hidden,&ok);void* args[]={p};
+  if(ok){v->attachedPanels|=1u<<i;call(v,v->append,target(v,v->root),args,&ok);}
  }
  for(unsigned i=0;i<TAC_DECK_LABELS&&ok;i++){
   v->labels[i]=object(v,v->label);void* label=target(v,v->labels[i]);if(!label)return 0;
@@ -155,19 +191,30 @@ static int labels(TacDeckView* v,uint32_t root){
   set(v,v->width,label,&yes,&ok);set(v,v->height,label,&yes,&ok);
   set(v,v->labelFont,label,v->mono.mono_object_unbox(target(v,v->fonts[item->font])),&ok);
   set(v,v->textColor,label,v->mono.mono_object_unbox(target(v,v->colors[item->ink])),&ok);
-  set_text(v,v->labels[i],"",&ok);void* args[]={label};call(v,v->append,target(v,v->root),args,&ok);
+  set_text(v,v->labels[i],"",&ok);void* args[]={label};
+  if(ok){v->attachedLabels|=UINT64_C(1)<<i;call(v,v->append,target(v,v->root),args,&ok);}
  }return ok;
 }
 int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned selected,uint64_t now){
- if(v->failed)return 0;int ok=1;
- if(!v->initialized){if(!styles(v)){v->failed=1;return 0;}v->initialized=1;}
+ if(v->failed){
+  // A transient RemoveFromParent failure must not orphan a visible backplate.
+  // Keep roots and retry only cleanup at most four times per second. Input
+  // remains disabled; do not recreate a scene or resume normal rendering.
+  if(v->root&&(now<v->cleanupAt||now-v->cleanupAt>=250)){
+   v->cleanupAt=now;if(release_labels(v))release_styles(v);
+  }
+  return 0;
+ }
+ int ok=1;
+ if(!v->initialized){if(!styles(v))return fail_view(v,now);v->initialized=1;}
  if(!v->root||now-v->checkedAt>=250){
   v->checkedAt=now;void* arg[]={v->mono.mono_string_new(v->domain,"Game")};
   void* scene=call(v,v->findScene,NULL,arg,&ok);void* root=scene&&ok?call(v,v->getRoot,scene,NULL,&ok):NULL;
-  if(!ok)return 0;if(!root){release_labels(v);return 0;}
+  if(!ok)return fail_view(v,now);if(!root){if(!release_labels(v))return hold_cleanup(v,now);return 0;}
   if(root!=target(v,v->root)){
    uint32_t pinned=v->mono.mono_gchandle_new(root,1);if(!pinned)return 0;
-   release_labels(v);if(!labels(v,pinned)){release_labels(v);v->failed=1;return 0;}v->sequence=0;v->metricsSequence=0;v->noticeSequence=0;
+   if(!release_labels(v)){v->mono.mono_gchandle_free(pinned);return hold_cleanup(v,now);}
+   if(!labels(v,pinned))return fail_view(v,now);v->sequence=0;v->metricsSequence=0;v->noticeSequence=0;
   }
  }
  int menuChanged=!v->paintedValid||v->sequence!=f->sequence||v->selected!=selected||v->open!=open||v->flags!=f->flags;
@@ -175,7 +222,7 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
  int noticeChanged=v->noticeSequence!=f->notice.sequence||v->noticeVisible!=!!noticeVisible;
  if(!menuChanged&&v->metricsSequence==f->metricsSequence&&!noticeChanged)return 1;
  TacDeckLayout layout;tac_deck_layout(f,open,selected,&layout);
- for(unsigned i=0;i<TAC_DECK_LABELS;i++){
+ for(unsigned i=0;i<TAC_DECK_LABELS&&ok;i++){
   const TacDeckText* current=&layout.labels[i];const TacDeckText* previous=&v->painted.labels[i];
   if(!v->paintedValid||strcmp(current->text,previous->text))set_text(v,v->labels[i],current->text,&ok);
   if(!v->paintedValid||current->ink!=previous->ink){
@@ -183,7 +230,7 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
    set(v,v->textColor,target(v,v->labels[i]),color,&ok);
   }
  }
- for(unsigned i=0;i<TAC_DECK_PANELS;i++){
+ for(unsigned i=0;i<TAC_DECK_PANELS&&ok;i++){
   const TacDeckPanel* current=&layout.panels[i];const TacDeckPanel* previous=&v->painted.panels[i];void* p=target(v,v->panels[i]);
   if(!p){ok=0;break;}
   if(!v->paintedValid||current->x!=previous->x){float x=current->x;set(v,v->x,p,&x,&ok);}
@@ -193,7 +240,7 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
   if(!v->paintedValid||current->ink!=previous->ink)set(v,v->panelColor,p,v->mono.mono_object_unbox(target(v,v->backgrounds[current->ink])),&ok);
   if(!v->paintedValid||current->visible!=previous->visible){uint8_t visible=(uint8_t)current->visible;set(v,v->panelVisible,p,&visible,&ok);}
  }
- if(!ok){release_labels(v);v->failed=1;return 0;}
+ if(!ok)return fail_view(v,now);
  v->painted=layout;v->paintedValid=1;
  v->sequence=f->sequence;v->metricsSequence=f->metricsSequence;v->noticeSequence=f->notice.sequence;v->noticeVisible=!!noticeVisible;
  v->selected=selected;v->open=open;v->flags=f->flags;return 1;

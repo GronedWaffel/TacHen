@@ -33,3 +33,17 @@ The lower-firmware gate must change only with exact wrapper/layout evidence or
 a verified interface that avoids the unstable structures. No offsets were
 guessed, no firmware probe was sent to the console, and no native package call
 was made during this review. Console acceptance remains the final phase.
+
+
+Follow-up local inspection found Neighborhood's saved 65,536-byte executable
+mapping for libSceAppInstUtil (SHA-256
+`098cb67d05e98d729cd3f945b01731feb7cecd56f5bfca9a3fb359100cae7402`).
+The original companion source at commit cbafd8a identifies the saved anchor as
+GetPatchInstallStatus. Its path submits a 0x2c8-byte output buffer through IPC.
+This confirms the existing 13.60 buffer-size evidence, not the field layout
+returned by another firmware's ShellCore. Hashing only the client library would
+not establish that server-side layout, so no cross-firmware capability was
+enabled from that fingerprint. The capture is private and not redistributed.
+The saved ShellUI application IL contains AppInst wrapper references but does
+not supply the required install/status wrapper definitions. No console probe
+or installation was performed for this follow-up.

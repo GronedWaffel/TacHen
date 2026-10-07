@@ -1987,3 +1987,36 @@ Runtime **9,121,496 bytes**, SHA-256 `e4e39cd2bfe41d4f3716fa7b694277e56c233cc9b0
 Launcher **9,282,624 bytes**, SHA-256 `59a284c1949904386fc9a271b4cf5af721204b0c1c181ccede05651578dfda05`.
 Update package **9,121,752 bytes**, SHA-256 `c7708115eafd1d008258a0bf7974ef456fb9ba91b0a31af79d2806b44cf98933`.
 Source fingerprint `a421ee81c316cdcddce863c5e302cd8321a7fb681a41c27cf35e9b12eadefff9`.
+
+
+## Checkpoint 39 — retain failed UI cleanup until removal succeeds
+
+Managed exceptions now stop the current widget setup/render sequence. Attachment
+intent is tracked before AppendChild, so an exception after a partial attachment
+still causes removal. A constructor failure never appends the half-created object.
+Cleanup independently tries hiding and removing each widget; one exception does
+not skip the other widgets. A failed removal retains its GC handle and scene root
+instead of orphaning a possibly visible panel. Normal rendering/input stays
+failed while cleanup retries at most every 250 ms. Once removal succeeds, all
+remaining widget and style roots are freed. The render callback continues this
+cleanup even after its network worker stops; it does not restart the worker or
+re-enable input. Unchanged healthy frames retain their existing idle cache.
+
+All **355 local tests**, the production build, embedded-asset checks and QuickJS
+checks pass. The expanded native boundary fixture injects constructor, text,
+hide and removal exceptions, checks that unrelated widgets still detach, proves
+the failed object remains rooted, and verifies delayed cleanup without normal
+render recovery. The process-link audit again finds zero legacy references in
+all five artifacts. Results are in `.local/checkpoint39-*`; native PUI behavior
+still requires final console acceptance.
+
+Additional local AppInst capture analysis did not establish older-firmware
+server-side status field layouts. The native installer gate remains 13.60;
+PACKAGE-ABI-REVIEW.md records why a client-code hash alone cannot lift it.
+Remaining compatibility work and hardware acceptance keep the full goal active.
+No console connection, release or deployment occurred.
+
+Runtime **9,121,496 bytes**, SHA-256 `6eee031298a80764944c8333af2426e7f0bf4f1fe3ea2afdf553ebd742b4586c`.
+Launcher **9,282,624 bytes**, SHA-256 `ee82682b8d8e881a4417dd02354f735abee5e489d53f12e3a4ad41ca4ac3dbf5`.
+Update package **9,121,752 bytes**, SHA-256 `b700630b920908a72302138ed2907afef62b53d22082f3ec741f7157ce63dc09`.
+Source fingerprint `89c7846a2dd1187c3c6dc697916f5abb48788f8056bdfd80d427832f73eb0c6f`.

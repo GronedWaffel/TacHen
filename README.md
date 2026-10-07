@@ -166,9 +166,10 @@ The coordinator also embeds `build/tachen-deck.elf`, an internal ShellUI module
 with controller navigation and a shared phone/console command bridge. It starts
 after verified kstuff and requires a fresh render heartbeat before exposing deck
 or IP-overlay controls. The internal module is injected by the coordinator; it is
-not a separately loadable user payload. Its initial list presentation, managed
-metadata checks, injector and game-input handoff are cross-built only. Final
-visual design and console acceptance remain unfinished; all console testing is
+not a separately loadable user payload. Its panel-based navigation, selection details, managed
+metadata checks, injector and game-input handoff are implemented and cross-built.
+The production layout has a local visual preview; console rendering, controller
+behavior and final visual acceptance remain unverified. All console testing is
 deferred.
 
 Before starting Payload Manager, TacHen backs up its existing configuration and

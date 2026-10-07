@@ -29,7 +29,7 @@ static void render(void* instance){
  originalUpdate(instance);
  if(__atomic_exchange_n(&rendering,1,__ATOMIC_ACQ_REL))return;
  if(!__atomic_load_n(&workerRunning,__ATOMIC_ACQUIRE)){
-  if(__atomic_exchange_n(&ready,0,__ATOMIC_ACQ_REL)){
+  if(__atomic_exchange_n(&ready,0,__ATOMIC_ACQ_REL)||(view.failed&&view.root)){
    TacDeckFrame empty={0};tac_deck_view_render(&view,&empty,0,0,millis());
   }
   __atomic_store_n(&visible,0,__ATOMIC_RELEASE);__atomic_store_n(&rendering,0,__ATOMIC_RELEASE);return;
