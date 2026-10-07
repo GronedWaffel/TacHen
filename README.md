@@ -77,10 +77,14 @@ actual console storage behavior remains untested.
 The Packages tab can stage complete PS4/PS5 PKGs separately from payloads, up to
 1 TiB subject to real free space. Uploads use bounded resumable chunks; checksum
 verification runs as a cancellable background job and can check an expected
-SHA-256. The payload and package inboxes share capacity reservations. **Native
-PKG installation is not wired yet**: a verified upload is explicitly not an
-installation. The existing Neighborhood install ABI is verified on 13.60 only;
-its older-firmware status layouts need separate evidence before enabling them.
+SHA-256. The payload and package inboxes share capacity reservations. On 13.60,
+verified entries can queue an isolated native installer helper. It hashes the
+source again, submits once, and records observed transfer progress and complete
+status. Phone disconnects do not cancel it or cause duplicate submissions. The
+helper is cross-built and **not hardware tested**. Other firmware currently retains
+staging only: older installer layouts still need independent ABI evidence.
+An API acceptance or a stale playable status is never presented as a successful
+new installation. An uncertain result holds the operation and retains its source.
 
 FTP uploads into `/payloads` are copied into the verified inbox after the transfer
 has committed. Other FTP files are ordinary transfers. Invalid payloads remain in

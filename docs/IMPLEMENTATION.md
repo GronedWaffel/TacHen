@@ -309,3 +309,50 @@ Next work is a serialized native installer with durable receipts, progress and
 source lifetime, plus explicit ABI checks/adaptation for the other target firmware.
 The complete package requirement and all other previously open integrations remain
 in scope; no replacement-HEN or hardware-completion claim is made.
+
+## Seventh implementation checkpoint: isolated package installer
+
+2026-10-07: **123 local tests pass**. An embedded native package helper and the
+phone's Install package action are integrated for the evidenced **13.60 ABI only**.
+This is source/build completion for that adapter, not hardware acceptance or
+completion of the full cross-firmware package requirement. No console was contacted.
+
+- A dedicated helper process owns Sony installer calls, temporary credentials,
+  retained marshaller arguments and package file handle. Every installer call has
+  a 12-second process watchdog. A stalled call can end the helper without ending
+  the phone/deck coordinator. This cannot intercept or recover a kernel failure.
+- Parent dispatch uses the existing guarded native loader. Only the brief spawn
+  owns its SDK exclusion; the long checksum/install work does not hold the
+  coordinator's native-operation guard. Child exit is reaped without blocking.
+- The helper validates boot identity, request checksum, package/header bounds,
+  exact content/type/platform/patch fields, full SHA-256 and file identity before
+  submitting. A private flock prevents simultaneous helper ownership. Durable
+  launch/submission intent precedes effects, and accepted requests are never
+  automatically replayed after a disconnect, interrupted process or reboot.
+- Receipts bind request, upload, hash, content and console boot. Status is observed
+  with the appropriate base/patch API. An existing incomplete same-content install
+  blocks a new submission. Completion requires accepted identity, observed changed
+  partial transfer, and two complete status samples; PS4 totals must match input
+  package length. A playable initial chunk alone is not completion.
+- This deliberately conservative proof can leave a very fast install uncertain
+  if all transfer finished before the first status sample, or if the service does
+  not expose byte progress. The phone explains uncertainty, retains the source,
+  and never retries blindly. A better installer task identity/receipt would allow
+  those cases to be established without weakening the stale-base guard. It remains
+  part of final installer refinement and hardware acceptance.
+- Phone installation jobs survive browser disconnection. Missing/stale/foreign
+  receipts retain resource exclusion; reconciliation can adopt a later confirmed
+  completion without relaunching. Active native installation is not cancellable
+  in this checkpoint. Upload and verification cancellation remain separate.
+- Native C tests execute actual parser/request/tracker code on Windows, including
+  large-offset and integer-overflow fixtures. Coordinator tests cover native
+  acceptance vs completion, preflight rejection, changed receipts, lost heartbeat,
+  duplicate requests and late reconciliation. Mock adapter tests do not establish
+  the console API's behavior. All three ELFs cross-build; the embedded QuickJS
+  portable smoke check passes. The standalone helper is an internal component,
+  not a user payload or independently usable installer.
+
+Still required: source-backed adaptation of older firmware installer ABIs,
+actual console installation/fast-completion/restart acceptance, and remaining
+native plugin, cheat/save, in-game input/rendering, telemetry, MCP, loadout and
+update integrations. The overall goal remains active and hardware tests deferred.

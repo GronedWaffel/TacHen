@@ -8,6 +8,7 @@ import { TacRuntime } from '../src/runtime.mjs';
 import { serve } from '../src/server.mjs';
 import { PayloadInbox } from '../src/inbox.mjs';
 import { installPackageInbox } from '../src/package-inbox.mjs';
+import { installPackageInstaller } from '../src/package-install.mjs';
 import { startFtp } from '../src/ftp.mjs';
 import { installPayloadLoader } from '../src/payload-loader.mjs';
 import { ftpInboxReceiver } from '../src/ftp-inbox.mjs';
@@ -29,6 +30,7 @@ globalThis.__ready = (async () => {
       runtime.inbox = await new PayloadInbox('/data/tachen/inbox', { id }).init();
       runtime.inboxItems = await runtime.inbox.list();
       await installPackageInbox(runtime, '/data/tachen/packages');
+      installPackageInstaller(runtime, __native);
       runtime.capability('inbox', true, 'Resumable file upload and verification.');
       installPayloadLoader(runtime, __native);
       runtime.graph.register({ id: 'coordinator', start: async () => ({ session: runtime.session }),

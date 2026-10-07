@@ -55,10 +55,10 @@ function draw() {
   $('#package-stop').disabled = !packageUploading;
   $('#package-install-status').textContent = capability('packages')?.available
     ? 'Verified packages can be queued for background installation.'
-    : 'This development build stages and verifies packages. Native installation is still being integrated.';
+    : capability('packages')?.reason || 'Native installation is still being integrated.';
   $('#package-items').replaceChildren(...(state.packages?.length ? state.packages.map(item => {
     const node = row(item.name, `${formatBytes(item.offset)} / ${formatBytes(item.bytes)}`, item.status, item.status === 'verified');
-    const active = state.jobs.some(job => job.kind === 'package.verify' && job.resources.includes('package-file:' + item.id) && !['completed', 'cancelled', 'failed'].includes(job.status));
+    const active = state.jobs.some(job => job.resources.includes('package-file:' + item.id) && !['completed', 'cancelled', 'failed'].includes(job.status));
     if (item.status === 'uploading' && item.offset < item.bytes) {
       const resume = el('button', '', 'Resume upload'); resume.disabled = packageUploading;
       resume.onclick = () => { packageResume = item; $('#package-progress').textContent = `Choose the exact original file for ${item.name} to resume.`; $('#package-file').click(); }; node.append(resume);
@@ -66,6 +66,10 @@ function draw() {
     if (item.status === 'uploading' && item.offset === item.bytes) {
       const verify = el('button', '', active ? 'Verification in Activity' : 'Verify package'); verify.disabled = active;
       verify.onclick = () => command('job.enqueue', { kind: 'package.verify', input: { id: item.id }, key: requestKey() }); node.append(verify);
+    }
+    if (item.status === 'verified' && capability('packages')?.available) {
+      const install = el('button', '', active ? 'Installation in Activity' : 'Install package'); install.disabled = active;
+      install.onclick = () => command('job.enqueue', { kind: 'package.install', input: { id: item.id }, key: requestKey() }); node.append(install);
     }
     return node;
   }) : [el('p', 'empty', 'Package uploads will appear here.') ]));
@@ -85,7 +89,7 @@ function draw() {
   }) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
-    const title = { 'package.verify': 'Verify package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
+    const title = { 'package.verify': 'Verify package', 'package.install': 'Install package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
       'payload.dispatch': 'Load payload', 'deck.start': 'Start command deck' }[job.kind] || job.kind;
     const node = row(title, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
       job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');

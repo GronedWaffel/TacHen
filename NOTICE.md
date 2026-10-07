@@ -77,3 +77,15 @@ The opaque Mono declarations were checked against the public
 [Mono object API](https://github.com/mono/mono/blob/main/mono/metadata/object.h).
 These references document interfaces and provenance; they do not establish the
 PS5 firmware-specific managed signatures or hardware compatibility.
+
+The isolated package helper uses the GPL PS Neighborhood installer ABI and service
+contract from `receiver-ps5/install-abi.h` (SHA-256
+`26e42938f274ac5b3e498dd08959f234b701c713b27f9ae64cd859681b4039a3`) and
+`receiver-ps5/services.h` (SHA-256
+`6582c6bbe030ef9a22d330d4ce21123b51c99b9ed61f46f0c87dfd22f6955c5d`),
+at GronedWaffel/ps-neighborhood source commit
+`29e3e8e331aaa021555ea15bcbe571960727767b`.
+TacHen adds its own isolated lifetime, preflight hashing, checksummed durable
+receipts, duplicate guards, status tracker and coordinator integration. The
+package parser shares the CNT/FIH provenance recorded above. Original upstream
+credit and license obligations continue to apply; no new firmware ABI is claimed.
