@@ -509,3 +509,72 @@ ownership, exact title/version checks at dispatch, coordinator/UI arming and
 result reconciliation. The callback counters are input-call observations, **not
 FPS**. In-game rendering/input arbitration and the remaining full TacHen scope
 remain unfinished. Overall goal remains active.
+
+## Eleventh implementation checkpoint: game module lifecycle
+
+2026-10-07: **159 local tests pass**. The real QuickJS engine also passes the
+updated registration and module receipt contract smoke check. The coordinator
+cross-build is 8,489,176 bytes, SHA-256
+`456911fd0137130d276e503b73def62ea7708f17f3865f2e1792f03ea0c1ce3d`.
+The callback is now 784 bytes, SHA-256
+`40bfa9862b5343e4115d89e76cccf63d0ab3a768b0fbbf918b0f0927bb3f9572`.
+No console connection, console read or hardware test was performed. Nothing was
+published or deployed, and the existing stable projects were not edited.
+
+- Native `.prx`/`.sprx` registration, manual start and game/version autostart are
+  connected to a dedicated game-module job adapter, not the standalone `.plugin`
+  process loader. Arming autostart works before the game opens. A live load needs
+  the exact platform, title, mounted version and process birth identity.
+- The native worker owns the global native-operation guard before starting its
+  thread. It hashes the complete input buffer, validates native dynamic ELF/SELF
+  bounds, platform, mappings and dynamic metadata, and compares the running
+  metadata digest with the coordinator's accepted game version. Unexpected
+  imports or initializer failures remain the console loader's responsibility.
+- Source review caught a visibility issue before hardware testing: a game cannot
+  be assumed to see the coordinator's private `/data` tree. The shared native
+  metadata reader now exposes a descriptor for the uniquely matched running
+  sandbox. The worker stages read-only, hash-named files into that sandbox's
+  `tachen-modules` directory through descriptor-relative, no-symlink operations.
+  The callback uses `/tachen-modules/<hash>.prx` or `.sprx` from the game's own
+  root. Private session receipts remain in `/data/tachen/modules`. No global
+  mount, ShellCore data-access patch or game credential widening is introduced.
+- Checksummed per-game records capture arena ownership, exact metadata digest,
+  up to eight slot attempts, request/file hashes and both loader results. Durable
+  intent precedes injection and slot publication. Interrupted arena creation
+  blocks reinjection. A pending slot is written while all target threads are
+  stopped, read back, then enabled and read back again. Partial failure restores
+  the empty slot before resume; uncertain rollback or resume stays held.
+- Native result inspection requires matching process generation, ownership
+  cookie, exact staged path and two matching slot snapshots. A nonnegative handle
+  with negative initializer status is not success and is not assumed unloaded.
+  Interrupted slot publication can reconcile an initializer result from its
+  retained control block, without replaying it.
+- The coordinator distinguishes pending, initialized, rejected and unresolved
+  operations. It blocks duplicate attempts in a game instance. A complete native
+  census proving that the old instance ended can settle held jobs, allowing
+  autostart in a new instance; missing identity or a busy census is not exit.
+  Turning off autostart does not pretend to unload resident modules or undo their
+  patches. No universal module-unload ABI is claimed.
+- Host tests execute the real container parser, session checksum decoder and
+  stopped-slot publication primitive, including malformed SELF/ELF, overlapping
+  mappings, stale cookies, busy callbacks, partial writes and failed rollback.
+  Coordinator tests cover exact targeting, game restart, changed context, failed
+  initialization with a positive handle, timeout, disabling queued autostart,
+  wrong-instance receipts and reconciliation after exit/reboot. Actual native
+  loader calls remain unexecuted; mock API responses test contracts only.
+- The phone flow was exercised against a localhost fixture using the actual
+  server/UI: register a module, verify exact target fields and toggle autostart.
+  At a 390-pixel viewport it had no horizontal overflow or browser errors.
+  `build/prx-phone.png` records that check. The temporary server and browser tab
+  were closed afterward. No native operation was run by the fixture.
+
+The build manifest now truthfully reports `coordinatorWired: true` and
+`injectionIntegrated: true` for game modules, with `hardwareVerified: false` and
+`completeHen: false`. Deferred acceptance must verify real game sandbox access
+and cleanup, imported module dependencies, PS4/PS5 module initialization, controller
+behavior during initialization, shutdown/relaunch and absence of old-process
+writes. Coordinator code also still needs the broader SDK process-cache audit
+recorded in checkpoint ten, native cheat/MCP memory leases, FPS/resource overlays,
+save operations, loadout application, update recovery, controller plugin controls,
+safe plugin stop/restart and the remaining package firmware adapters. The overall
+TacHen goal is active and unfinished.

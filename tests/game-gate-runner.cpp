@@ -12,7 +12,7 @@ static Gate gate;
 static TacGameGate *control;
 static int calls,handle=7,startResult;
 static int TAC_GAME_SYSV load(const char* path,uint64_t bytes,const void* args,unsigned flags,const void* options,int* result){
-  CHECK(!strncmp(path,"/data/tachen/modules/",21));CHECK(bytes==0&&args==NULL&&flags==0&&options==NULL&&result);
+  CHECK(!strncmp(path,TAC_GAME_MODULE_PREFIX,strlen(TAC_GAME_MODULE_PREFIX)));CHECK(bytes==0&&args==NULL&&flags==0&&options==NULL&&result);
   calls++;
   // Module initializers may themselves call pad functions. This reentrant
   // callback must not recursively initialize a second module.
@@ -20,7 +20,7 @@ static int TAC_GAME_SYSV load(const char* path,uint64_t bytes,const void* args,u
 }
 static void slot(unsigned index,const char* suffix="prx"){
   TacGameModule *s=&control->modules[index];memset(s,0,sizeof *s);s->enabled=1;s->handle=-1;
-  strcpy(s->path,"/data/tachen/modules/");memset(s->path+21,'a'+index,64);snprintf(s->path+85,171,".%s",suffix);
+  const size_t prefix=strlen(TAC_GAME_MODULE_PREFIX);strcpy(s->path,TAC_GAME_MODULE_PREFIX);memset(s->path+prefix,'a'+index,64);snprintf(s->path+prefix+64,sizeof s->path-prefix-64,".%s",suffix);
 }
 static void reset(void){
   memset(control,0,sizeof *control);control->magic=TAC_GAME_GATE_MAGIC;control->cookie=0x123456789abcdef;
@@ -44,8 +44,8 @@ int main(int argc,char **argv){
   reset();slot(0);startResult=-1;gate(control,control->cookie,0);CHECK(calls==1&&control->modules[0].state==TAC_MODULE_FAILED&&control->modules[0].handle==7);
   startResult=0;gate(control,control->cookie,0);CHECK(calls==1); // A resident-but-failed initializer is never replayed.
   reset();slot(0);handle=-1;gate(control,control->cookie,0);CHECK(control->modules[0].state==TAC_MODULE_FAILED);
-  reset();slot(0);control->modules[0].path[21]='Z';gate(control,control->cookie,0);CHECK(calls==0&&control->modules[0].state==TAC_MODULE_REJECTED);
-  reset();slot(0);control->modules[0].path[89]='x';gate(control,control->cookie,0);CHECK(calls==0&&control->modules[0].state==TAC_MODULE_REJECTED);
+  reset();slot(0);control->modules[0].path[strlen(TAC_GAME_MODULE_PREFIX)]='Z';gate(control,control->cookie,0);CHECK(calls==0&&control->modules[0].state==TAC_MODULE_REJECTED);
+  reset();slot(0);control->modules[0].path[strlen(control->modules[0].path)]='x';gate(control,control->cookie,0);CHECK(calls==0&&control->modules[0].state==TAC_MODULE_REJECTED);
   reset();slot(0);control->modules[0].path[0]='X';gate(control,control->cookie,0);CHECK(calls==0&&control->modules[0].state==TAC_MODULE_REJECTED);
   // Tail-call a relocated pad-like entry; original integer args must survive
   // the gate's different args and arbitrary initializer call-clobbered state.

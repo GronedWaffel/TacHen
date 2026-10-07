@@ -37,7 +37,8 @@ await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@pro
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
-      'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c'].map(file => 'platform/native/' + file),
+      'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
+      'prx-image.c', 'module-session.c', 'module-worker.c'].map(file => 'platform/native/' + file),
   'platform/game/game-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
@@ -89,7 +90,7 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
-  gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: false },
+  gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: false },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),

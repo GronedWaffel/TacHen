@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+#include <stddef.h>
+int tac_game_identity(int pid,const char *generation,const char *title);
+// Open the uniquely matched, non-symlink running sandbox directory. Caller
+// closes the descriptor and uses descriptor-relative paths beneath it.
+int tac_game_sandbox_open(int pid,const char *generation,const char *title,char *reason,size_t capacity);
+// Caller frees *bytes. Requires native operation ownership when called from a
+// worker. The metadata digest binds JS's exact version to the native operation.
+int tac_game_metadata_read(int pid,const char *generation,const char *title,
+  unsigned char **bytes,size_t *length,char *reason,size_t capacity);

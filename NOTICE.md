@@ -126,3 +126,11 @@ copyright John Törnblom, GPL-3.0-or-later. TacHen adds a bounded fresh-process-
 comparison before using cached SDK process pointers in the new game injector.
 The callback control ABI, slot validation and host execution tests are TacHen
 code; these checks do not establish PS5 runtime compatibility.
+
+Native PRX/SELF structural validation additionally references the GPL etaHEN
+port's `include/port_prx.h` (SHA-256
+`3f11d3a1624143095f25c2395ff50cc798808529566f8181bc23bcdfd0bd059b`).
+TacHen's complete-buffer validation, immutable staging, checksummed game-instance
+receipts, stopped-slot publication/rollback and coordinator recovery are new
+implementations. Structural acceptance does not establish compatible imports or
+successful execution of a particular third-party module.

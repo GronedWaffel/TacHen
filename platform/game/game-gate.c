@@ -18,9 +18,9 @@ void TAC_GAME_SYSV tac_game_gate(TacGameGate *control,uint64_t cookie,unsigned l
     TacGameModule *slot=&control->modules[i];unsigned pending=TAC_MODULE_PENDING;
     if(!__atomic_load_n(&slot->enabled,__ATOMIC_ACQUIRE)||
        !__atomic_compare_exchange_n(&slot->state,&pending,TAC_MODULE_STARTING,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))continue;
-    // Only content-addressed, private staged module paths are accepted. This
+    // Only content-addressed, sandbox-staged module paths are accepted. This
     // guards a partially written slot without doing filesystem I/O on input.
-    const char prefix[]="/data/tachen/modules/";unsigned at=0;int valid=1;
+    const char prefix[]=TAC_GAME_MODULE_PREFIX;unsigned at=0;int valid=1;
     for(;at<sizeof prefix-1;at++)if(slot->path[at]!=prefix[at])valid=0;
     for(unsigned n=0;n<64;n++,at++){unsigned c=(unsigned char)slot->path[at];if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))valid=0;}
     if(slot->path[at++]!='.')valid=0;

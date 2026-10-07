@@ -85,27 +85,29 @@ function draw() {
       button.onclick = () => command('job.enqueue', { kind: 'payload.dispatch', input: { id: item.id }, key: requestKey() });
       node.append(button);
     }
-    if (item.status === 'verified' && /\.plugin$/i.test(item.name) && Array.isArray(state.plugins)) {
+    if (item.status === 'verified' && /\.(plugin|prx|sprx)$/i.test(item.name) && Array.isArray(state.plugins)) {
       const button = el('button', '', 'Register plugin'); button.disabled = state.plugins.some(plugin => plugin.upload === item.id);
       button.onclick = () => pluginDialog(item); node.append(button);
     }
     return node;
   }) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
   $('#plugin-items').replaceChildren(...(state.plugins?.length ? state.plugins.map(item => {
-    const detail = `${item.pluginId} · ${item.pluginVersion} · ${item.target ? item.target.titleId + ' / ' + item.target.version : 'System / game watcher'}`;
-    const node = row(item.name, detail, item.observation.phase, item.observation.phase === 'process-active');
+    const module = ['prx', 'sprx'].includes(item.format);
+    const detail = `${module ? item.format.toUpperCase() + ' · ' + item.platform.toUpperCase() : item.pluginId + ' · ' + item.pluginVersion} · ${item.target ? item.target.titleId + ' / ' + item.target.version : 'System / game watcher'}`;
+    const node = row(item.name, detail, item.observation.phase, ['process-active', 'module-started'].includes(item.observation.phase));
     node.classList.add('plugin-row');
     node.append(el('p', 'fine', item.observation.message));
     const start = el('button', '', 'Start now'), automatic = el('button', '', item.autostart ? 'Disable autostart' : 'Enable autostart');
     start.disabled = state.safe || !['stopped', 'armed', 'uninspected', 'failed', 'held', 'cancelled'].includes(item.observation.phase);
-    start.onclick = () => command('job.enqueue', { kind: 'plugin.start', input: { sha256: item.sha256, source: 'manual' }, key: requestKey() });
+    if (module && (state.game?.titleId !== item.target.titleId || state.game?.version !== item.target.version)) start.disabled = true;
+    start.onclick = () => command('job.enqueue', { kind: module ? 'game.module.start' : 'plugin.start', input: { sha256: item.sha256, source: 'manual' }, key: requestKey() });
     automatic.onclick = () => command('plugin.configure', { sha256: item.sha256, autostart: !item.autostart, revision: state.revision });
     const actions = el('div', 'actions'); actions.append(start, automatic); node.append(actions); return node;
   }) : [el('p', 'empty', Array.isArray(state.plugins) ? 'No plugins registered yet.' : 'Plugin loading requires the console runtime.') ]));
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
     const title = { 'package.verify': 'Verify package', 'package.install': 'Install package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
-      'payload.dispatch': 'Load payload', 'plugin.start': 'Start plugin', 'deck.start': 'Start command deck' }[job.kind] || job.kind;
+      'payload.dispatch': 'Load payload', 'plugin.start': 'Start plugin', 'game.module.start': 'Load game module', 'deck.start': 'Start command deck' }[job.kind] || job.kind;
     const node = row(title, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
       job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');
     node.classList.add('job-row');
@@ -129,9 +131,11 @@ function draw() {
   }
 }
 function pluginDialog(item) {
+  const module = /\.(prx|sprx)$/i.test(item.name);
   const dialog = el('dialog', 'storage-dialog'), form = el('form'), scope = el('select'), title = el('input'), version = el('input');
   const revision = state.revision, status = el('p', 'fine'), start = el('button', '', 'Register plugin'), cancel = el('button', '', 'Cancel');
   for (const [value, text] of [['system', 'System / game watcher'], ['game', 'Autostart for a specific game']]) {
+    if (module && value !== 'game') continue;
     const option = el('option', '', text); option.value = value; scope.append(option);
   }
   title.placeholder = 'Title ID, e.g. PPSA00001'; title.maxLength = 9; title.value = state.game?.titleId || '';
@@ -141,7 +145,9 @@ function pluginDialog(item) {
   const update = () => { titleLabel.hidden = versionLabel.hidden = scope.value !== 'game'; }; scope.onchange = update; update();
   start.type = 'submit'; cancel.type = 'button'; cancel.onclick = () => dialog.close();
   const actions = el('div', 'actions'); actions.append(start, cancel);
-  form.append(scopeLabel, titleLabel, versionLabel, el('p', 'fine', 'Game targeting controls when TacHen starts a plugin. The plugin itself must support your game and firmware.'), status, actions);
+  form.append(scopeLabel, titleLabel, versionLabel, el('p', 'fine', module ?
+    'This module loads inside the exact target game. Enable autostart to arm it before opening that game. It remains resident until the game closes.' :
+    'Game targeting controls when TacHen starts a plugin. The plugin itself must support your game and firmware.'), status, actions);
   form.onsubmit = async event => {
     event.preventDefault(); start.disabled = true;
     try {

@@ -1,0 +1,214 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// A PRX load is tied to a durable game-instance receipt. Never infer successful
+// module initialization merely from hook publication or a positive handle.
+#include "quickjs.h"
+#include "module-session.h"
+#include "prx-image.h"
+#include "game-inject.h"
+#include "game-source.h"
+#include "game-info.h"
+#include "native-operation.h"
+#include "process-current.h"
+#include "kstuff-probe.h"
+#include "sha256.h"
+#include "pt.h"
+#include <pthread.h>
+#include <ps5/kernel.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define ROOT "/data/tachen/modules"
+static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
+static TacModuleSession current;static unsigned currentSlot;static int running;
+static void sha_hex(const void *bytes,size_t length,char out[65]){
+  SHA256_CTX h;unsigned char digest[32];sha256_init(&h);sha256_update(&h,bytes,length);sha256_final(&h,digest);
+  for(unsigned i=0;i<32;i++)snprintf(out+i*2,3,"%02x",digest[i]);
+}
+static int directory(void){
+  if(mkdir(ROOT,0700)&&errno!=EEXIST)return -1;
+  return open(ROOT,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+}
+static void receipt_name(const char *generation,char name[96]){char hash[65];sha_hex(generation,strlen(generation),hash);snprintf(name,96,"%s.session",hash);}
+static int transfer(int fd,void *buffer,size_t size,int writing){
+  unsigned char *p=buffer;while(size){ssize_t n=writing?write(fd,p,size):read(fd,p,size);if(n<0&&errno==EINTR)continue;if(n<=0)return -1;p+=n;size-=(size_t)n;}return 0;
+}
+static int load(const char *generation,TacModuleSession *s){
+  char name[96];receipt_name(generation,name);int dir=directory();if(dir<0)return -1;
+  int fd=openat(dir,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);int saved=errno;close(dir);errno=saved;if(fd<0)return -1;
+  TacModuleSession raw;struct stat st;int bad=fstat(fd,&st)||!S_ISREG(st.st_mode)||st.st_size!=sizeof raw||transfer(fd,&raw,sizeof raw,0);close(fd);
+  if(bad||tac_module_decode(&raw,sizeof raw,generation,s)){errno=EINVAL;return -1;}return 0;
+}
+static int save(TacModuleSession *s){
+  tac_module_seal(s);char name[96],temp[104];receipt_name(s->generation,name);snprintf(temp,sizeof temp,"%s.tmp",name);
+  int dir=directory();if(dir<0)return -1;int fd=openat(dir,temp,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW,0600);
+  if(fd<0){close(dir);return -1;}int bad=transfer(fd,s,sizeof *s,1)||fsync(fd);if(close(fd))bad=1;
+  if(!bad)bad=renameat(dir,temp,dir,name)||fsync(dir);close(dir);return bad?-1:0;
+}
+static void publish(const TacModuleSession *s){pthread_mutex_lock(&mutex);current=*s;pthread_mutex_unlock(&mutex);}
+static int transition(TacModuleSession *s,unsigned slot,unsigned stage,int clean,const char *message){
+  TacModuleReceipt *r=&s->slots[slot];r->stage=stage;r->clean=clean;snprintf(r->message,sizeof r->message,"%s",message);
+  int result=save(s);
+  if(result){r->stage=TAC_PRX_UNKNOWN;r->clean=0;snprintf(r->message,sizeof r->message,"Module operation receipt could not be saved; no retry was issued");}
+  publish(s);return result;
+}
+static int identity(void *arg){TacModuleSession *s=arg;return tac_game_identity(s->pid,s->generation,s->title);}
+static int metadata_matches(TacModuleSession *s,char *reason){
+  unsigned char *bytes=NULL;size_t size=0;
+  if(tac_game_metadata_read(s->pid,s->generation,s->title,&bytes,&size,reason,192))return 0;
+  char hash[65];sha_hex(bytes,size,hash);free(bytes);
+  if(strcmp(hash,s->metadataHash)){snprintf(reason,192,"Mounted game version changed before the native operation");return 0;}return 1;
+}
+static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,char *reason){
+  int inbox=open("/data/tachen/inbox",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);if(inbox<0)return -1;
+  char name[64];snprintf(name,sizeof name,"%s.payload",r->upload);int fd=openat(inbox,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);close(inbox);
+  if(fd<0)return -1;struct stat st;unsigned char *bytes=NULL;int bad=1;
+  if(fstat(fd,&st)||!S_ISREG(st.st_mode)||st.st_size<64||st.st_size>128*1024*1024)goto done;
+  size_t size=(size_t)st.st_size;bytes=malloc(size);if(!bytes||transfer(fd,bytes,size,0))goto done;
+  char hash[65];sha_hex(bytes,size,hash);if(strcmp(hash,r->sha256)){snprintf(reason,192,"Module changed after inbox verification");goto done;}
+  int actual;if(tac_prx_inspect(bytes,size,&actual,reason,192))goto done;
+  if(actual&&actual!=platform){snprintf(reason,192,"Module container targets a different console platform than this game");goto done;}
+  // The game opens this through its own sandbox root. Do not depend on a
+  // global /data mount or widen access to the coordinator's private records.
+  int root=tac_game_sandbox_open(s->pid,s->generation,s->title,reason,192);if(root<0)goto done;
+  int created=mkdirat(root,"tachen-modules",0755)==0;
+  if(!created&&errno!=EEXIST){close(root);snprintf(reason,192,"The game sandbox cannot stage a module directory");goto done;}
+  int dir=openat(root,"tachen-modules",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);close(root);if(dir<0)goto done;
+  struct stat folder;if((created&&fchmod(dir,0755))||fstat(dir,&folder)||!S_ISDIR(folder.st_mode)||(folder.st_mode&0022)||(folder.st_mode&0005)!=0005){close(dir);snprintf(reason,192,"Game module directory permissions are not suitable for verified staging");goto done;}
+  char final[80],temp[80];snprintf(final,sizeof final,"%s.%s",r->sha256,r->extension);snprintf(temp,sizeof temp,"%s.part",r->request);
+  int existing=openat(dir,final,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
+  if(existing>=0){
+    struct stat old;bad=fstat(existing,&old)||!S_ISREG(old.st_mode)||old.st_size!=st.st_size||(old.st_mode&0222);
+    unsigned char chunk[32768];size_t offset=0;
+    while(!bad&&offset<size){size_t count=size-offset;if(count>sizeof chunk)count=sizeof chunk;bad=transfer(existing,chunk,count,0)||memcmp(chunk,bytes+offset,count);offset+=count;}
+    close(existing);close(dir);goto done;
+  }
+  if(errno!=ENOENT){close(dir);goto done;}
+  int out=openat(dir,temp,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);if(out<0){close(dir);goto done;}
+  bad=transfer(out,bytes,size,1)||fchmod(out,0444)||fsync(out);if(close(out))bad=1;
+  if(!bad)bad=renameat(dir,temp,dir,final)||fsync(dir);
+  if(bad)unlinkat(dir,temp,0);close(dir);
+done:
+  close(fd);free(bytes);return bad?-1:0;
+}
+static int read_gate(void *arg,TacGameGate *g){TacModuleSession *s=arg;return !identity(s)||!tac_process_current(s->pid)?-1:pt_copyout(s->pid,s->control,g,sizeof *g);}
+static int write_gate(void *arg,size_t offset,const void *bytes,size_t size){
+  TacModuleSession *s=arg;if(offset>sizeof(TacGameGate)||size>sizeof(TacGameGate)-offset||!identity(s)||!tac_process_current(s->pid))return -1;
+  return pt_copyin(s->pid,bytes,s->control+offset,size);
+}
+static void *worker(void *ignored){
+  (void)ignored;TacModuleSession s;unsigned slot;pthread_mutex_lock(&mutex);s=current;slot=currentSlot;pthread_mutex_unlock(&mutex);
+  TacModuleReceipt *r=&s.slots[slot];char reason[192]="Module file could not be prepared";int attached=0;
+  int platform=!memcmp(s.title,"PPS",3)||!memcmp(s.title,"MOUU",4)?5:4;
+  if(sealed_file(&s,r,platform,reason)||!metadata_matches(&s,reason))goto rejected;
+  const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
+  TacKstuffSnapshot a=tac_kstuff_read(base,profile),b=tac_kstuff_read(base,profile);
+  if(!profile||!tac_kstuff_snapshot_equal(&a,&b)||!tac_kstuff_injection_ready(base,&b)){
+    snprintf(reason,sizeof reason,"Kernel hook state is not ready for a game module");goto rejected;
+  }
+  if(s.phase==TAC_ARENA_EMPTY){
+    arc4random_buf(&s.cookie,sizeof s.cookie);if(!s.cookie)s.cookie=1;s.phase=TAC_ARENA_INTENT;
+    if(transition(&s,slot,TAC_PRX_ARMING,0,"Preparing a verified game callback"))goto done;
+    TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,identity,&s,&injected);
+    s.arena=injected.arena;s.control=injected.control;
+    if(result){s.phase=result<0?TAC_ARENA_UNKNOWN:TAC_ARENA_EMPTY;
+      transition(&s,slot,result<0?TAC_PRX_UNKNOWN:TAC_PRX_REJECTED,result>0,injected.message);goto done;}
+    s.phase=TAC_ARENA_READY;if(transition(&s,slot,TAC_PRX_ARMING,0,"Game callback ready; preparing module slot"))goto done;
+  }else if(s.phase!=TAC_ARENA_READY){snprintf(reason,sizeof reason,"Previous game callback ownership is unresolved");goto rejected;}
+  if(!metadata_matches(&s,reason))goto rejected;
+  if(transition(&s,slot,TAC_PRX_ARMING,0,"Publishing the module slot in the verified game"))goto done;
+  if(pt_attach(s.pid)){transition(&s,slot,TAC_PRX_UNKNOWN,0,"Could not acquire a confirmed stopped game lease");goto done;}attached=1;
+  TacModuleOps ops={&s,read_gate,write_gate};int staged=tac_module_stage(&s,slot,&ops);
+  if(pt_detach(s.pid,0)){s.phase=TAC_ARENA_UNKNOWN;transition(&s,slot,TAC_PRX_UNKNOWN,0,"Game resume was not confirmed; no retry was issued");goto done;}attached=0;
+  if(staged<0){s.phase=TAC_ARENA_UNKNOWN;transition(&s,slot,TAC_PRX_UNKNOWN,0,"Module slot rollback could not be confirmed");}
+  else if(staged>0)transition(&s,slot,TAC_PRX_REJECTED,1,"Module slot was not published; game callback may be busy or its ownership changed");
+  else transition(&s,slot,TAC_PRX_ARMED,0,"Module staged; waiting for the game's module initializer");
+  goto done;
+rejected:
+  transition(&s,slot,TAC_PRX_REJECTED,1,reason);
+done:
+  // Retry only the resume operation if the first detach failed, never inject or
+  // run a module again. An uncertain durable receipt remains uncertain.
+  if(attached)pt_detach(s.pid,0);
+  pthread_mutex_lock(&mutex);running=0;tac_native_release();pthread_mutex_unlock(&mutex);return NULL;
+}
+static int start(const char *request,const char *upload,const char *hash,int pid,const char *generation,const char *title,const char *metadata,const char *extension){
+  if(!tac_hex_string(request,32)||!tac_hex_string(upload,32)||!tac_hex_string(hash,64)||!tac_hex_string(metadata,64)||pid<=1||
+    !generation||!*generation||strlen(generation)>=128||!title||!tac_game_title(title)||!extension||(strcmp(extension,"prx")&&strcmp(extension,"sprx"))){errno=EINVAL;return -1;}
+  pthread_mutex_lock(&mutex);if(running||!tac_native_claim()){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
+  int result=-1;TacModuleSession s;int loaded=load(generation,&s);
+  if(loaded&&errno!=ENOENT)goto done;
+  if(loaded){memset(&s,0,sizeof s);s.magic=TAC_MODULE_SESSION_MAGIC;s.version=1;s.pid=pid;strcpy(s.generation,generation);strcpy(s.title,title);strcpy(s.metadataHash,metadata);}
+  if(s.pid!=pid||strcmp(s.title,title)||strcmp(s.metadataHash,metadata)){errno=EINVAL;goto done;}
+  int slot=tac_module_slot(&s,request);
+  if(slot>=0){TacModuleReceipt *r=&s.slots[slot];if(strcmp(r->upload,upload)||strcmp(r->sha256,hash)||strcmp(r->extension,extension)){errno=EEXIST;goto done;}
+    current=s;currentSlot=(unsigned)slot;result=0;goto done;}
+  if(s.phase==TAC_ARENA_INTENT||s.phase==TAC_ARENA_UNKNOWN){errno=EALREADY;goto done;}
+  for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s.slots[i].stage==TAC_PRX_QUEUED||s.slots[i].stage==TAC_PRX_ARMING||s.slots[i].stage==TAC_PRX_UNKNOWN){errno=EALREADY;goto done;}
+  for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s.slots[i].stage&&!(s.slots[i].stage==TAC_PRX_REJECTED&&s.slots[i].clean)&&!strcmp(s.slots[i].sha256,hash)){errno=EALREADY;goto done;}
+  for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(!s.slots[i].stage){slot=(int)i;break;}
+  if(slot<0){errno=ENOSPC;goto done;}
+  if(!identity(&s)){errno=ESRCH;goto done;}
+  TacModuleReceipt *r=&s.slots[slot];strcpy(r->request,request);strcpy(r->upload,upload);strcpy(r->sha256,hash);strcpy(r->extension,extension);
+  r->stage=TAC_PRX_QUEUED;r->clean=1;if(save(&s))goto done;
+  current=s;currentSlot=(unsigned)slot;running=1;pthread_t thread;pthread_attr_t attr;int err=pthread_attr_init(&attr);
+  if(!err){err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);if(!err)err=pthread_create(&thread,&attr,worker,NULL);pthread_attr_destroy(&attr);}
+  if(err){running=0;r->stage=TAC_PRX_REJECTED;snprintf(r->message,sizeof r->message,"Module worker could not start");save(&s);current=s;errno=err;goto done;}
+  result=0;
+done:
+  if(!running)tac_native_release();pthread_mutex_unlock(&mutex);return result;
+}
+static JSValue failure(JSContext *c){
+  const char *code=errno==EBUSY?"NATIVE_BUSY":errno==EALREADY?"MODULE_ALREADY_ATTEMPTED":errno==ENOSPC?"MODULE_LIMIT":"MODULE_NATIVE";
+  JSValue e=JS_NewError(c);JS_SetPropertyStr(c,e,"code",JS_NewString(c,code));JS_SetPropertyStr(c,e,"message",JS_NewString(c,
+    errno==EBUSY?"Native operation in progress":errno==ENOSPC?"This game instance has used its eight module slots; restart the game to load more":
+    errno==EALREADY?"This module or game callback has an existing or unresolved attempt":"Native game module operation could not be completed"));return JS_Throw(c,e);
+}
+static JSValue start_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  (void)self;if(argc!=8)return JS_ThrowTypeError(c,"Expected request, upload, hash, PID, generation, title, metadata hash and module extension");
+  const char *v[8]={0};int32_t pid=0;int valid=!JS_ToInt32(c,&pid,argv[3]);
+  for(unsigned i=0;i<8;i++)if(i!=3){v[i]=JS_ToCString(c,argv[i]);if(!v[i])valid=0;}
+  int result=valid?start(v[0],v[1],v[2],pid,v[4],v[5],v[6],v[7]):-1,saved=errno;
+  for(unsigned i=0;i<8;i++)if(v[i])JS_FreeCString(c,v[i]);errno=saved;return result?failure(c):JS_UNDEFINED;
+}
+static void inspect(TacModuleSession *s,unsigned slot){
+  TacModuleReceipt *r=&s->slots[slot];
+  if(r->stage!=TAC_PRX_ARMED&&r->stage!=TAC_PRX_UNKNOWN&&r->stage!=TAC_PRX_ARMING)return;
+  if(!identity(s)||!tac_process_current(s->pid))return;
+  TacGameGate a,b;
+  if(kernel_proc_copyout(s->pid,s->control,&a,sizeof a)||kernel_proc_copyout(s->pid,s->control,&b,sizeof b)||
+    !identity(s)||!tac_module_gate_valid(s,&a)||!tac_module_gate_valid(s,&b))return;
+  TacGameModule *m=&b.modules[slot];char expected[256];tac_module_path(r,expected);
+  if(memcmp(&a.modules[slot],m,sizeof *m)||m->path[255]||strcmp(m->path,expected)||!m->enabled)return;
+  if(m->state==TAC_MODULE_STARTED||m->state==TAC_MODULE_FAILED||m->state==TAC_MODULE_REJECTED){
+    r->handle=m->handle;r->startResult=m->startResult;
+    if(m->state==TAC_MODULE_STARTED&&m->handle>=0&&m->startResult>=0)transition(s,slot,TAC_PRX_STARTED,0,"Game module initializer completed successfully");
+    else transition(s,slot,TAC_PRX_FAILED,0,"Game module initialization failed; a module may remain resident until this game closes");
+  }
+}
+static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  (void)self;if(argc!=3)return JS_ThrowTypeError(c,"Expected request, PID and game generation");
+  const char *request=JS_ToCString(c,argv[0]),*generation=JS_ToCString(c,argv[2]);int32_t pid=0;
+  if(!request||!generation||!tac_hex_string(request,32)||strlen(generation)>=128||JS_ToInt32(c,&pid,argv[1])){
+    if(request)JS_FreeCString(c,request);if(generation)JS_FreeCString(c,generation);return JS_ThrowTypeError(c,"Invalid module receipt identity");
+  }
+  TacModuleSession s;pthread_mutex_lock(&mutex);int live=running,found=!strcmp(current.generation,generation)&&tac_module_slot(&current,request)>=0;if(found)s=current;pthread_mutex_unlock(&mutex);
+  if(!found&&(load(generation,&s)||tac_module_slot(&s,request)<0)){JS_FreeCString(c,request);JS_FreeCString(c,generation);return JS_NULL;}
+  int slot=tac_module_slot(&s,request);JS_FreeCString(c,request);JS_FreeCString(c,generation);if(s.pid!=pid){errno=EINVAL;return failure(c);}
+  int busy=live||tac_native_busy();
+  if(!busy&&tac_native_claim()){inspect(&s,(unsigned)slot);tac_native_release();}
+  TacModuleReceipt r=s.slots[slot];if(!live&&(r.stage==TAC_PRX_QUEUED||r.stage==TAC_PRX_ARMING)){r.stage=TAC_PRX_UNKNOWN;r.clean=0;snprintf(r.message,sizeof r.message,"Previous module attempt was interrupted; no replay was issued");}
+  JSValue out=JS_NewObject(c);
+  JS_SetPropertyStr(c,out,"request",JS_NewString(c,r.request));JS_SetPropertyStr(c,out,"sha256",JS_NewString(c,r.sha256));
+  JS_SetPropertyStr(c,out,"generation",JS_NewString(c,s.generation));JS_SetPropertyStr(c,out,"pid",JS_NewInt32(c,s.pid));
+  JS_SetPropertyStr(c,out,"stage",JS_NewInt32(c,r.stage));JS_SetPropertyStr(c,out,"busy",JS_NewBool(c,busy));
+  JS_SetPropertyStr(c,out,"handle",JS_NewInt32(c,r.handle));JS_SetPropertyStr(c,out,"startResult",JS_NewInt32(c,r.startResult));
+  JS_SetPropertyStr(c,out,"noSideEffects",JS_NewBool(c,r.clean));JS_SetPropertyStr(c,out,"message",JS_NewString(c,r.message));return out;
+}
+void tac_module_bind(JSContext *c,JSValue api){
+  JS_SetPropertyStr(c,api,"gameModuleStart",JS_NewCFunction(c,start_js,"gameModuleStart",8));
+  JS_SetPropertyStr(c,api,"gameModulePoll",JS_NewCFunction(c,poll_js,"gameModulePoll",3));
+}

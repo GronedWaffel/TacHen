@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { canonical, clone, invariant, TacError, publicError } from './errors.mjs';
 import { validatePlugin } from './plugin-schema.mjs';
+import { GameModules } from './game-modules.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const clean = (code, message) => Object.assign(new TacError(code, message), { noSideEffects: true });
 const matches = (target, game) => target && game && target.titleId === game.titleId && target.version === game.version;
@@ -12,6 +13,7 @@ export class Plugins {
     this.runtime = runtime; this.native = native; this.delay = delay; this.interval = interval;
     this.attempts = new Set(); this.observations = new Map(); this.pending = null; this.stopped = true;
     runtime.jobs.register('plugin.start', this.handler());
+    this.modules = new GameModules(this);
   }
   entries() { return this.runtime.store.snapshot().plugins; }
   find(sha256) {
@@ -21,8 +23,11 @@ export class Plugins {
   async register(input) {
     invariant(input && Number.isSafeInteger(input.revision), 'REVISION_REQUIRED', 'Refresh the plugin list before making changes.');
     const info = await this.runtime.inbox.verify(input.upload);
-    invariant(info.format === 'plugin', 'PLUGIN_FORMAT', 'Native PRX modules need their separate game module loader.');
-    const item = validatePlugin({ ...info, upload: info.id, scope: input.scope, target: input.target ?? null, autostart: false });
+    const module = ['prx', 'sprx'].includes(info.format);
+    invariant(info.format === 'plugin' || module && input.scope === 'game', 'PLUGIN_FORMAT', 'Native PRX modules require a specific game target.');
+    const item = validatePlugin({ ...info, upload: info.id, scope: input.scope, target: input.target ?? null, autostart: false,
+      ...(module ? { pluginId: 'module:' + info.sha256, pluginVersion: null,
+        platform: info.platform || (/^(PPSA|PPSB|MOUU)/.test(input.target?.titleId) ? 'ps5' : 'ps4') } : {}) });
     await this.runtime.store.transaction(state => {
       invariant(!state.plugins.some(other => other.sha256 === item.sha256 || other.pluginId === item.pluginId),
         'PLUGIN_CONFLICT', 'This file or plugin identity is already registered.');
@@ -40,7 +45,7 @@ export class Plugins {
   }
   list() {
     return this.entries().map(item => ({ ...item, observation: clone(this.observations.get(item.sha256) || {
-      phase: 'uninspected', message: 'Process state has not been checked.' }) }));
+      phase: 'uninspected', message: item.format === 'plugin' ? 'Process state has not been checked.' : 'Game module state has not been checked.' }) }));
   }
   handler() {
     const self = this, runtime = this.runtime;
@@ -48,6 +53,7 @@ export class Plugins {
       invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && ['manual', 'automatic'].includes(input.source),
         'PLUGIN_INPUT', 'Choose a registered plugin and launch mode.');
       const item = self.find(input.sha256), configuration = canonical(item);
+      invariant(item.format === 'plugin', 'PLUGIN_FORMAT', 'This file is a game module; use the native module loader.');
       invariant(!runtime.graph.safe, 'SAFE_STARTUP', 'Plugin startup is held during safe startup.');
       const probe = self.native.systemProbe();
       invariant(!probe.busy && probe.kstuff?.injectionReady === true && typeof probe.boot === 'string',
@@ -125,7 +131,7 @@ export class Plugins {
     }
     invariant(typeof probe.boot === 'string' && Array.isArray(probe.processes), 'PLUGIN_PROBE', 'Plugin process census is unavailable.');
     const jobs = this.runtime.jobs.snapshot();
-    for (const item of this.entries()) {
+    for (const item of this.entries().filter(item => item.format === 'plugin')) {
       const attempts = jobs.filter(job => job.kind === 'plugin.start' && job.args.pluginId === item.pluginId && job.args.boot === probe.boot);
       const prior = [...attempts].reverse().find(job => job.result?.generation) || attempts.at(-1), result = prior?.result;
       let observation;
@@ -149,6 +155,7 @@ export class Plugins {
         }
       }
     }
+    await this.modules.inspect(probe);
     this.runtime.sequence++;
   }
   refresh() {
@@ -167,6 +174,6 @@ export class Plugins {
 }
 export function installPlugins(runtime, native, options) {
   runtime.plugins = new Plugins(runtime, native, options);
-  runtime.capability('plugins', true, 'Verified .plugin process loading and autostart. Native PRX injection and safe unload are still being integrated.');
+  runtime.capability('plugins', true, 'Standalone .plugin processes and game-specific .prx/.sprx modules, with verified file and process identities. Console validation is pending.');
   return runtime.plugins;
 }

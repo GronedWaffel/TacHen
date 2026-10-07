@@ -36,8 +36,8 @@ observations establish its title/version for the phone and console deck. Ambiguo
 processes, missing metadata and native contention hold game actions; they never
 silently select cached library versions. Lifecycle consumers receive an abort
 signal when the verified instance becomes unavailable. This foundation is
-implemented and cross-built; native PRX injection, cheats and overlays still need
-their execution adapters and deferred console acceptance.
+implemented and cross-built. Native PRX loading now uses this context; cheats and
+overlays still need their execution adapters and deferred console acceptance.
 
 The phone's Plugins tab now registers verified etaHEN `.plugin` containers, starts
 their embedded ELF as a named plugin process, and supports optional system or exact
@@ -47,14 +47,27 @@ console boot and process generation; PID reuse never counts as the same running
 plugin. Process presence is reported separately from plugin feature initialization.
 This development stage permits one dispatch per plugin identity per boot; disabling
 autostart prevents future automatic launches but does not stop an existing process
-or undo its patches. Safe stop/restart, native PRX loading and controller plugin
+or undo its patches. Safe stop/restart and controller plugin
 controls remain unfinished. No plugin has been executed on console for this build.
 
-The native PRX callback and game-entry injector now cross-build, and the actual
-freestanding callback/trampoline execute in a host regression runner. They are
-not yet connected to coordinator jobs or offered as PRX controls: staging,
-durable per-game ownership and result reconciliation remain required. The build
-manifest explicitly distinguishes compiled injection code from wired features.
+Native `.prx`/`.sprx` modules now have a separate game loader wired to phone
+registration, manual start and autostart. Register the exact game title/version;
+autostart can be enabled before opening it. The worker rechecks the full file,
+container platform, process birth identity and mounted metadata hash, then stages
+a read-only copy in that verified sandbox's `/tachen-modules` directory. Private
+operation records stay under `/data/tachen/modules`; the game never needs access
+to TacHen's state or a global `/data` mount. A checksummed per-game receipt
+precedes hook publication and module-slot writes. Successful loading requires both
+a valid module handle and a successful initializer result. A failed or interrupted
+load is never silently retried in the same game instance.
+
+The game callback supports eight attempts per game instance. A module stays
+resident until that game closes; disabling autostart is not a generic unload or
+patch-undo operation. Proven game exit settles held work, allowing the next game
+instance to receive its configured modules. A missing or ambiguous process census
+does not count as exit. The actual callback and trampoline execute in host tests;
+native injection, module imports and behavior still require console acceptance.
+The manifest records the path as wired, with hardware verification still false.
 
 On console builds, verified ELF entries offer **Run payload**. A separate native
 worker hashes the exact execution buffer, validates memory/relocation bounds and
