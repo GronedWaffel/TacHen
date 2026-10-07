@@ -14,7 +14,7 @@ abort-controller and noble-hashes retain their package licenses and locked versi
 The build uses esbuild (MIT), Zig, and the PS5 payload SDK v0.43 by John Törnblom
 and the PS5-Payload-dev contributors. The SDK is an external GPL dependency.
 
-Future integration of etaHEN, kstuff, ShadowMount, Payload Manager, OnionHEN FPS
+Future integration of etaHEN, OnionHEN FPS
 work, save tools or other projects must preserve their own notices and source
 requirements. Listing an intended integration here does not imply it is finished.
 
@@ -37,3 +37,19 @@ The loader's treatment of runtime imports was checked against the SDK v0.43
 [payload dynamic linker](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/rtld_payload.c):
 the payload CRT resolves library/symbol imports. TacHen validates referenced data
 and applies relative relocations, leaving runtime symbol resolution to that CRT.
+
+Embedded raw component release files are independently pinned in
+`vendor/components.json`: [kstuff-lite 1.11](https://github.com/EchoStretch/kstuff-lite/tree/85fb88a526e58e357d6f1e626ce05af4acdb8b5d)
+by EchoStretch and the kstuff contributors, [ShadowMountPlus 1.7beta4](https://github.com/drakmor/ShadowMountPlus/tree/1.7beta4)
+by Drakmor and contributors, and [Payload Manager 0.5.2](https://github.com/itsPLK/ps5-payload-manager/tree/v0.5.2)
+by PLK and contributors. These are GPL components, not TacHen inventions. The
+development build embeds their unmodified upstream ELFs; it does not embed the
+older etaHEN-dependent Snipers supervisor wrappers. Corresponding source archives
+and licenses must accompany any eventual binary distribution; this project has
+not published a binary release.
+
+`platform/native/firmware-profiles.h` preserves the unified GronedWaffel port's
+public DATA-relative tables. Immutable source references and values are retained
+in `vendor/firmware-provenance.json`. The kstuff marker classifier is adapted from
+that GPL port's `port_kstuff_state.hpp`; TacHen adds consistent snapshot checks,
+worker serialization and process/API generation checks without modifying hooks.

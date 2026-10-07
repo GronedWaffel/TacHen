@@ -14,6 +14,11 @@ server; it does not contact a PS5, load an existing HEN, or emulate successful n
 operations. `npm run build` produces local artifacts when the documented toolchain
 is available. Console testing is deliberately deferred until the owner returns.
 
+Run `node scripts/prepare-components.mjs` once before building or testing a fresh
+checkout. It downloads pinned upstream release ELFs and verifies their exact
+sizes and SHA-256 hashes without executing them. An existing file with a wrong
+checksum fails rather than silently accepting a newer release.
+
 The current native artifact is `build/tachen-runtime.elf`, a coordinator, local
 phone interface on port 8780, native ELF dispatch, and an FTP share on port 2122. The FTP share is
 `/data/tachen/share`, isolated from the coordinator's persistent state. Use FTP
@@ -32,6 +37,20 @@ runtime restarts. **Dispatched** does not mean the payload initialized successfu
 The loader prevents another dispatch of the same payload during a console boot
 and never silently retries a failed or interrupted spawn. These native operations
 are cross-built but still await hardware acceptance.
+
+Native startup now stages embedded kstuff-lite 1.11, ShadowMountPlus 1.7beta4 and
+Payload Manager 0.5.2 through the same durable dispatcher. Readiness requires
+kernel hook markers and, for HTTP components, the expected version/API plus a
+consistent process instance. The phone remains available throughout startup.
+Unknown state blocks another launch. Recovered startup enters recovery mode;
+it does not automatically replay interrupted native operations.
+
+Before starting Payload Manager, TacHen backs up its existing configuration and
+disables its independent autoload, automatic browser opening, disc-player kill
+and automatic dashboard-app installation. User payloads and other settings are
+preserved. A self-update folder blocks dispatch of the pinned copy for review.
+Already running verified components are adopted without altering configuration.
+These adapters are implemented and cross-built; hardware behavior is unverified.
 
 FTP uploads into `/payloads` are copied into the verified inbox after the transfer
 has committed. Other FTP files are ordinary transfers. Invalid payloads remain in

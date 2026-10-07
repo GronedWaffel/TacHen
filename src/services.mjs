@@ -92,7 +92,10 @@ export class ServiceGraph {
     const definition = this.definitions.get(id);
     invariant(definition?.inspect, 'SERVICE_INSPECTION_UNAVAILABLE', 'This service cannot yet be reconciled automatically.');
     const evidence = await definition.inspect();
-    if (evidence?.absent === true) this.update(id, { status: 'stopped', evidence: null, error: null });
+    if (evidence?.absent === true) {
+      this.invalidate(id, new TacError('SERVICE_ABSENT', `${id} is no longer running.`));
+      this.update(id, { status: 'stopped', evidence: null, error: null });
+    }
     else {
       invariant(await definition.verify(evidence), 'SERVICE_UNVERIFIED', 'The existing service could not be verified.');
       this.update(id, { status: 'ready', evidence: clone(evidence), error: null });

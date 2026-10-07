@@ -4,11 +4,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cleanError = (code, message) => Object.assign(new TacError(code, message), { noSideEffects: true });
 // Queue completion means dispatch was verified. Generic payloads do not expose
 // a readiness protocol; native services must implement independent probes.
-export function installPayloadLoader(runtime, native, { delay = sleep } = {}) {
+export function payloadDispatchHandler(runtime, native, { delay = sleep, managed = false } = {}) {
   const validate = async input => {
     invariant(input && typeof input.id === 'string', 'PAYLOAD_INPUT', 'Choose a verified inbox payload.');
     const info = await runtime.inbox.verify(input.id);
     invariant(info.format === 'elf', 'PAYLOAD_KIND', 'Plugins need their lifecycle loader; they cannot be dispatched as standalone payloads.');
+    invariant(managed || !runtime.componentHashes?.has(info.sha256), 'MANAGED_COMPONENT',
+      'Start this bundled component from Services so its dependencies and readiness are checked.');
     if (input.sha256) invariant(input.sha256 === info.sha256, 'PAYLOAD_CHANGED', 'Payload changed since this operation was queued.');
     return { id: input.id, sha256: info.sha256 };
   };
@@ -17,7 +19,7 @@ export function installPayloadLoader(runtime, native, { delay = sleep } = {}) {
     return { completed: true, phase: 'dispatched', initialized: false, request: receipt.request,
       sha256: receipt.sha256, pid: receipt.pid, message: 'Payload dispatched. Its initialization has not been confirmed.' };
   }
-  runtime.jobs.register('payload.dispatch', {
+  return {
     validate, resources: () => ['native-payload-dispatch'], timeout: 120000, cancellable: false,
     async run(input, context) {
       // Bind the accepted upload to its bytes once again immediately before
@@ -55,6 +57,9 @@ export function installPayloadLoader(runtime, native, { delay = sleep } = {}) {
       if (receipt.stage === 4 && receipt.noSideEffects) return { absent: true };
       return outcome(receipt);
     }
-  });
+  };
+}
+export function installPayloadLoader(runtime, native, options) {
+  runtime.jobs.register('payload.dispatch', payloadDispatchHandler(runtime, native, options));
   runtime.capability('payloads', true, 'Verified ELF dispatch with durable receipts. Payload initialization is reported separately.');
 }

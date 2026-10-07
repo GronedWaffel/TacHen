@@ -5,6 +5,7 @@
 #include "elf-image.h"
 #include "elfldr.h"
 #include "sha256.h"
+#include "kstuff-probe.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +94,12 @@ static void *run(void *unused){
   if(strcmp(actual,r.sha256)){snprintf(reason,sizeof reason,"Payload changed after inbox verification");goto rejected;}
   TacElfImage image;
   if(tac_elf_inspect(data,size,&image,reason,sizeof reason))goto rejected;
+  const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());
+  uint64_t base=KERNEL_ADDRESS_DATA_BASE;
+  TacKstuffSnapshot hooks1=tac_kstuff_read(base,profile),hooks2=tac_kstuff_read(base,profile);
+  if(!tac_kstuff_snapshot_equal(&hooks1,&hooks2)||!tac_kstuff_injection_ready(base,&hooks2)){
+    snprintf(reason,sizeof reason,"Kernel hook state is unknown or changing; native dispatch was withheld");goto rejected;
+  }
   if(transition(&r,TAC_DISPATCH_SPAWNING,0,"Starting the verified payload in its own process")){
     snprintf(reason,sizeof reason,"Could not persist the spawn intent; nothing was launched");goto rejected;
   }

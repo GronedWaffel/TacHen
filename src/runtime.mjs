@@ -93,11 +93,15 @@ export class TacRuntime {
       case 'job.cancel': await this.jobs.cancel(args.id); break;
       case 'job.resume': await this.jobs.resume(args.id); break;
       case 'job.reconcile': await this.jobs.reconcile(args.id); break;
-      case 'service.start': await this.graph.start(args.id); break;
+      case 'service.start': {
+        // Return immediately so a phone request does not outlive its connection.
+        // The graph and durable startup job publish the actual result separately.
+        this.graph.start(args.id).catch(() => { this.sequence++; }); break;
+      }
       case 'service.reconcile': await this.graph.reconcile(args.id); break;
       default: throw new TacError('COMMAND_UNKNOWN', 'Unknown command.', { status: 404 });
     }
     return this.snapshot();
   }
-  async close() { this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.nativeServices?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

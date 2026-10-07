@@ -2,13 +2,13 @@
 import { clone, invariant } from './errors.mjs';
 export const defaults = Object.freeze({
   overlay: { fps: false, ram: false, cpu: false, ip: false, adaptive: true },
-  services: { ftp: true, inboxAutoRun: false },
+  services: { ftp: true, inboxAutoRun: false, shadowmount: true, payloadManager: true },
   developer: { enabled: false, memoryWrites: false, diagnostics: false },
   appearance: { accent: 'mint', reducedMotion: false }
 });
 const fields = {
   overlay: { fps: 'boolean', ram: 'boolean', cpu: 'boolean', ip: 'boolean', adaptive: 'boolean' },
-  services: { ftp: 'boolean', inboxAutoRun: 'boolean' },
+  services: { ftp: 'boolean', inboxAutoRun: 'boolean', shadowmount: 'boolean', payloadManager: 'boolean' },
   developer: { enabled: 'boolean', memoryWrites: 'boolean', diagnostics: 'boolean' },
   appearance: { accent: ['mint', 'amber', 'ice'], reducedMotion: 'boolean' }
 };

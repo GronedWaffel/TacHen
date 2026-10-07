@@ -4,6 +4,11 @@ import { JobQueue } from '../src/jobs.mjs';
 import { installPayloadLoader } from '../src/payload-loader.mjs';
 import { ids, store, until, deferred } from './helpers.mjs';
 const digest = 'a'.repeat(64), upload = 'b'.repeat(32);
+test('bundled component bytes cannot bypass managed startup through the generic payload loader', async () => {
+  const runtime = await setup({ loaderStart() { assert.fail('Should not dispatch'); } });
+  runtime.componentHashes = new Set([digest]);
+  await assert.rejects(runtime.jobs.enqueue('payload.dispatch', { id: upload }, 'component-bypass'), { code: 'MANAGED_COMPONENT' });
+});
 async function setup(native, options) {
   const runtime = { jobs: new JobQueue(await store(), { id: ids() }),
     inbox: { verify: async id => ({ id, format: 'elf', sha256: digest }) }, capability() {} };

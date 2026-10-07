@@ -12,6 +12,16 @@ await fs.mkdir(path.join(root, 'build'), { recursive: true });
 const assets = {};
 for (const file of ['index.html', 'deck.css', 'deck.js']) assets[file] = await fs.readFile(path.join(root, 'ui', file), 'utf8');
 await fs.writeFile(path.join(root, 'build/ui-assets.json'), JSON.stringify(assets));
+const components = JSON.parse(await fs.readFile(path.join(root, 'vendor/components.json')));
+const parts = []; let assetOffset = 0;
+for (const component of components) {
+  const data = await fs.readFile(path.join(root, 'build/components', component.file));
+  if (data.length !== component.bytes || createHash('sha256').update(data).digest('hex') !== component.sha256)
+    throw Error('Bundled component checksum mismatch: ' + component.id);
+  component.offset = assetOffset; assetOffset += data.length; parts.push(data);
+}
+await fs.writeFile(path.join(root, 'build/components.bin'), Buffer.concat(parts));
+await fs.writeFile(path.join(root, 'build/components.json'), JSON.stringify(components));
 const alias = {
   'node:http': path.join(root, 'platform/runtime/http.mjs'), 'node:fs/promises': path.join(root, 'platform/runtime/fs.mjs'),
   'node:crypto': path.join(root, 'platform/runtime/crypto.mjs'),
@@ -22,10 +32,10 @@ await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], 
   format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias });
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
 await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned char tachen_bundle[]={' + [...bundle, 0].join(',') + '};\n');
-await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\ntachen_assets_end:\n.section .note.GNU-stack,"",@progbits\n');
+await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.section .note.GNU-stack,"",@progbits\n');
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S',
-  ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c'].map(file => 'platform/native/' + file),
+  ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c'].map(file => 'platform/native/' + file),
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
 const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild',
@@ -52,5 +62,6 @@ if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.rea
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
-  bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs' }, null, 2) + '\n');
+  bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
+  components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');
 console.log(`Built TacHen runtime ELF: ${elf.length} bytes. Hardware untested; native HEN feature integrations remain outstanding.`);

@@ -136,3 +136,38 @@ Pending loader acceptance: console worker/receipt I/O, SDK ABI process spawning,
 native failures/timeouts/restart reconciliation, memory pressure with large ELFs,
 per-firmware process entry compatibility and service readiness probes. Console
 hardware testing remains deferred by the user's instruction.
+
+## Third implementation checkpoint: verified native startup
+
+2026-10-07: 75 off-console tests pass and the embedded QuickJS core test passes.
+The native runtime cross-build includes pinned raw kstuff-lite 1.11,
+ShadowMountPlus 1.7beta4 and Payload Manager 0.5.2. All three raw ELFs also pass
+the actual native full-image validator on Windows. None has been executed by
+TacHen on a PS5. Native syscall/process/configuration behavior is **cross-built
+only**, and all prior hardware acceptance requirements remain open.
+
+- Native process inspection uses SDK layout assertions, bounded sysctl records,
+  boot/PID/start-time generation and no exported kernel addresses.
+- Consistent kernel snapshots classify complete, unmodified and unknown kstuff
+  hooks. Dispatch rejects transitional or legacy poisoned tables. Kernel-copy
+  probes and the dispatch worker do not use the SDK primitive concurrently.
+- Services require actual pinned API/version responses and unchanged process
+  identity. Component extraction streams bounded chunks and resumes partial files;
+  every reuse rechecks its SHA-256. Generic dispatch cannot bypass managed startup
+  for these same bundled bytes.
+- Startup records intent, adopts verified residents, starts dependencies in order
+  and keeps the phone responsive. Missing readiness retains resource exclusion;
+  no second copy is automatically sent after an uncertain spawn. Recovery skips
+  automatic native work. Periodic observation invalidates lost dependencies after
+  two failed checks and never replaces resident processes automatically.
+- Payload Manager preparation preserves a durable original-config backup and
+  prevents competing autoload/browser/disc-player/app-install actions. Potential
+  upstream self-update folders are preserved and block pinned startup for review.
+- Local integration fixtures cover component startup/adoption, changed process
+  generation, wrong HTTP identity, busy ports, timeouts, corruption and recovery.
+  These fixtures establish coordinator behavior, **not** console compatibility.
+
+Remaining major native work: original controller/in-game deck, ShadowMount library
+actions and storage jobs, PKG installation, plugin/game/cheat/save adapters,
+FPS/resource/IP presentation, MCP, loadouts and update/recovery user flows. A
+running component is not completion of every feature built on top of it.

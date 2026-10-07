@@ -34,7 +34,15 @@ function draw() {
   $('#session-detail').textContent = state.safe ? 'Optional components are held while the previous startup is reviewed.' :
     state.identity.mode === 'development' ? 'Explore the deck locally. Native console integrations are listed honestly below.' : 'Use the deck from your console or phone. Component readiness is tracked separately.';
   $('#session-chips').replaceChildren(...[state.safe ? 'Optional startup held' : 'Shared state', 'No cloud account', 'Hardware validation pending'].map(text => el('span', 'chip', text)));
-  $('#services').replaceChildren(...(state.services.length ? state.services.map(service => row(service.id, service.error?.message, service.status, service.status === 'ready')) : [el('p', 'empty', 'No native services started in this build.') ]));
+  $('#services').replaceChildren(...(state.services.length ? state.services.map(service => {
+    const node = row(service.id, service.error?.message || (service.evidence?.version ? `Verified version ${service.evidence.version}` : ''), service.status, service.status === 'ready');
+    if (['kstuff', 'shadowmount', 'payload-manager'].includes(service.id) && service.status !== 'starting') {
+      const start = service.status === 'stopped' && !state.safe;
+      const button = el('button', '', start ? 'Start service' : 'Check readiness');
+      button.onclick = () => command(start ? 'service.start' : 'service.reconcile', { id: service.id }); node.append(button);
+    }
+    return node;
+  }) : [el('p', 'empty', 'No native services started in this build.') ]));
   const available = state.capabilities.filter(item => item.available);
   $('#available-count').textContent = `${available.length} of ${state.capabilities.length} integrations`;
   $('#capabilities').replaceChildren(...available.map(item => { const card = el('article', 'cap'); card.append(el('span', 'indicator', 'AVAILABLE'), el('h3', '', item.name), el('p', '', item.reason || 'Connected to the shared TacHen runtime.')); return card; }));
