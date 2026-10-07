@@ -35,6 +35,19 @@ test('cheat packs retain credits and exact target; imports deduplicate without n
   const detail = await f.runtime.cheats.inspect(f.entry.sha256);assert.deepEqual(detail.credits, ['Fixture author']);assert.equal(detail.matches, true);
   f.files.files.set(f.entry.sha256 + '.json', '{}');await assert.rejects(f.enqueue(true), { code: 'CHEAT_STORAGE' });assert.equal(f.calls.length, 0);
 });
+
+test('SHN uses the same persistent pack identity and native transaction as equivalent JSON', async t => {
+  const f = await fixture(t);
+  const source = `<Trainer Game="Test game" Process="eboot.bin" Moder="Fixture author" Cusa="${game.titleId}" Version="${game.version}"><Cheat Text="Test option"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>`;
+  const entry = await f.runtime.cheats.packs.import({ source, ...game });
+  assert.deepEqual(entry, f.entry);assert.equal(f.runtime.snapshot().cheats.length, 1);assert.equal(f.calls.length, 0);
+  const job = await f.runtime.jobs.enqueue('cheat.set', { sha256: entry.sha256, cheatId: '0', enabled: true }, f.runtime.id());
+  assert.equal((await f.settled(job.id)).status, 'completed');assert.equal(Buffer.from(f.calls[0].packet).subarray(32).toString('hex'), '01029090');
+  const saved = new Map(f.files.files);
+  await assert.rejects(f.runtime.cheats.packs.import({ source, ...game, version: '01.001.000' }), { code: 'CHEAT_IDENTITY' });
+  await assert.rejects(f.runtime.cheats.packs.import({ source: source.replace('<Offset>10', '<Offset>BAD-PATCH'), ...game }), { code: 'CHEAT_OFFSET' });
+  assert.deepEqual(f.files.files, saved);assert.equal(f.calls.length, 1);
+});
 test('native patch packet and receipt bind both directions to exact game; duplicate request dispatches once', async t => {
   const f = await fixture(t), key = f.runtime.id(), job = await f.runtime.jobs.enqueue('cheat.set', f.input(true), key);
   assert.equal((await f.settled(job.id)).status, 'completed');

@@ -12,7 +12,7 @@ export class CheatService {
     this.runtime = runtime; this.native = native; this.delay = delay; this.packs = new CheatPacks(runtime, storage);
     if (typeof native?.cheatStart === 'function' && typeof native?.cheatPoll === 'function') {
       runtime.jobs.register('cheat.set', this.handler());
-      runtime.capability('cheats', true, 'Exact-version JSON cheats with native before-byte checks and rollback. Console validation pending.');
+      runtime.capability('cheats', true, 'Exact-version JSON and SHN/XML cheats with native before-byte checks and rollback. Console validation pending.');
     }
     runtime.gameLifecycle?.subscribe(() => this.reconcileEnded());
   }

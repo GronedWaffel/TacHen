@@ -40,13 +40,14 @@ implemented and cross-built. Native PRX loading and JSON cheat transactions now
 use this context. Native overlay adapters are also implemented; all three paths
 require deferred console acceptance.
 
-The phone and controller Cheats page imports exact-title/version JSON packs,
+The phone imports exact-title/version JSON and unencrypted SHN/XML packs;
+phone and controller share the same catalog and patch operations. Import
 preserves their credits and offers enable/restore operations. Native execution
 stops the verified game instance, checks every expected byte before the first
 write, verifies writes and rolls back partial failure before resuming. Durable
 intent is saved before stopping the game; uncertain results prevent replay.
 The current adapter supports module-relative section-zero patches. Other section
-layouts, absolute/code-cave patches and encrypted/XML/BIN formats remain work in
+layouts, absolute/code-cave patches and encrypted MC4/BIN formats remain work in
 progress. Local tests do not establish real-game compatibility.
 
 ## Developer MCP

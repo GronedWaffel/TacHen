@@ -178,3 +178,13 @@ The TacHen update package format, selection journal, next-boot policy and launch
 are original GPL-3.0-or-later code. The launcher links the same credited John
 Törnblom ELF loader, SDK and SHA-256 sources already described above; it does not
 provide an independent kernel exploit. Build package checksums are not signatures.
+
+
+The bounded SHN/XML data reader in `src/cheat-xml.mjs` implements the public
+Trainer/Cheat/Cheatline format used by etaHEN's `ParseXMLCheat` and the
+[GoldHEN Cheat Repository](https://github.com/GoldHEN/GoldHEN_Cheat_Repository/tree/acc22fefac0f0ea35a0f59b3f9526707122098dd).
+Format checks examined `shn/CUSA00002_01.00.shn` (Talixme) and
+`shn/CUSA00002_01.81.shn` (Celogamez), including the former's retained PKCS#7
+padding. Those game patches are not bundled with TacHen. Synthetic regression
+fixtures are original. Imported author credits and instructions remain visible;
+parsing does not validate a cheat's gameplay effects or make it cross-version.

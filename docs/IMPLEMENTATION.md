@@ -1663,3 +1663,51 @@ Runtime **9,023,192 bytes**, SHA-256 `ee4b4564dacadf83469a9f07bfcc4c3c996255da54
 Launcher **9,184,320 bytes**, SHA-256 `91cdefbf3a6ecab4a36d1f707c1ab2ffe234be768c0d1cc161d97a1b37f20c7c`.
 Update package **9,023,448 bytes**, SHA-256 `9e23cae68c8d0bd1c17dc1e32db31978c3df76023d2f9f276bdc47d5a015477e`.
 Source fingerprint `e13a94e1cfeba1970ae72cc44bb16abc87a19ef2fcebad01eed82c1de1a4cca0`.
+
+
+## Checkpoint 32 — SHN/XML cheat import
+
+The phone's existing file importer now accepts unencrypted SHN/XML as well as
+JSON. Both normalize into the same checksummed persistent pack, with the same
+exact title/version binding, preserved author credits and native before-byte/
+rollback transaction. Equivalent inputs deduplicate to the same pack identity;
+import alone never applies a cheat. Native section-zero scope is unchanged.
+
+The original bounded reader supports the public Trainer/Cheat/Cheatline fields,
+byte pairs with optional hyphens, comments, CDATA, numeric/predefined entities,
+UTF-8 declarations and complete aligned legacy PKCS#7 suffixes. It rejects DTDs,
+custom/external entities, processing instructions, duplicate fields/attributes,
+unknown structural content, malformed bytes, oversized fields/depth/node counts,
+and identity conflicts. Nonempty Absolute fields retain etaHEN's meaning and
+are rejected by the unimplemented absolute-address adapter, even if their text
+is 'false'; they cannot silently become relative patches.
+
+Format evidence: etaHEN's local public ParseXMLCheat implementation and GoldHEN
+Cheat Repository commit `acc22fefac0f0ea35a0f59b3f9526707122098dd`,
+`shn/CUSA00002_01.00.shn` and `shn/CUSA00002_01.81.shn`. Local imports recovered
+3 and 7 cheats respectively, retaining Talixme and Celogamez credits. Public
+sample bytes/provenance are under `.local/cheat-format-review/`, not distributed
+with TacHen. Regression fixtures contain original synthetic bytes, not those
+game patches. NOTICE.md records the format sources and credits.
+
+All **323 local tests** pass (`.local/checkpoint32-tests.txt`), including parser
+limits, malformed/ambiguous XML, both-direction packet equality, persistent
+deduplication and rejected imports without storage/native effects. QuickJS
+executes the importer as part of its portable-runtime checks. The production
+ELF build and exact embedded-asset checks pass.
+
+Browser verification used the production local phone page and a synthetic SHN
+file: upload succeeded, credits appeared, and both apply/restore buttons remained
+disabled without a matching game. Browser warning/error logs were empty.
+`.local/shn-import-preview.png` records the result. The preview tab and loopback
+server were closed; no viewport override was used. No console was contacted.
+
+Remaining cheat compatibility includes nonzero native sections, absolute/code-cave
+semantics, encrypted MC4 and binary formats. Real-game/hardware acceptance is
+deferred until the implementation is finished. Other outstanding full-goal work
+remains active; this is a local checkpoint, not a release.
+
+Runtime **9,023,192 bytes**, SHA-256 `d93b504725c1076b26f87ca23d41142ae52bdbaf9a7f3824336ca47a1aa2ee3e`.
+Launcher **9,184,320 bytes**, SHA-256 `6d6b9d30c60939dc4ba99a61fd6cbd0dbb9cb44053d44463f703e5c82b0f1373`.
+Update package **9,023,448 bytes**, SHA-256 `ab6e0cd94994be07821d0e2bd7d3ae4620485e5e46c9009a4c9c77d1f7093ad2`.
+Source fingerprint `6207e092273d6aeb78baaaa120c563df2da9cb7c5d5676fc40743c240c29c653`.
