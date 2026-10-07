@@ -56,7 +56,7 @@ export class TacRuntime {
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
-      jobs: state.jobs.map(({ key, signature, requestSignature, args, ...job }) => job),
+      jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
       history: state.history.filter(entry => entry.session === this.session),
       queue: { halted: this.jobs.halted, error: this.jobs.fault } };
   }
@@ -86,6 +86,9 @@ export class TacRuntime {
       case 'library.list':
         invariant(this.library, 'FEATURE_UNAVAILABLE', 'The game library requires the native ShadowMount adapter.');
         return this.library.page(args);
+      case 'storage.destinations':
+        invariant(this.storageJobs, 'FEATURE_UNAVAILABLE', 'Storage operations require ShadowMount.');
+        return this.storageJobs.destinations();
       case 'inbox.begin': {
         invariant(this.inbox, 'FEATURE_UNAVAILABLE', 'Payload inbox is not installed.');
         const result = await this.inbox.begin(args); this.inboxItems = await this.inbox.list(); return result;

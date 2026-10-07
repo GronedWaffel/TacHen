@@ -32,6 +32,8 @@ along with this program; see the file COPYING. If not, see
 #include <ps5/klog.h>
 
 #include "pt.h"
+#include "trace-wait.h"
+#include <time.h>
 #include "port_timing.h"
 #include "port_diagnostic.h"
 
@@ -79,29 +81,35 @@ pt_resolve(pid_t pid, const char* nid) {
 }
 
 
+static int trace_now(void* unused,uint64_t* out){
+  (void)unused;struct timespec ts;
+  if(clock_gettime(CLOCK_MONOTONIC,&ts))return -1;
+  *out=(uint64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;return 0;
+}
+static TacTraceEvent trace_poll(void* context){
+  pid_t pid=*(pid_t*)context;int status=0;pid_t got=waitpid(pid,&status,WNOHANG|WUNTRACED);
+  if(!got||(got<0&&errno==EINTR))return (TacTraceEvent){TAC_TRACE_PENDING,0,0};
+  if(got<0)return (TacTraceEvent){TAC_TRACE_POLL_ERROR,0,errno};
+  if(WIFSTOPPED(status))return (TacTraceEvent){TAC_TRACE_STOPPED,WSTOPSIG(status),0};
+  if(WIFEXITED(status)||WIFSIGNALED(status))return (TacTraceEvent){TAC_TRACE_EXITED,0,0};
+  return (TacTraceEvent){TAC_TRACE_PENDING,0,0};
+}
+static void trace_sleep(void* unused,unsigned ms){(void)unused;usleep(ms*1000);}
+static int trace_wait_event(pid_t pid,int expected,unsigned timeout,TacTraceEvent* last){
+  TacTraceWaitOps ops={&pid,trace_now,trace_poll,trace_sleep};
+  return tac_trace_wait(&ops,expected,timeout,last);
+}
+int pt_wait_stop(pid_t pid,int expected,unsigned timeout){
+  TacTraceEvent last;int result=trace_wait_event(pid,expected,timeout,&last);
+  if(result==TAC_TRACE_OK)return 0;
+  errno=result==TAC_TRACE_TIMEOUT?ETIMEDOUT:result==TAC_TRACE_GONE?ESRCH:
+    result==TAC_TRACE_WRONG_STOP?EINTR:last.error?last.error:EIO;return -1;
+}
 int
 pt_attach(pid_t pid) {
-  port_diag("attach-begin",pid,0,0);port_diag_flush();
-  puts("ptrace attach request");
-  if(sys_ptrace(PT_ATTACH, pid, 0, 0) == -1) {
-    perror("ptrace attach");
-    return -1;
-  }
-  puts("ptrace attach accepted; waiting for stop");
-#if defined(ETAHEN_TOOLBOX_DIAGNOSTIC) || defined(ETAHEN_EXPERIMENTAL_DIAGNOSTICS)
-  port_diag("attach-accepted",pid,0,0);
-  int wait_status=0;
-  int waited=waitpid(pid,&wait_status,0);
-  port_diag("attach-wait",pid,waited,waited<0?errno:0);
-  port_diag("attach-wait-status",pid,wait_status,0);
-  if(waited==-1)return -1;
-#else
-  if(waitpid(pid, 0, 0) == -1) {
-    return -1;
-  }
-#endif
-
-  return 0;
+  if(sys_ptrace(PT_ATTACH,pid,0,0)==-1)return -1;
+  if(!pt_wait_stop(pid,0,1000))return 0;
+  int saved=errno;pt_detach(pid,0);errno=saved;return -1;
 }
 
 
@@ -120,23 +128,8 @@ pt_detach(pid_t pid, int sig) {
 
 int
 pt_step(int pid) {
-  if(sys_ptrace(PT_STEP, pid, (caddr_t)1, 0)) {
-    return -1;
-  }
-
-#if defined(ETAHEN_TOOLBOX_DIAGNOSTIC) || defined(ETAHEN_EXPERIMENTAL_DIAGNOSTICS)
-  int wait_status=0;
-  int waited=waitpid(pid,&wait_status,0);
-  port_diag("step-wait",pid,waited,waited<0?errno:0);
-  port_diag("step-wait-status",pid,wait_status,0);
-  if(waited<0)return -1;
-#else
-  if(waitpid(pid, 0, 0) < 0) {
-    return -1;
-  }
-#endif
-
-  return 0;
+  if(sys_ptrace(PT_STEP,pid,(caddr_t)1,0))return -1;
+  return pt_wait_stop(pid,SIGTRAP,1000);
 }
 
 
@@ -310,22 +303,16 @@ tac_pt_call(pid_t pid, intptr_t addr, const uint64_t args[6]) {
     return -1;
   }
 
-  // single step until the function returns
-  while(jmp_reg.r_rsp <= bak_reg.r_rsp) {
-    if(pt_step(pid)) {
-      return -1;
-    }
-    if(pt_getregs(pid, &jmp_reg)) {
-      return -1;
-    }
+  // Bound the complete call as well as each wait. Restore saved registers
+  // on every failure; if the tracee is not stopped, restoration fails closed.
+  uint64_t started=0,now=0;unsigned steps=0;int failed=trace_now(0,&started);
+  while(!failed && jmp_reg.r_rsp<=bak_reg.r_rsp){
+    if(++steps>4096||trace_now(0,&now)||now<started||now-started>=2000){failed=1;break;}
+    failed=pt_step(pid)||pt_getregs(pid,&jmp_reg);
   }
-
-  // restore registers
-  if(pt_setregs(pid, &bak_reg)) {
-    return -1;
-  }
-
-  return jmp_reg.r_rax;
+  long result=failed?-1:jmp_reg.r_rax;
+  if(pt_setregs(pid,&bak_reg))return -1;
+  return result;
 }
 
 long
@@ -361,25 +348,19 @@ tac_pt_call2(pid_t pid, intptr_t addr, const uint64_t args[6])
     pt_setregs(pid, &bak_reg);
     return -1;
   }
-  int status = 0;
-  pid_t stopped = 0;
-  for (int i = 0; i < 2000 && stopped == 0; ++i) {
-    stopped = waitpid(pid, &status, WNOHANG | WUNTRACED);
-    if (!stopped) usleep(1000);
+  TacTraceEvent last;
+  int outcome=trace_wait_event(pid,SIGTRAP,2000,&last);
+  int reached=outcome==TAC_TRACE_OK;
+  if(outcome==TAC_TRACE_TIMEOUT){
+    // Recovery has its own finite deadline. Never report a timed-out call as
+    // successful even if its trap races the stop request.
+    if(kill(pid,SIGSTOP))return -1;
+    trace_wait_event(pid,0,1000,&last);
   }
-  if (!stopped) {
-    // Recover a timed-out call before the caller detaches.
-    kill(pid, SIGSTOP);
-    for (int i = 0; i < 1000 && stopped == 0; ++i) {
-      stopped = waitpid(pid, &status, WNOHANG | WUNTRACED);
-      if (!stopped) usleep(1000);
-    }
-  }
-  long result = -1;
-  if (stopped == pid && WIFSTOPPED(status)) {
-    if (WSTOPSIG(status) == SIGTRAP && !pt_getregs(pid, &jmp_reg))
-      result = jmp_reg.r_rax;
-    if (pt_setregs(pid, &bak_reg)) result = -1;
+  long result=-1;
+  if(last.kind==TAC_TRACE_STOPPED){
+    if(reached&&!pt_getregs(pid,&jmp_reg))result=jmp_reg.r_rax;
+    if(pt_setregs(pid,&bak_reg))result=-1;
   }
   return result;
 }

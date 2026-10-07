@@ -72,3 +72,4 @@ long tac_pt_call2(pid_t pid, intptr_t addr, const uint64_t args[6]);
 #define pt_call2(pid,addr,...) tac_pt_call2((pid),(addr),(const uint64_t[6]){__VA_ARGS__})
 
 intptr_t pt_sceKernelGetProcParam(pid_t pid);
+int pt_wait_stop(pid_t pid, int expected_signal, unsigned timeout_ms);

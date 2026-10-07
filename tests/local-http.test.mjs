@@ -35,3 +35,9 @@ test('ShadowMount readiness uses its real POST-only JSON API contract', async t 
   });
   assert.deepEqual(JSON.parse((await localRequest(port, '/api/v1/version', { method: 'POST', body: {} })).text), { status: 0 });
 });
+
+test('accepted asynchronous HTTP responses must be explicitly enabled', async t => {
+  const port = await server(t, socket => socket.end('HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\n\r\n{}'));
+  await assert.rejects(localRequest(port, '/start'), { code: 'LOCAL_HTTP_STATUS' });
+  assert.equal((await localRequest(port, '/start', { acceptedStatuses: [202] })).status, 202);
+});

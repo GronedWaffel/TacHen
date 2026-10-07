@@ -447,7 +447,12 @@ elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name, size_t 
     if(waited==pid&&(WIFEXITED(initial_status)||WIFSIGNALED(initial_status)))free(stack);
     else if(waited==0 || (waited==pid&&WIFSTOPPED(initial_status)) || (waited<0&&errno!=ECHILD)){
       kill(pid,SIGKILL);
-      if(waitpid(pid,0,0)==pid)free(stack);
+      for(unsigned reap=0;reap<1000;reap++){
+        int status=0;pid_t ended=waitpid(pid,&status,WNOHANG|WUNTRACED);
+        if(ended==pid&&(WIFEXITED(status)||WIFSIGNALED(status))){free(stack);break;}
+        if(ended<0&&errno!=EINTR)break;
+        usleep(1000);
+      }
     }
     // Unknown child ownership keeps its shared stack allocated.
     return -1;
@@ -500,10 +505,14 @@ elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name, size_t 
     pt_detach(pid, SIGKILL);
     return -1;
   }
-  if(waitpid(pid, 0, 0) == -1) {
+  if(pt_wait_stop(pid, SIGTRAP, 2000)) {
     LOG_PERROR("waitpid");
     pt_detach(pid, SIGKILL);
     return -1;
+  }
+  struct reg stopped_regs;
+  if(pt_getregs(pid,&stopped_regs)||stopped_regs.r_rip!=(uint64_t)brkpoint+1){
+    pt_detach(pid,SIGKILL);kill(pid,SIGKILL);return -1;
   }
   if(pt_copyin(pid, &orginstr, brkpoint, sizeof(orginstr))) {
     LOG_PERROR("pt_copyin");

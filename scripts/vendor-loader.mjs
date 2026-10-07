@@ -60,7 +60,12 @@ for (const [name, from] of Object.entries(files)) {
     if(waited==pid&&(WIFEXITED(initial_status)||WIFSIGNALED(initial_status)))free(stack);
     else if(waited==0 || (waited==pid&&WIFSTOPPED(initial_status)) || (waited<0&&errno!=ECHILD)){
       kill(pid,SIGKILL);
-      if(waitpid(pid,0,0)==pid)free(stack);
+      for(unsigned reap=0;reap<1000;reap++){
+        int status=0;pid_t ended=waitpid(pid,&status,WNOHANG|WUNTRACED);
+        if(ended==pid&&(WIFEXITED(status)||WIFSIGNALED(status))){free(stack);break;}
+        if(ended<0&&errno!=EINTR)break;
+        usleep(1000);
+      }
     }
     // Unknown child ownership keeps its shared stack allocated.
     return -1;
@@ -68,6 +73,16 @@ for (const [name, from] of Object.entries(files)) {
   free(stack);
 
 ` + text.slice(prepared);
+    const breakpointWait = 'if(waitpid(pid, 0, 0) == -1) {';
+    if (!text.includes(breakpointWait)) throw Error('Review loader breakpoint wait');
+    text = text.replace(breakpointWait, 'if(pt_wait_stop(pid, SIGTRAP, 2000)) {');
+    const restoreBreakpoint = '  if(pt_copyin(pid, &orginstr, brkpoint, sizeof(orginstr))) {';
+    if (!text.includes(restoreBreakpoint)) throw Error('Review loader breakpoint restoration');
+    text = text.replace(restoreBreakpoint, `  struct reg stopped_regs;
+  if(pt_getregs(pid,&stopped_regs)||stopped_regs.r_rip!=(uint64_t)brkpoint+1){
+    pt_detach(pid,SIGKILL);kill(pid,SIGKILL);return -1;
+  }
+` + restoreBreakpoint);
     // An error must not detach a newly created process onto a partially patched
     // payload. The caller owns this child and may terminate it on failure.
     text = text.replace('if(pt_detach(pid, 0)) {\n    LOG_PERROR("pt_detach");',
@@ -94,6 +109,7 @@ for (const [name, from] of Object.entries(files)) {
   // Varargs read as uint64_t were previously called with missing/int arguments.
   // A compound-literal wrapper supplies six explicitly widened, zero-filled args.
   if (name === 'pt.h') {
+    text += '\nint pt_wait_stop(pid_t pid, int expected_signal, unsigned timeout_ms);\n';
     text = text.replace('long pt_syscall(pid_t pid, int sysno, ...);',
       'long tac_pt_syscall(pid_t pid, int sysno, const uint64_t args[6]);\n#define pt_syscall(pid,num,...) tac_pt_syscall((pid),(num),(const uint64_t[6]){__VA_ARGS__})');
     text = text.replace('long pt_call(pid_t pid, intptr_t addr, ...);',
@@ -110,6 +126,78 @@ for (const [name, from] of Object.entries(files)) {
     let arg = 0;
     text = text.replaceAll('va_arg(ap, uint64_t)', () => `args[${arg++ % 6}]`);
     if (text.includes('va_arg') || arg !== 18) throw Error('Review changed remote-call arguments');
+    text = text.replace('#include "pt.h"', '#include "pt.h"\n#include "trace-wait.h"\n#include <time.h>');
+    const replaceFunction = (name, replacement) => {
+      const pattern = new RegExp(`int\\n${name}\\([^]*?^}`, 'm');
+      if (!pattern.test(text)) throw Error(`Review changed ${name}`);
+      text = text.replace(pattern, replacement);
+    };
+    replaceFunction('pt_attach', `static int trace_now(void* unused,uint64_t* out){
+  (void)unused;struct timespec ts;
+  if(clock_gettime(CLOCK_MONOTONIC,&ts))return -1;
+  *out=(uint64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;return 0;
+}
+static TacTraceEvent trace_poll(void* context){
+  pid_t pid=*(pid_t*)context;int status=0;pid_t got=waitpid(pid,&status,WNOHANG|WUNTRACED);
+  if(!got||(got<0&&errno==EINTR))return (TacTraceEvent){TAC_TRACE_PENDING,0,0};
+  if(got<0)return (TacTraceEvent){TAC_TRACE_POLL_ERROR,0,errno};
+  if(WIFSTOPPED(status))return (TacTraceEvent){TAC_TRACE_STOPPED,WSTOPSIG(status),0};
+  if(WIFEXITED(status)||WIFSIGNALED(status))return (TacTraceEvent){TAC_TRACE_EXITED,0,0};
+  return (TacTraceEvent){TAC_TRACE_PENDING,0,0};
+}
+static void trace_sleep(void* unused,unsigned ms){(void)unused;usleep(ms*1000);}
+static int trace_wait_event(pid_t pid,int expected,unsigned timeout,TacTraceEvent* last){
+  TacTraceWaitOps ops={&pid,trace_now,trace_poll,trace_sleep};
+  return tac_trace_wait(&ops,expected,timeout,last);
+}
+int pt_wait_stop(pid_t pid,int expected,unsigned timeout){
+  TacTraceEvent last;int result=trace_wait_event(pid,expected,timeout,&last);
+  if(result==TAC_TRACE_OK)return 0;
+  errno=result==TAC_TRACE_TIMEOUT?ETIMEDOUT:result==TAC_TRACE_GONE?ESRCH:
+    result==TAC_TRACE_WRONG_STOP?EINTR:last.error?last.error:EIO;return -1;
+}
+int
+pt_attach(pid_t pid) {
+  if(sys_ptrace(PT_ATTACH,pid,0,0)==-1)return -1;
+  if(!pt_wait_stop(pid,0,1000))return 0;
+  int saved=errno;pt_detach(pid,0);errno=saved;return -1;
+}`);
+    replaceFunction('pt_step', `int
+pt_step(int pid) {
+  if(sys_ptrace(PT_STEP,pid,(caddr_t)1,0))return -1;
+  return pt_wait_stop(pid,SIGTRAP,1000);
+}`);
+    const stepping = '  // single step until the function returns';
+    const stepStart = text.indexOf(stepping), stepEnd = text.indexOf('\n}\n', stepStart);
+    if (stepStart < 0 || stepEnd < stepStart) throw Error('Review stepped remote call');
+    text = text.slice(0, stepStart) + `  // Bound the complete call as well as each wait. Restore saved registers
+  // on every failure; if the tracee is not stopped, restoration fails closed.
+  uint64_t started=0,now=0;unsigned steps=0;int failed=trace_now(0,&started);
+  while(!failed && jmp_reg.r_rsp<=bak_reg.r_rsp){
+    if(++steps>4096||trace_now(0,&now)||now<started||now-started>=2000){failed=1;break;}
+    failed=pt_step(pid)||pt_getregs(pid,&jmp_reg);
+  }
+  long result=failed?-1:jmp_reg.r_rax;
+  if(pt_setregs(pid,&bak_reg))return -1;
+  return result;` + text.slice(stepEnd);
+    const call2Start = text.indexOf('  int status = 0;', text.indexOf('tac_pt_call2('));
+    const call2End = text.indexOf('\n}\n', call2Start);
+    if (call2Start < 0 || call2End < call2Start) throw Error('Review breakpoint remote call');
+    text = text.slice(0, call2Start) + `  TacTraceEvent last;
+  int outcome=trace_wait_event(pid,SIGTRAP,2000,&last);
+  int reached=outcome==TAC_TRACE_OK;
+  if(outcome==TAC_TRACE_TIMEOUT){
+    // Recovery has its own finite deadline. Never report a timed-out call as
+    // successful even if its trap races the stop request.
+    if(kill(pid,SIGSTOP))return -1;
+    trace_wait_event(pid,0,1000,&last);
+  }
+  long result=-1;
+  if(last.kind==TAC_TRACE_STOPPED){
+    if(reached&&!pt_getregs(pid,&jmp_reg))result=jmp_reg.r_rax;
+    if(pt_setregs(pid,&bak_reg))result=-1;
+  }
+  return result;` + text.slice(call2End);
     // Developer trace points remain opt-in; no per-write/syscall spam by default.
     text = text.replace(/^(\s*)(printf\("(?:ptrace memory write|Remote syscall|Syscall gate read|Remote syscall step)[^\n]*|puts\("Remote syscall instruction verified"\);)$/gm,
       '$1#ifdef TACHEN_NATIVE_TRACE\n$1$2\n$1#endif');

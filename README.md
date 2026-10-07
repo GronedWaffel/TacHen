@@ -66,6 +66,14 @@ poll. Mount/unmount operations use a durable queue, respect ShadowMount's active
 game guard and independently check the resulting state. Installed packages are
 shown alongside image sources but cannot be mounted through image controls.
 
+**Manage files** offers background copy, move, and image-to-folder extraction
+through the pinned ShadowMount API. The phone lists writable managed destinations
+and actual available space. Activity shows byte progress and cooperative
+cancellation; extraction retains the source image. A durable operation receipt
+binds the source, destination volume and service instance. Lost or mismatched
+receipts never trigger automatic duplicate transfers. Local contract tests pass;
+actual console storage behavior remains untested.
+
 FTP uploads into `/payloads` are copied into the verified inbox after the transfer
 has committed. Other FTP files are ordinary transfers. Invalid payloads remain in
 the FTP share and generate an actionable entry in Activity. Uploads do not autorun

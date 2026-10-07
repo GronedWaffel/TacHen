@@ -2,7 +2,7 @@
 import { invariant, TacError, clone, publicError } from './errors.mjs';
 import { localRequest } from './local-http.mjs';
 const TITLE = /^(?:PPSA|PPSB|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
-const sameService = (a, b) => a?.ready && b?.ready && a.boot === b.boot && a.pid === b.pid && a.generation === b.generation && a.version === b.version;
+export const sameService = (a, b) => a?.ready && b?.ready && a.boot === b.boot && a.pid === b.pid && a.generation === b.generation && a.version === b.version;
 const text = (value, limit) => typeof value === 'string' && value.length <= limit && !/[\x00-\x1f]/.test(value);
 function game(raw) {
   invariant(raw && TITLE.test(raw.title_id) && text(raw.title_name, 512) && text(raw.path, 1024) &&
@@ -23,8 +23,8 @@ export function installLibrary(runtime, { request = localRequest, timeout = 1500
     invariant(evidence.ready, 'SHADOWMOUNT_NOT_READY', evidence.reason || 'Start and verify ShadowMount before opening the library.');
     return evidence;
   }
-  async function call(route, body = {}, limit = 4 * 1024 * 1024) {
-    const response = await request(10101, '/api/v1/' + route, { method: 'POST', body, maxBytes: limit, timeout });
+  async function call(route, body = {}, limit = 4 * 1024 * 1024, acceptedStatuses = [200]) {
+    const response = await request(10101, '/api/v1/' + route, { method: 'POST', body, maxBytes: limit, timeout, acceptedStatuses });
     const data = JSON.parse(response.text);
     invariant(data?.status === 0, 'SHADOWMOUNT_OPERATION', data?.error || 'ShadowMount did not complete the requested operation.');
     return data;
@@ -96,7 +96,7 @@ export function installLibrary(runtime, { request = localRequest, timeout = 1500
     return { games: clone(matches.slice(offset, offset + 100)), total: matches.length, offset,
       updatedAt: runtime.libraryState.updatedAt, available: runtime.libraryState.available, error: runtime.libraryState.error };
   }
-  runtime.library = { refresh, page };
+  runtime.library = { refresh, page, scan, ready, call };
   runtime.capability('shadowmount', true, 'ShadowMount game library and verified mount controls; storage conversion jobs are still being integrated.');
   return runtime.library;
 }

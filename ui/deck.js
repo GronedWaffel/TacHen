@@ -68,7 +68,12 @@ function draw() {
     const node = row(job.kind, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
       job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');
     const actions = el('div', 'actions');
-    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status)], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
+    if (job.progress?.total > 0) {
+      const progress = el('progress'); progress.max = job.progress.total; progress.value = job.progress.completed;
+      progress.setAttribute('aria-label', 'Operation progress'); node.append(progress,
+        el('small', '', `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
+    }
+    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || job.kind === 'library.storage' && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
       if (!show) continue; const button = el('button', '', label); button.onclick = () => command('job.' + action, { id: job.id }); actions.append(button);
     }
     if (actions.children.length) node.append(actions); return node;
@@ -92,15 +97,64 @@ async function loadLibrary(rescan = false, offset = 0) {
       const node = row(game.name, `${game.titleId} · ${game.platform.toUpperCase()} · ${game.sourceType}`, game.installedPackage ? 'Installed package' : game.mounted ? 'Mounted' : 'Unmounted');
       if (game.canMount && game.sourceAvailable && result.available) {
         const button = el('button', '', game.mounted ? 'Unmount' : 'Mount');
-        button.onclick = async () => { await command('job.enqueue', { kind: 'library.mount', input: { titleId: game.titleId, mounted: !game.mounted }, key: requestKey() });
+        button.onclick = async () => { await command('job.enqueue', { kind: 'library.mount', input: { titleId: game.titleId, path: game.path, contentId: game.contentId, mounted: !game.mounted }, key: requestKey() });
           $('#library-status').textContent = 'Follow the operation in Activity, then refresh the library.'; };
-        node.append(button);
+        const manage = el('button', '', 'Manage files'); manage.onclick = () => storageDialog(game);
+        node.append(button, manage);
       }
       return node;
     }) : [el('p', 'empty', 'No matching games in the current library.') ]));
     $('#library-status').textContent = `${result.total} games${result.total ? ` · Showing ${result.offset + 1}–${result.offset + result.games.length}` : ''}`;
   } catch (error) { $('#library-status').textContent = error.message; }
   finally { libraryBusy = false; await refresh(); }
+}
+function formatBytes(value) {
+  if (!Number.isFinite(value)) return 'Unknown size';
+  return value >= 1073741824 ? `${(value / 1073741824).toFixed(1)} GiB` : `${(value / 1048576).toFixed(1)} MiB`;
+}
+async function storageDialog(game) {
+  const dialog = el('dialog', 'storage-dialog'), heading = el('h2', '', 'Manage game files');
+  const form = el('form'), operation = el('select'), destination = el('select');
+  heading.id = 'storage-heading'; dialog.setAttribute('aria-labelledby', heading.id);
+  for (const [value, label] of [['copy', 'Copy to another drive'], ['move', 'Move to another drive'],
+    ...(game.sourceType === 'image' ? [['unpack', 'Extract image to a folder']] : [])]) {
+    const option = el('option', '', label); option.value = value; operation.append(option);
+  }
+  const operationLabel = el('label', '', 'Action'), destinationLabel = el('label', '', 'Destination');
+  operationLabel.append(operation); destinationLabel.append(destination);
+  const explanation = el('p', 'fine'), status = el('p', 'fine', 'Reading available drives…'); status.setAttribute('role', 'status');
+  const start = el('button', '', 'Start operation'), cancel = el('button', '', 'Back');
+  cancel.type = 'button'; cancel.onclick = () => dialog.close(); start.disabled = true;
+  const explain = () => { explanation.textContent = operation.value === 'move'
+    ? 'Moves the source to the selected drive. On different drives, ShadowMount copies it completely before removing the original. Close the game first.'
+    : operation.value === 'unpack' ? 'Extracts the game into a folder and keeps the original image. Close the game first.'
+    : 'Copies the complete source and keeps the original. Existing destination files are never overwritten. Close the game first.'; };
+  operation.onchange = explain; explain();
+  const actions = el('div', 'actions'); actions.append(start, cancel);
+  form.append(operationLabel, destinationLabel, explanation, status, actions);
+  dialog.append(heading, el('p', '', game.name), el('p', 'fine source-path', game.path), form);
+  dialog.onclose = () => dialog.remove(); document.body.append(dialog); dialog.showModal();
+  let volumes = [], key = requestKey();
+  try {
+    const { result } = await api('/api/command', { command: 'storage.destinations', args: {} });
+    if (!dialog.isConnected) return; volumes = result.destinations;
+    for (const item of volumes) { const option = el('option', '', `${item.path} · ${formatBytes(item.availableBytes)} free`); option.value = item.path; destination.append(option); }
+    status.textContent = volumes.length ? 'Progress continues in Activity after you close this page.' : 'No writable managed destinations are available.';
+    start.disabled = !volumes.length;
+  } catch (error) { status.textContent = error.message; }
+  form.onsubmit = async event => {
+    event.preventDefault(); if (start.disabled) return;
+    const volume = volumes.find(item => item.path === destination.value); if (!volume) return;
+    start.disabled = true; operation.disabled = true; destination.disabled = true;
+    // Keep the original identity and selected request on a lost response.
+    // A retry is safe because the coordinator deduplicates the same key.
+    try {
+      await api('/api/command', { command: 'job.enqueue', args: { kind: 'library.storage', key,
+        input: { operation: operation.value, titleId: game.titleId, path: game.path, contentId: game.contentId,
+          destination: destination.value, volume } } });
+      dialog.close(); notice('Storage operation queued. Follow progress in Activity.'); await refresh();
+    } catch (error) { status.textContent = error.message; start.textContent = 'Check / retry same request'; start.disabled = false; }
+  };
 }
 $('#library-refresh').onclick = () => loadLibrary(true);
 $('#library-find').onclick = () => loadLibrary(false);

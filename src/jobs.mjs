@@ -111,6 +111,11 @@ export class JobQueue {
       const result = await handler.run(clone(job.args), {
         id: job.id,
         signal: controller.signal,
+        checkpoint: async evidence => {
+          const serialized = canonical(evidence);
+          invariant(serialized.length <= 16384, 'CHECKPOINT_LIMIT', 'Operation receipt exceeds its limit.');
+          await this.patch(job.id, { checkpoint: clone(evidence) });
+        },
         progress: value => {
           const now = this.now();
           invariant(value && Number.isFinite(value.completed) && value.completed >= 0 &&

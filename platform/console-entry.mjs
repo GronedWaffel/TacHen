@@ -13,6 +13,7 @@ import { ftpInboxReceiver } from '../src/ftp-inbox.mjs';
 import { ComponentAssets } from '../src/components.mjs';
 import { installNativeServices } from '../src/native-services.mjs';
 import { installLibrary } from '../src/library.mjs';
+import { installStorageJobs } from '../src/storage-jobs.mjs';
 import { installConsoleDeck } from '../src/native-deck.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
@@ -34,6 +35,7 @@ globalThis.__ready = (async () => {
       runtime.nativeServices = installNativeServices(runtime, __native,
         new ComponentAssets(runtime.inbox, components, (offset, length) => __native.asset(offset, length)));
       installLibrary(runtime);
+      installStorageJobs(runtime);
       installConsoleDeck(runtime, __native);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,

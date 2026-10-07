@@ -3,11 +3,12 @@ import { createConnection } from 'node:net';
 import { TacError, invariant } from './errors.mjs';
 // Private loopback client. HTTP/1.0 asks upstream to terminate the response;
 // close-framed and Content-Length bodies are supported. No redirects or proxies.
-export function localRequest(port, route, { timeout = 2000, maxBytes = 256 * 1024, connect = createConnection, method = 'GET', body = null } = {}) {
+export function localRequest(port, route, { timeout = 2000, maxBytes = 256 * 1024, connect = createConnection, method = 'GET', body = null, acceptedStatuses = [200] } = {}) {
   invariant(Number.isInteger(port) && port > 0 && port < 65536 && /^\/[A-Za-z0-9_/.:-]*$/.test(route), 'LOCAL_REQUEST', 'Invalid local service endpoint.');
   invariant(method === 'GET' && body === null || method === 'POST' && body && typeof body === 'object' && !Array.isArray(body),
     'LOCAL_REQUEST', 'Local requests must be GET or a JSON-object POST.');
   const payload = body === null ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body));
+  invariant(Array.isArray(acceptedStatuses) && acceptedStatuses.length > 0 && acceptedStatuses.every(code => Number.isInteger(code) && code >= 200 && code <= 599), 'LOCAL_REQUEST', 'Invalid expected HTTP statuses.');
   invariant(payload.length <= 4096, 'LOCAL_REQUEST', 'The local service request exceeds its size limit.');
   return new Promise((resolve, reject) => {
     const socket = connect({ host: '127.0.0.1', port }); let bytes = 0, parts = [], finished = false;
@@ -30,7 +31,8 @@ export function localRequest(port, route, { timeout = 2000, maxBytes = 256 * 102
         const data = Buffer.concat(parts), boundary = data.indexOf('\r\n\r\n');
         invariant(boundary >= 0 && boundary <= 8192, 'LOCAL_HTTP', 'Invalid service HTTP headers.');
         const lines = data.subarray(0, boundary).toString('ascii').split('\r\n');
-        invariant(/^HTTP\/1\.[01] 200(?: |$)/.test(lines.shift()), 'LOCAL_HTTP_STATUS', 'The service did not return a successful response.');
+        const status = /^HTTP\/1\.[01] (\d{3})(?: |$)/.exec(lines.shift());
+        invariant(status && acceptedStatuses.includes(Number(status[1])), 'LOCAL_HTTP_STATUS', 'The service did not return an expected response.');
         const headers = {};
         for (const line of lines) {
           const split = line.indexOf(':'); invariant(split > 0, 'LOCAL_HTTP', 'Malformed service header.');
@@ -42,7 +44,7 @@ export function localRequest(port, route, { timeout = 2000, maxBytes = 256 * 102
         const body = data.subarray(boundary + 4);
         invariant(body.length <= maxBytes && (!headers['content-length'] || /^\d+$/.test(headers['content-length']) && Number(headers['content-length']) === body.length),
           'LOCAL_HTTP_LENGTH', 'The service response is incomplete or too large.');
-        finished = true; clearTimeout(timer); socket.destroy(); resolve({ headers, text: body.toString('utf8') });
+        finished = true; clearTimeout(timer); socket.destroy(); resolve({ status: Number(status[1]), headers, text: body.toString('utf8') });
       } catch (error) { fail(error); }
     });
     socket.once('close', () => { if (!finished) fail(new TacError('LOCAL_CONNECTION_CLOSED', 'The service closed before its response completed.')); });

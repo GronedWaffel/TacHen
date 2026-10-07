@@ -226,3 +226,47 @@ preferences. Remaining overall features still include package/storage jobs,
 native plugin/cheat/save adapters, developer MCP, loadouts and staged updates.
 The imported ptrace helpers also retain blocking stop/step waits; bounded wait
 recovery needs review before hardware acceptance. The full goal is not complete.
+
+## Fifth implementation checkpoint: bounded trace waits and storage jobs
+
+2026-10-07: **103 local tests pass**. The runtime cross-build succeeds, and the
+actual embedded QuickJS checks pass. Nothing was sent to or read from the PS5.
+
+- Replaced imported blocking attach/step and child-breakpoint waits with finite
+  polling. The pure C wait classifier rejects unexpected stops, exit, errors,
+  backwards clocks and frozen clocks. Entire stepped remote calls also have
+  step/time bounds; breakpoint calls retain bounded stop-and-register recovery.
+  The owned child's breakpoint must match its expected instruction pointer.
+  Unknown rfork-child stack ownership retains the allocation rather than freeing
+  memory the child may still be using. These changes do not prove that the SDK's
+  kernel APIs or ptrace recovery are correct on hardware.
+- Connected ShadowMount's real POST/202 background copy, move and unpack API.
+  Destinations come from its mounted writable storage list. Input binds the game
+  source/content, destination volume and service generation before execution.
+  Large operations use upstream capacity checks rather than arbitrary multipliers.
+  Extraction explicitly retains the original image; direct deletion is not exposed.
+- Added a private durable job checkpoint for the returned remote operation ID.
+  Polls validate that ID, operation, source, destination and process instance.
+  A lost acknowledgement, mismatched receipt or service restart remains unknown
+  and retains resource exclusion; another transfer is never guessed or replayed.
+  Completed means the identified upstream worker reported completion, not an
+  independently performed checksum of every copied game file.
+- Cancellation is cooperative and confirmed through the same operation status.
+  A finalization/cancel race keeps observing the existing job. Native failures
+  that may have left data at either location retain an actionable interrupted
+  result. The queue has a 48-hour deadline; its expiry never proves cancellation.
+- Added phone destination/action selection, source-retention/move explanations,
+  available capacity, Activity progress and cancellation. Repeated submissions
+  reuse their original request ID after a lost response. Local browser layout
+  checked at a 390-pixel viewport (375-pixel content width with scrollbar), with
+  no horizontal overflow. Browser fixture uses no console APIs.
+
+Storage tests use real loopback HTTP with the pinned API contract and simulated
+worker state. They cover large sizes, HTTP 202, destination replacement, extraction,
+request deduplication, cooperative cancellation, missing/foreign receipts and
+reconciliation. **Console storage behavior still requires hardware acceptance.**
+
+Next integrations remain background PKG delivery/installation, native plugin,
+cheat and save adapters, in-game deck/input arbitration, FPS/resource telemetry,
+developer MCP, loadouts and staged update recovery. Final deck design and full
+feature acceptance are still outstanding. The overall goal remains active.
