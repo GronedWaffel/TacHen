@@ -4,6 +4,7 @@
 #include "package-core.h"
 #include "package-abi.h"
 #include "package-io.h"
+#include "package-http.h"
 #include "sha256.h"
 #include <ps5/kernel.h>
 #include <sys/file.h>
@@ -57,7 +58,7 @@ int main(void){
  TacPackageRequest request;
  if(tac_package_request_load(&request)||tac_package_boot(&request,1)||tac_package_receipt_load(request.request,&receipt)||
    memcmp(&request,&receipt.input,sizeof request)||receipt.stage!=TAC_PKG_QUEUED||receipt.clean)return 3;
- receipt.pid=getpid();int fd=-1;unsigned char* chunk=NULL;int result=1;const char* reason="Package helper preflight failed";
+ receipt.pid=getpid();int fd=-1;unsigned char* chunk=NULL;TacPackageSource* source=NULL;int result=1;const char* reason="Package helper preflight failed";
  if((kernel_get_fw_version()&0xffff0000)!=0x13600000){reason="This firmware has no evidenced package installer ABI yet";goto rejected;}
  if(publish(TAC_PKG_HASHING,1,"Checking the exact package bytes before installation"))goto done;
  struct stat parent;if(lstat("/data/tachen/packages",&parent)||!S_ISDIR(parent.st_mode)||S_ISLNK(parent.st_mode))goto rejected;
@@ -91,8 +92,13 @@ int main(void){
  TacPackageTracker tracker={0};rc=get_status(&tracker.baseline);if(elevated){reason="Installer credentials could not be restored";goto rejected;}tracker.baselineValid=rc==0;
  if(tracker.baselineValid&&tracker.baseline.total&&tracker.baseline.downloaded<tracker.baseline.total){reason="This content already has an unfinished installation";goto rejected;}
  if(!same_file(fd,path,&before)){reason="Package identity changed before submission";goto rejected;}
+ char uri[160];
+ if(tac_package_source_start(&source,fd,request.request,request.bytes,uri,sizeof uri)){
+  reason="The local package source could not start; nothing was submitted";goto rejected;
+ }
+ if(!same_file(fd,path,&before)||!tac_package_source_healthy(source)){reason="The local package source changed before submission";goto rejected;}
  // Everything the marshaller can retain stays alive through confirmed finish.
- TacInstallPackage output={0};TacInstallPlaygo playgo={0};TacInstallMeta meta={.uri=path,.extra="",.scenario="",.content="",.name=request.name,.icon=""};
+ TacInstallPackage output={0};TacInstallPlaygo playgo={0};TacInstallMeta meta={.uri=uri,.extra="",.scenario="",.content="",.name=request.name,.icon=""};
  if(publish(TAC_PKG_SUBMITTING,0,"Submitting this package once to the console installer"))goto done;
  if(auth_begin()){auth_end();reason="Installer credential change failed before submission";goto rejected;}
  rc=install(&meta,&output,&playgo);restored=auth_end();receipt.error=rc;
@@ -104,6 +110,7 @@ int main(void){
  if(publish(TAC_PKG_INSTALLING,0,"Package accepted; observing actual install progress"))goto done;
  uint64_t started=tac_package_millis(),lastPoll=started;unsigned errors=0;
  for(;;){
+  if(!tac_package_source_healthy(source)){publish(TAC_PKG_UNKNOWN,0,"The local package source stopped or changed; no resubmission was issued");break;}
   uint64_t now=tac_package_millis();if(!now||now<lastPoll||now-started>48ULL*60*60*1000){publish(TAC_PKG_UNKNOWN,0,"Installation observation expired; uploaded package retained");break;}lastPoll=now;
   TacPackageProgress progress;rc=get_status(&progress);
   if(rc){receipt.error=rc;if(elevated||++errors>=5){publish(TAC_PKG_UNKNOWN,0,"Console install status became unavailable; no resubmission was issued");break;}usleep(500000);continue;}
@@ -124,5 +131,5 @@ int main(void){
 rejected:
  publish(TAC_PKG_REJECTED,1,reason);
 done:
- if(elevated)auth_end();free(chunk);if(fd>=0)close(fd);close(lock);return result;
+ if(elevated)auth_end();tac_package_source_stop(source);free(chunk);if(fd>=0)close(fd);close(lock);return result;
 }

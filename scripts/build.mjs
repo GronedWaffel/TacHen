@@ -62,7 +62,7 @@ function run(args) {
 }
 const objects = [];
 const packageObjects = [];
-for (const source of ['platform/native/package-helper.c', 'platform/native/package-core.c', 'platform/native/package-io.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
+for (const source of ['platform/native/package-helper.c', 'platform/native/package-core.c', 'platform/native/package-io.c', 'platform/native/package-http.c', 'platform/native/package-source.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
   const object = 'build/pkg_' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-std=c11', '-c', source, '-o', object]); packageObjects.push(object);
 }
@@ -137,7 +137,8 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: true },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),
-    firmware: ['13.60'], hardwareVerified: false, isolatedProcess: true },
+    firmware: ['13.60'], hardwareVerified: false, isolatedProcess: true,
+    source: { transport: 'loopback-http', clients: 4, rangeRequests: true, verifiedDescriptor: true } },
   saveExporter: { file: 'tachen-save-helper.elf', bytes: saveElf.length, sha256: createHash('sha256').update(saveElf).digest('hex'),
     hardwareVerified: false, isolatedProcess: true, coordinatorWired: true },
   components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');

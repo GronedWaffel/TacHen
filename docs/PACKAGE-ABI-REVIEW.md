@@ -57,3 +57,21 @@ field offsets alone would not establish native marshalled layout for strings,
 arrays or Boolean fields. Without those definitions/marshalling evidence, this
 route cannot currently justify a firmware-wide native adapter. No speculative
 probe or package call was added, and no console was contacted.
+
+## Local-file delivery correction
+
+A further primary-source review found phantomptr/ps5upload's installer at
+[`95f09e318915db94a247f54d37a1739e00448d0c`](https://github.com/phantomptr/ps5upload/blob/95f09e318915db94a247f54d37a1739e00448d0c/payload/installer/sony.c).
+It documents failures passing plain local paths on 13.60 and primarily serves
+the file over loopback HTTP. Its metadata investigation also concerns 13.60;
+it does not resolve our lower-firmware status layout gap.
+
+TacHen now serves its already verified descriptor through an original temporary
+loopback HTTP source instead of passing a bare filename. It submits the URL once,
+without trying other install routes after an uncertain result. Four clients,
+bounded headers/buffers, single byte ranges, request/idle deadlines and an exact
+request path keep this independent of phone sessions. Metadata changes or short
+file reads stop the source and leave the install result uncertain. Native install
+status is still required for completion; HTTP bytes sent are not installation
+proof. The source stops on helper exit and retains the uploaded file. Native
+socket tests run on the Windows development host, not on a PS5.

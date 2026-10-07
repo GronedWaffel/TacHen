@@ -2150,3 +2150,30 @@ a development review bundle, not a public release. No console contact or hardwar
 testing occurred. HARDWARE-ACCEPTANCE.md records the final attended test sequence,
 with every console result explicitly untested. The lower-firmware native package
 interface evidence gap remains unresolved and the overall goal remains active.
+
+## Checkpoint 45 — native loopback package delivery
+
+Further primary-source installer review identified a concrete risk in passing a
+plain local path to InstallByPackage. The helper now starts an original bounded
+loopback HTTP source over a duplicate of the checksum-verified descriptor and
+submits its temporary URL exactly once. It never opens an HTTP-supplied filename
+or tries another installation route after an uncertain outcome. The source lives
+through observed installation, closes on helper exit and retains the upload.
+
+The transport serves full GET, HEAD and single 64-bit byte ranges through four
+nonblocking clients. Each has bounded headers/buffers and request/idle deadlines;
+wrong paths, request bodies, conflicting headers, multi-ranges and overflowing
+ranges cannot select or overrun another file. Metadata changes and short reads
+stop the source; install tracking reports uncertainty rather than resubmitting.
+HTTP delivery is not used as proof of completed installation. The native status
+ABI gate remains 13.60-only pending independent lower-firmware evidence.
+
+All **368 local tests**, the production cross-build/embedded-asset checks and
+native process-link audit pass. New fixtures exercise the production HTTP parser
+and transport with real Windows loopback sockets: complete and four concurrent
+range downloads, exact 180-GiB parser arithmetic, HEAD, malformed framing,
+connection limits, file mutation and prompt shutdown with incomplete requests.
+The Windows test harness supplies its host socket/thread/file APIs; the PS5
+transport is cross-built, not hardware verified. Logs are retained under
+`.local/checkpoint45-*`. No console contact, deployment or public release occurred.
+The full goal remains active and console testing stays last.

@@ -205,3 +205,10 @@ MC4 format checks examined the pinned GoldHEN repository's
 in the provenance file. These game patches are not bundled. The committed
 encrypted fixture is original synthetic data generated independently with
 Node/OpenSSL for portable-runtime verification.
+
+The original bounded package HTTP source was informed by phantomptr/ps5upload's
+documented local-path failures and loopback delivery approach, reviewed at
+[`95f09e318915db94a247f54d37a1739e00448d0c`](https://github.com/phantomptr/ps5upload/blob/95f09e318915db94a247f54d37a1739e00448d0c/payload/installer/sony.c).
+TacHen's HTTP parser, descriptor ownership, bounded transport and regression
+fixtures are new GPL-3.0-or-later code; no implementation code was copied from
+that project. Its hardware reports do not establish TacHen hardware acceptance.
