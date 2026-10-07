@@ -65,6 +65,23 @@ export class ConsoleDeck {
       for (const [key, enabled] of Object.entries(plan.profile.overlay)) row(key.toUpperCase() + ' overlay', enabled ? 'On for this game session' : 'Off for this game session');
       for (const issue of plan.issues) row(issue.label, issue.message);
       row('Back to games', 'Return without starting anything', '$loadout-back');
+    } else if (this.saveView) {
+      const list = runtime.saves.list({ offset: this.saveView.offset, limit: 3 });
+      if (this.saveView.selected) {
+        const item = this.saveView.selected;
+        row(item.titleId, `${item.slot} · User ${item.user}`);
+        for (const volume of [{ destination: 0, path: 'FTP share', stamp: '' }, ...list.volumes])
+          row('Export to ' + volume.path, 'Decrypted archive; keep this game closed until completion',
+            feature('saves') && !state.safe && state.game?.titleId !== item.titleId ? 'job.enqueue' : null,
+            { kind: 'save.export', input: { ...item, destination: volume.destination, volume: volume.stamp } }, { confirm: true });
+        row('Back to saves', 'Choose another save', '$save-back');
+      } else {
+        row('Refresh saves', list.updatedAt ? `${list.total} saves · ${list.skipped} skipped entries` : 'Read saved games and connected USB drives',
+          feature('saves') && !state.safe ? 'job.enqueue' : null, { kind: 'save.refresh', input: {} });
+        for (const item of list.entries) row(item.titleId, `${item.slot} · User ${item.user}`, '$save-open', item);
+        if (list.offset) row('Previous saves', '', '$save-page', { offset: Math.max(0, list.offset - 3) });
+        if (list.offset + 3 < list.total) row('More saves', '', '$save-page', { offset: list.offset + 3 });
+      }
     } else if (this.page === 0) {
       row('Your phone is a second controller', `Open http://${state.identity.ip}:8780 on the same network`);
       row(state.game?.name || 'Dashboard', state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || `Firmware ${state.identity.firmware || 'development'}`);
@@ -80,6 +97,7 @@ export class ConsoleDeck {
       }
       if (!items.length) row('Payload inbox is empty', 'Upload from your phone or FTP into /payloads');
     } else if (this.page === 2) {
+      if (runtime.saves) row('Saved games', 'Extract and decrypt saves to USB or the FTP share', '$saves');
       const profile = state.loadouts?.profiles.find(p => p.titleId === state.game?.titleId && p.version === state.game?.version);
       if (profile) {
         row('Loadout: ' + profile.name, 'Review plugins, cheats and overlay choices', '$loadout-open', { titleId: profile.titleId, version: profile.version });
@@ -127,7 +145,7 @@ export class ConsoleDeck {
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
     const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
-      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : pages[this.page]}`,
+      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),
       footer: 'L1 / R1 sections    X select    Circle back    L3 + R3 close', rows: selected };
     const signature = JSON.stringify(data);
@@ -155,10 +173,11 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null; this.notice = ''; return this.frame();
       }
       if (input.kind === 'back') {
-        if (this.confirmation && this.loadoutPreview) this.confirmation = null;
+        if (this.confirmation && (this.loadoutPreview || this.saveView)) this.confirmation = null;
+        else if (this.saveView) { if (this.saveView.selected) this.saveView.selected = null;else this.saveView = null; }
         else { this.confirmation = null;if (this.loadoutPreview) this.loadoutPreview = null;else if (this.page === 5 && this.cheatPack) this.cheatPack = null;else this.page = 0; }
         this.offset = 0;this.notice = '';return this.frame();
       }
@@ -167,6 +186,10 @@ export class ConsoleDeck {
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$saves') { this.saveView = { offset: 0, selected: null };this.offset = 0; }
+      else if (selected.command === '$save-open') { this.saveView.selected = selected.args;this.offset = 0; }
+      else if (selected.command === '$save-page') { this.saveView.offset = selected.args.offset;this.offset = 0; }
+      else if (selected.command === '$save-back') { this.saveView.selected = null;this.offset = 0; }
       else if (selected.command === '$loadout-open') { this.loadoutPreview = await this.runtime.execute('loadout.preview', selected.args);this.offset = 0; }
       else if (selected.command === '$loadout-back') { this.loadoutPreview = null;this.offset = 0; }
       else if (selected.command === '$cheat-open') { this.cheatPack = await this.runtime.execute('cheat.inspect', selected.args); this.offset = 0; }

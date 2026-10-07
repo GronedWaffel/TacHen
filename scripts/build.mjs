@@ -38,7 +38,7 @@ await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@pro
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
-      'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
+      'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
       'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
   'platform/native/pad-worker.c', 'platform/native/pad-exchange.c', 'platform/native/user-write.c',
@@ -65,6 +65,15 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--
   ...packageObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-package-helper.elf']);
 await fs.appendFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_package_start\n.global tachen_package_end\ntachen_package_start:\n.incbin "build/tachen-package-helper.elf"\ntachen_package_end:\n');
+const saveObjects = [];
+for (const source of ['platform/native/save-helper.c', 'platform/native/save-core.c', 'platform/native/save-flow.c', 'platform/native/save-io.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
+  const object = 'build/save_' + source.replaceAll('/', '_') + '.o';
+  run([...compile, '-Wall', '-Wextra', '-Werror', '-std=c11', '-c', source, '-o', object]); saveObjects.push(object);
+}
+run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
+  ...saveObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-save-helper.elf']);
+await fs.appendFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_save_start\n.global tachen_save_end\ntachen_save_start:\n.incbin "build/tachen-save-helper.elf"\ntachen_save_end:\n');
 const deckObjects = [];
 for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
   'platform/deck/deck-view.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
@@ -78,7 +87,7 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--
   '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
 for (const source of sources) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
-  run([...compile, ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
+  run([...compile, ...(source.startsWith('platform/native/save-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall', '--wrap=ptrace', '--wrap=kernel_get_proc',
   '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
@@ -87,6 +96,7 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall',
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
 const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 const packageElf = await fs.readFile(path.join(root, 'build/tachen-package-helper.elf'));
+const saveElf = await fs.readFile(path.join(root, 'build/tachen-save-helper.elf'));
 const gameCallback = JSON.parse(await fs.readFile(path.join(root, 'build/game/manifest.json'), 'utf8'));
 const padBridge = JSON.parse(await fs.readFile(path.join(root, 'build/pad/manifest.json'), 'utf8'));
 if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.readUInt16LE(18) !== 62) throw Error('Output is not an x86-64 ELF');
@@ -101,5 +111,7 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: true },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),
     firmware: ['13.60'], hardwareVerified: false, isolatedProcess: true },
+  saveExporter: { file: 'tachen-save-helper.elf', bytes: saveElf.length, sha256: createHash('sha256').update(saveElf).digest('hex'),
+    hardwareVerified: false, isolatedProcess: true, coordinatorWired: true },
   components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');
 console.log(`Built TacHen runtime ELF: ${elf.length} bytes. Hardware untested; native HEN feature integrations remain outstanding.`);

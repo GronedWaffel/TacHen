@@ -18,6 +18,7 @@ import { installPs4Fps } from '../src/ps4-fps.mjs';
 import { installGameInput } from '../src/game-input.mjs';
 import { installGameInputRelay } from '../src/game-input-relay.mjs';
 import { installLoadouts } from '../src/loadouts.mjs';
+import { installSaves } from '../src/saves.mjs';
 import { TacRuntime } from '../src/runtime.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
@@ -160,6 +161,20 @@ globalThis.testPassed = false;
   for (let i = 0; i < 500 && loadoutRuntime.jobs.snapshot().some(j => ['queued', 'running'].includes(j.status)); i++) await Promise.resolve();
   assert(loadoutRuntime.jobs.snapshot().find(j => j.id === loadoutJob.id)?.result?.fullyApplied && loadoutRuntime.overlaySettings().ip, 'QuickJS loadout application failed');
   loadoutRuntime.game = null;assert(!loadoutRuntime.overlaySettings().ip, 'QuickJS loadout overlay leaked to dashboard');await loadoutRuntime.close();
+  let saveReceipt;
+  const saveRuntime = await new TacRuntime(store, { identity: async () => ({ mode: 'development' }), install(runtime) {
+    installSaves(runtime, { systemProbe: () => ({ kstuff: { state: 'installed', injectionReady: true } }),
+      saveStart(request, mode, user, titleId, slot, stamp, destination, volume, platform) {
+        saveReceipt = { request, mode, user, titleId, slot, stamp, destination, volume, platform, stage: 8, ageMs: 0, sameBoot: true,
+          noSideEffects: true, mounted: false, totalBytes: 512, completedBytes: 512, archiveBytes: 512, files: 0, sha256: 'd'.repeat(64),
+          output: `/data/tachen/save-export/${request}.catalog.json`, message: 'Local test catalog' };
+      }, savePoll: () => saveReceipt, saveCatalog: () => JSON.stringify({ version: 1, saves: [], volumes: [], skipped: 0 })
+    });
+  } }, { id: () => (++loadoutId).toString(16).padStart(32, '0') }).start();
+  const saveJob = await saveRuntime.jobs.enqueue('save.refresh', {}, 'quickjs-save-refresh');
+  for (let i = 0; i < 500 && saveRuntime.jobs.snapshot().some(j => ['queued', 'running'].includes(j.status)); i++) await Promise.resolve();
+  assert(saveRuntime.jobs.snapshot().find(j => j.id === saveJob.id)?.status === 'completed' && saveRuntime.saves.list().total === 0, 'QuickJS save queue/catalog failed');
+  await saveRuntime.close();
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle, loadouts and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

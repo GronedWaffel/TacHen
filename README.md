@@ -232,3 +232,16 @@ The controller Games section can review/apply the current loadout, toggle its
 automatic startup and release its temporary overlay choices. Phone editing and
 controller actions share the same checked state. This integration is locally
 tested and cross-built; console acceptance remains pending.
+
+Saved games can now be selected from the phone's Saves tab or the controller's
+Games → Saved games section. The native helper reads PS4/PS5 save containers,
+copies and verifies the encrypted image, mounts only that disposable copy,
+then streams decrypted files into a PAX tar archive with per-file checksums.
+It confirms unmount before publishing to the FTP share or a selected USB drive.
+The installed save is opened read-only. Game-closed checks, exact source/volume
+identities and durable operation receipts prevent silent retries after uncertain
+outcomes. Catalogs and exports are explicit jobs, not background save scans.
+This path is cross-built and locally tested; the PFS calls, filesystem behavior
+and real exported saves still need console acceptance. It does not restore or
+resign saves. Unknown mount/publication states retain private staging for
+inspection and currently require support reconciliation.

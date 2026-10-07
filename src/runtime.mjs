@@ -59,6 +59,7 @@ export class TacRuntime {
       gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
       settings: { ...state.settings, overlay: this.overlaySettings() }, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
+      saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list() : null,
       cheats: this.cheats ? this.cheats.list() : null,
@@ -90,6 +91,8 @@ export class TacRuntime {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'save.list':
+        invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':
       case 'loadout.remove':
       case 'loadout.preview':

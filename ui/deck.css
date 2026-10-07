@@ -22,3 +22,9 @@ input[type=file]{width:100%;max-width:340px;height:auto;min-width:0;font-size:12
 .storage-dialog .setting:has(input[type=checkbox]) { display: flex; }
 .storage-dialog .setting input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 22px; padding: 0; }
 .job-row>ul { grid-column: 1/-1; overflow-wrap: anywhere; margin: 0; }
+#save-query { min-width: 0; max-width: 100%; flex: 1 1 180px; font: inherit; font-size: 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--text); }
+#save-items { margin-top: 20px; }
+#save-items+.actions { margin-top: 16px; }
+#save-items .row, #save-exports .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+#save-items .row>div, #save-exports .row>div { min-width: 0; overflow-wrap: anywhere; }
+#save-items .row>button, #save-exports .row>.fine { grid-column: 1/-1; justify-self: start; max-width: 100%; overflow-wrap: anywhere; }

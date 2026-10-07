@@ -27,6 +27,7 @@ import { installPs4Fps } from '../src/ps4-fps.mjs';
 import { installGameInput } from '../src/game-input.mjs';
 import { installGameInputRelay } from '../src/game-input-relay.mjs';
 import { installLoadouts } from '../src/loadouts.mjs';
+import { installSaves } from '../src/saves.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -41,6 +42,7 @@ globalThis.__ready = (async () => {
       runtime.inboxItems = await runtime.inbox.list();
       await installPackageInbox(runtime, '/data/tachen/packages');
       installPackageInstaller(runtime, __native);
+      installSaves(runtime, __native);
       runtime.capability('inbox', true, 'Resumable file upload and verification.');
       installPayloadLoader(runtime, __native);
       runtime.graph.register({ id: 'coordinator', start: async () => ({ session: runtime.session }),

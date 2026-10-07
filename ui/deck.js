@@ -3,6 +3,7 @@ let csrf, state, connected = true, timer, busy = false;
 let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
 let packageUploading = false, packageStop = false, packageResume = null;
 let cheatPack = null;
+let savePage = { entries: [], volumes: [], total: 0, offset: 0, updatedAt: null }, saveBusy = false;
 const $ = selector => document.querySelector(selector);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
 async function api(route, body) {
@@ -25,6 +26,43 @@ function row(name, detail, status, available = true) {
 }
 const capability = id => state.capabilities.find(item => item.id === id);
 const requestKey = () => [...crypto.getRandomValues(new Uint8Array(16))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+async function loadSaves(offset = 0) {
+  if (saveBusy) return;saveBusy = true;
+  try { ({ result: savePage } = await api('/api/command', { command: 'save.list', args: { query: $('#save-query').value.trim(), offset, limit: 30 } }));drawSaves(); }
+  catch (error) { notice(error.message); } finally { saveBusy = false; }
+}
+function drawSaves() {
+  const available = capability('saves')?.available;
+  $('#save-refresh').disabled = !available || state.safe;
+  $('#save-status').textContent = !available ? capability('saves')?.reason || 'Save helper is unavailable.' :
+    state.saves?.updatedAt ? `${savePage.total} matching saves · ${state.saves.skipped} unreadable or unsupported entries skipped. Refresh after changing a save or USB drive.` : 'Refresh to read local saves and connected USB drives.';
+  const select = $('#save-destination'), signature = JSON.stringify(savePage.volumes);
+  if (select.dataset.list !== signature) {
+    const previous = select.value;select.replaceChildren(...[{ destination: 0, path: 'FTP share' }, ...savePage.volumes].map(v => {
+      const option = el('option', '', v.destination ? `${v.path} · ${formatBytes(v.freeBytes)} free` : v.path);option.value = String(v.destination);return option;
+    }));select.value = [...select.options].some(o => o.value === previous) ? previous : '0';select.dataset.list = signature;
+  }
+  $('#save-items').replaceChildren(...savePage.entries.map(item => {
+    const running = state.game?.titleId === item.titleId;
+    const node = row(item.titleId + ' · ' + item.slot.slice(6), `PS${item.platform} · User ${item.user} · ${formatBytes(item.bytes)} encrypted`, running ? 'Close game first' : 'Ready to export', !running);
+    const button = el('button', '', 'Export decrypted save');button.disabled = !available || state.safe || running;
+    button.onclick = async () => {
+      const destination = Number(select.value), volume = savePage.volumes.find(v => v.destination === destination);
+      if (destination && !volume) return notice('Refresh and select the USB drive again.');
+      if (!confirm(`Export ${item.titleId} / ${item.slot.slice(6)} to ${volume?.path || 'the FTP share'}? Keep this game closed until the export finishes.`)) return;
+      await command('job.enqueue', { kind: 'save.export', input: { ...item, destination, volume: volume?.stamp || '' }, key: requestKey() });
+    };node.append(button);return node;
+  }));
+  $('#save-previous').disabled = savePage.offset === 0;$('#save-next').disabled = savePage.offset + 30 >= savePage.total;
+  $('#save-exports').replaceChildren(...state.jobs.filter(j => j.kind === 'save.export' && j.status === 'completed').slice(-8).reverse().map(job => {
+    const r = job.result, node = row(r.titleId + ' · ' + r.slot.slice(6), `${r.files} entries · ${formatBytes(r.bytes)}`, 'Verified');
+    node.append(el('p', 'fine', r.ftpPath ? `FTP port 2122: ${r.ftpPath}` : r.output));return node;
+  }));
+}
+$('#save-refresh').onclick = () => command('job.enqueue', { kind: 'save.refresh', input: {}, key: requestKey() });
+$('#save-find').onclick = () => loadSaves(0);
+$('#save-previous').onclick = () => loadSaves(Math.max(0, savePage.offset - 30));
+$('#save-next').onclick = () => loadSaves(savePage.offset + 30);
 function drawCheats() {
   $('#cheat-file').disabled = !Array.isArray(state.cheats);
   if (state.game) {
@@ -170,6 +208,7 @@ async function loadoutReview(profile) {
 function draw() {
   drawCheats();
   drawLoadouts();
+  drawSaves();
   const sample = state.telemetry;
   $('#game-measurements').replaceChildren(...[
     ['fps', sample?.fpsSource === 'display-scanout' ? 'Display rate' : 'Game FPS', sample?.fps, sample?.fpsSource === 'display-scanout' ? ' Hz' : ' FPS'],
@@ -482,6 +521,7 @@ $('#disconnect').onclick = async () => {
 async function refresh() {
   if (!connected) return;
   try { state = await api('/api/state');
+    if (state.saves?.updatedAt && savePage.updatedAt !== state.saves.updatedAt) await loadSaves(0);
     if (cheatPack && !$('#cheats').hidden) ({ result: cheatPack } = await api('/api/command', { command: 'cheat.inspect', args: { sha256: cheatPack.sha256 } }));
     draw(); }
   catch (error) { $('#connection').textContent = 'Connection unavailable'; notice(error.message); }

@@ -1038,3 +1038,78 @@ Save extraction/decryption/export, remaining cheat formats, full presentation,
 recovery/update flows and older-firmware installer ABIs remain outstanding.
 The original full goal is active. No console was contacted, and no deployment
 or public release occurred.
+
+## Checkpoint twenty-two — save extraction and USB/FTP export
+
+An embedded, isolated save helper now connects to the real job queue and both
+user interfaces. Its explicit catalog job reads PS4 `savedata` and PS5
+`savedata_prospero` containers under local user directories. Entries bind the
+user/title/slot, platform, file metadata and sealed-key identity; USB choices
+bind the mounted device identity. Catalogs include skipped-entry counts and are
+bounded to 2048 saves. No native save scan runs automatically while idle.
+
+Exports require a closed target game, supported exact firmware profile and
+verified kstuff before dispatch. The helper opens installed containers read-only,
+copies the image into private staging and verifies the entire copy by read-back
+SHA-256. It obtains the key through the console's PFS service, using the PS4
+companion key file or PS5 image key location. Credential changes are confined
+to that helper and verified on restoration. Mounting never targets the installed
+save. PFS research and existing Neighborhood provenance are recorded in
+`vendor/save-provenance.json`.
+
+Extraction walks descriptor-relative directories without following links or
+nested mounts, streams file data with bounded buffers, preserves empty
+directories, and writes a PAX tar containing a file-hash manifest. UTF-8 paths,
+long paths and files above the traditional tar eight-GiB size limit are handled.
+Limits are 32 GiB of file data, 10000 entries and 32 directory levels. Space
+checks use the actual encrypted copy and streamed archive requirements with a
+small reserve; they do not multiply the source size by an arbitrary factor.
+The full archive is read back and verified before publication.
+
+Unmount must be confirmed before publication or cleanup. A mount call returning
+an error still goes through mount-state reconciliation; a negative return alone
+is not treated as proof that nothing mounted. The helper's watchdog and durable
+phase receipts retain uncertain results. Such work is not replayed, and the
+queue holds its exclusion. Known clean failures discard only fixed staging
+filenames; no recursive deletion runs against a potential mount. Unknown
+mount/publication state is preserved for inspection; automatic cleanup/recovery
+of those cases remains part of the outstanding recovery work.
+
+FTP exports publish under `/data/tachen/share/saves/<request>/save.tar`, with
+the share-relative path shown to the user. Same-filesystem rename avoids a
+second local archive copy. USB exports go to `TacHen/Saves/<request>/save.tar`
+on the selected drive, with copy and read-back hashes checked before the final
+name is published. The verified USB directory descriptor is retained while
+creating children, preventing a disconnect from redirecting writes to an
+unmounted USB placeholder. Source, destination and game state are rechecked
+during long transfers and before publication. These checks provide point-in-time
+verification, not a guarantee against later edits to a completed export.
+
+Phone users can refresh, search, page, select a destination, confirm export and
+see the verified output path. The controller Games submenu supports catalog
+refresh, save paging, USB/FTP destination review and the same export job. Both
+use Activity progress and durable result reconciliation. Recovery startup blocks
+these optional helper launches even through direct command calls.
+
+The build passed with warnings treated as errors for the new native save code.
+All **235 local tests** passed, including independent Python tar-reader checks,
+native failure-path injection and queue/controller integration tests with mocked
+platform boundaries. The embedded QuickJS fixture executes a catalog job. The
+four-ELF process-link audit passed. A real loopback browser fixture exercised
+catalog refresh, export confirmation and visible completion; the 390-pixel phone
+view was checked and a long-path horizontal-overflow defect corrected. This
+browser fixture did not perform PFS decryption or access console data.
+
+Runtime **8,873,520 bytes**, SHA-256
+`bf2fd93c289495cc92d925f0ee4a4035db8533a60feb4877f1c9e24a5dba69ef`.
+Embedded save helper **155,472 bytes**, SHA-256
+`34ce09df4d3d791e121ccc0de7acf89076f9ac2da52f191d3164eb432a600f42`.
+
+Hardware acceptance must verify symbol availability, credential restoration,
+PFS mount/unmount behavior, PS4 companion-key and PS5 image exports, archive
+contents against a known save, USB disconnect handling, low-space behavior,
+game-start races, large saves and cross-firmware compatibility. No console was
+contacted, no payload was sent, and no public deployment/release occurred.
+The full goal remains active: original presentation, remaining cheat formats,
+history/undo, adaptive notices, update/recovery flows, support diagnostics,
+older-firmware installer ABIs and full hardware acceptance remain outstanding.
