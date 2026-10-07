@@ -47,6 +47,27 @@ export function importCheatJson(source, { titleId, version }) {
 function sameGame(a, b) {
   return a && b && ['pid', 'generation', 'titleId', 'version'].every(key => a[key] === b[key]);
 }
+export function cheatPacket(pack, cheatId, enabled) {
+  invariant(typeof enabled === 'boolean', 'CHEAT_STATE', 'Choose enabled or disabled.');
+  const cheat = pack.cheats.find(item => item.id === cheatId);
+  invariant(cheat, 'CHEAT_MISSING', 'Cheat was not found.');
+  const patches = cheat.memory.map(item => {
+    invariant(item.section === 0, 'CHEAT_SECTION_UNSUPPORTED', 'This cheat requires a nonzero section adapter that is not yet integrated.');
+    return { offset: BigInt(item.offset), before: Buffer.from(enabled ? item.off : item.on, 'hex'), after: Buffer.from(enabled ? item.on : item.off, 'hex') };
+  }).sort((a, b) => a.offset < b.offset ? -1 : a.offset > b.offset ? 1 : 0);
+  invariant(patches.every(p => p.offset >= 0n && p.offset <= 0xffffffffffffffffn - BigInt(p.before.length)), 'PATCH_BOUNDS', 'A patch offset overflows the native address width.');
+  invariant(patches.every((p, i) => !i || patches[i - 1].offset + BigInt(patches[i - 1].before.length) <= p.offset),
+    'PATCH_OVERLAP', 'This cheat contains overlapping patches.');
+  const bytes = 16 + patches.reduce((sum, p) => sum + 16 + p.before.length * 2, 0), packet = Buffer.alloc(bytes);
+  packet.writeUInt32LE(0x54435031, 0); packet.writeUInt32LE(1, 4); packet.writeUInt32LE(patches.length, 8); packet.writeUInt32LE(bytes, 12);
+  let at = 16;
+  for (const patch of patches) {
+    const view = new DataView(packet.buffer, packet.byteOffset + at, 16);
+    view.setBigUint64(0, patch.offset, true); view.setUint32(8, patch.before.length, true); view.setUint32(12, 0, true);
+    patch.before.copy(packet, at + 16); patch.after.copy(packet, at + 16 + patch.before.length); at += 16 + patch.before.length * 2;
+  }
+  return packet;
+}
 export class CheatSession {
   constructor(adapter) { this.adapter = adapter; this.busy = false; this.blocked = false; }
   async set(game, pack, cheatId, enabled) {

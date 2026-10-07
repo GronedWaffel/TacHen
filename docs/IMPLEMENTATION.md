@@ -627,3 +627,40 @@ or prove a stopped process lease. The immediate next integration is the native
 atomic cheat worker: exact metadata/generation checks, stopped target, complete
 before-byte validation, bounded patch transaction/rollback and confirmed resume,
 then coordinator jobs and phone/controller controls. No PS5 test occurred.
+
+## Checkpoint thirteen — native cheat transactions and shared controls
+
+Exact-title/version JSON packs now persist as verified, hash-named files with a
+bounded catalog and retained author credits. The phone imports and displays them;
+the controller deck adds a Cheats page. Both submit the same durable `cheat.set`
+job, bound to game generation, metadata digest and patch-plan digest. An enabled
+label means the last verified operation, not a promise that another mod has not
+subsequently changed game memory.
+
+The native worker rechecks kstuff readiness, metadata and identity; stops the
+target; uniquely resolves its module; checks the complete mapped range and every
+expected byte before the first write; rejects patches overlapping a stopped
+thread's instruction; and verifies applied bytes. Partial writes are included in
+reverse rollback. Temporary mapping permissions and caller credentials are
+checked/restored, and confirmed resume is required for success. Durable intent
+is saved before attach. No disk flush is added while the game is stopped. The
+two-second forward budget is checked between operations, not a preemptive
+guarantee that a kernel call cannot stall. Interrupted or uncertain attempts hold
+their resource ownership and are never automatically replayed.
+
+The real C packet parser and transaction engine execute in host tests with
+injected partial writes, failed rollback/resume, changed identity, permission
+health failure and mismatched expected bytes. The full suite passes **170 tests**;
+the actual QuickJS smoke check covers pack persistence and binary packet/receipt
+contracts. The native worker's PS5 syscall and permission operations remain
+unexecuted. A localhost phone check at 390 pixels found and fixed overflow and
+undersized text fields; `build/cheats-phone.jpg` records the corrected layout.
+The fixture executes no native operation and has been shut down.
+
+Latest runtime: **8,523,520 bytes**, SHA-256
+`ad55a103c68e7ac000845e0c4959d9f2020e4cb4562cea6706f98621bc80f804`.
+Final ELF inspection accepts runtime, deck and package helper. Hardware remains
+untouched. Nonzero sections, absolute/code-cave patches and encrypted/XML/BIN
+formats remain unsupported by this execution adapter. Native MCP scans, overlays,
+saves, loadouts, updates and the other outstanding work above remain unfinished;
+this checkpoint does not complete TacHen.

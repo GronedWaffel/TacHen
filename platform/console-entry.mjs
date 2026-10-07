@@ -19,6 +19,7 @@ import { installStorageJobs } from '../src/storage-jobs.mjs';
 import { installConsoleDeck } from '../src/native-deck.mjs';
 import { installGameLifecycle } from '../src/game-lifecycle.mjs';
 import { installPlugins } from '../src/plugins.mjs';
+import { installCheats } from '../src/cheat-service.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -45,6 +46,7 @@ globalThis.__ready = (async () => {
       installConsoleDeck(runtime, __native);
       installGameLifecycle(runtime, __native);
       installPlugins(runtime, __native);
+      installCheats(runtime, __native, await new FileStorage('/data/tachen/cheat-packs').init());
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });

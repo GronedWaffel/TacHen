@@ -39,7 +39,8 @@ along with this program; see the file COPYING. If not, see
 
 
 static int
-sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
+sys_ptrace_checked(int request, pid_t pid, caddr_t addr, int data, int *accepted) {
+  if(accepted)*accepted=0;
   pid_t mypid = getpid();
   uint8_t caps[16], fullcaps[16];
   memset(fullcaps,0xff,sizeof fullcaps);
@@ -59,6 +60,7 @@ sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
   }
 
   ret = (int)syscall(SYS_ptrace, request, pid, addr, data);
+  if(accepted&&ret>=0)*accepted=1;
   if(ret<0)port_diag("ptrace-error",(unsigned)request,ret,errno);
 
   int restore_caps=kernel_set_ucred_caps(mypid,caps);
@@ -66,6 +68,9 @@ sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
   if(restore_caps||restore_auth)return -1;
 
   return ret;
+}
+static int sys_ptrace(int request,pid_t pid,caddr_t addr,int data){
+  return sys_ptrace_checked(request,pid,addr,data,NULL);
 }
 
 
@@ -110,6 +115,13 @@ pt_attach(pid_t pid) {
   if(sys_ptrace(PT_ATTACH,pid,0,0)==-1)return -1;
   if(!pt_wait_stop(pid,0,1000))return 0;
   int saved=errno;pt_detach(pid,0);errno=saved;return -1;
+}
+int pt_attach_owned(pid_t pid,int *owned){
+  if(!owned){errno=EINVAL;return -1;}
+  // Preserve ownership even if credential restoration or the stop wait fails.
+  // The transactional caller remains responsible for the final detach.
+  if(sys_ptrace_checked(PT_ATTACH,pid,0,0,owned)==-1)return -1;
+  return pt_wait_stop(pid,0,1000);
 }
 
 

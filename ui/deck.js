@@ -2,6 +2,7 @@
 let csrf, state, connected = true, timer, busy = false;
 let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
 let packageUploading = false, packageStop = false, packageResume = null;
+let cheatPack = null;
 const $ = selector => document.querySelector(selector);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
 async function api(route, body) {
@@ -24,7 +25,54 @@ function row(name, detail, status, available = true) {
 }
 const capability = id => state.capabilities.find(item => item.id === id);
 const requestKey = () => [...crypto.getRandomValues(new Uint8Array(16))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+function drawCheats() {
+  $('#cheat-file').disabled = !Array.isArray(state.cheats);
+  if (state.game) {
+    if (!$('#cheat-title').value) $('#cheat-title').value = state.game.titleId;
+    if (!$('#cheat-version').value) $('#cheat-version').value = state.game.version;
+  }
+  $('#cheat-packs').replaceChildren(...(state.cheats || []).map(pack => {
+    const matches = state.game?.titleId === pack.titleId && state.game?.version === pack.version;
+    const node = row(pack.name, `${pack.titleId} · ${pack.version} · ${pack.count} cheats`, matches ? 'Matches game' : 'Other game/version', matches);
+    const open = el('button', '', 'View cheats');
+    open.onclick = async () => {
+      try { ({ result: cheatPack } = await api('/api/command', { command: 'cheat.inspect', args: { sha256: pack.sha256 } })); drawCheats(); }
+      catch (error) { notice(error.message); }
+    }; node.append(open); return node;
+  }));
+  $('#cheat-details').hidden = !cheatPack;
+  if (!cheatPack) return;
+  $('#cheat-pack-name').textContent = cheatPack.name;
+  $('#cheat-pack-credits').textContent = cheatPack.credits.length ? 'Credits: ' + cheatPack.credits.join(', ') : 'No author credit supplied in this file.';
+  const sha256 = cheatPack.sha256, matches = state.game?.titleId === cheatPack.titleId && state.game?.version === cheatPack.version;
+  $('#cheat-items').replaceChildren(...cheatPack.cheats.map(cheat => {
+    const active = cheat.operation && !['failed', 'cancelled', 'completed'].includes(cheat.operation.status);
+    const status = cheat.operation?.message || (cheat.lastApplied == null ? 'Not applied in this game session' : 'Last applied: ' + (cheat.lastApplied ? 'On' : 'Off'));
+    const node = row(cheat.name, cheat.description, status, !active), actions = el('div', 'actions');
+    for (const enabled of [true, false]) {
+      const button = el('button', '', enabled ? 'Enable' : 'Restore original');
+      button.disabled = active || !matches || !cheat.supported || !capability('cheats')?.available || state.safe;
+      button.onclick = () => command('job.enqueue', { kind: 'cheat.set', input: { sha256, cheatId: cheat.id, enabled }, key: requestKey() });
+      actions.append(button);
+    }
+    node.append(actions);
+    if (!cheat.supported) node.append(el('p', 'fine', 'This cheat needs a nonzero-section adapter; it cannot be applied by this build yet.'));
+    return node;
+  }));
+}
+$('#cheat-file').onchange = async event => {
+  const file = event.target.files[0]; if (!file || busy) return; busy = true;
+  try {
+    if (file.size > 4 * 1024 * 1024) throw Error('Cheat files are limited to 4 MiB.');
+    const source = await file.text();
+    const { result } = await api('/api/cheats/import', { source, titleId: $('#cheat-title').value.trim().toUpperCase(), version: $('#cheat-version').value.trim() });
+    ({ result: cheatPack } = await api('/api/command', { command: 'cheat.inspect', args: { sha256: result.sha256 } }));
+    $('#cheat-status').textContent = `${result.name} imported and verified. No cheat was applied.`; await refresh();
+  } catch (error) { $('#cheat-status').textContent = error.message; }
+  finally { event.target.value = ''; busy = false; }
+};
 function draw() {
+  drawCheats();
   document.body.dataset.accent = state.settings.appearance.accent;
   document.body.dataset.reducedMotion = String(state.settings.appearance.reducedMotion);
   $('#connection').textContent = 'Connected locally';
@@ -296,7 +344,9 @@ $('#disconnect').onclick = async () => {
 };
 async function refresh() {
   if (!connected) return;
-  try { state = await api('/api/state'); draw(); }
+  try { state = await api('/api/state');
+    if (cheatPack && !$('#cheats').hidden) ({ result: cheatPack } = await api('/api/command', { command: 'cheat.inspect', args: { sha256: cheatPack.sha256 } }));
+    draw(); }
   catch (error) { $('#connection').textContent = 'Connection unavailable'; notice(error.message); }
 }
 async function poll() { if (!connected) return; if (!document.hidden && !busy) await refresh(); timer = setTimeout(poll, document.hidden ? 15000 : 2500); }

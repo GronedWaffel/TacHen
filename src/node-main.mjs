@@ -10,6 +10,7 @@ import { PayloadInbox } from './inbox.mjs';
 import { installPackageInbox } from './package-inbox.mjs';
 import { startFtp } from './ftp.mjs';
 import { ftpInboxReceiver } from './ftp-inbox.mjs';
+import { installCheats } from './cheat-service.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storage = await new FileStorage(path.join(root, '.local/state')).init();
@@ -21,6 +22,7 @@ const platform = {
     runtime.inbox = await new PayloadInbox(path.join(root, '.local/inbox'), { id }).init();
     runtime.inboxItems = await runtime.inbox.list();
     await installPackageInbox(runtime, path.join(root, '.local/packages'));
+    installCheats(runtime, {}, await new FileStorage(path.join(root, '.local/cheat-packs')).init());
     runtime.capability('inbox', true, 'File upload and structural verification. Execution requires the native loader.');
     runtime.graph.register({ id: 'ftp', start: async () => {
       runtime.ftp = await startFtp({ root: path.join(root, '.local/share'), host: '127.0.0.1', address: '127.0.0.1', id,

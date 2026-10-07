@@ -20,7 +20,7 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=1||(f.flags&~3u)||!f.sequence||f.page>=5||f.count>8||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=1||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
  for(unsigned i=0;i<f.count;i++){

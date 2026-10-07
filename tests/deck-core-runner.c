@@ -6,6 +6,7 @@
 int main(int argc,char** argv){
  CHECK(argc==2);FILE* f=fopen(argv[1],"rb");CHECK(f);unsigned char bytes[2801];size_t length=fread(bytes,1,sizeof bytes,f);fclose(f);
  TacDeckFrame frame;CHECK(tac_deck_decode(bytes,length,&frame));CHECK(frame.count==3);CHECK(!strcmp(frame.rows[1].label,"Payload 二"));
+ bytes[12]=5;CHECK(tac_deck_decode(bytes,length,&frame));bytes[12]=6;CHECK(!tac_deck_decode(bytes,length,&frame));bytes[12]=0;
  CHECK(!tac_deck_decode(bytes,length-1,&frame));
  bytes[14]=9;CHECK(!tac_deck_decode(bytes,length,&frame));bytes[14]=3;
  unsigned char original=bytes[500];bytes[500]=0xc0;CHECK(!tac_deck_decode(bytes,length,&frame));bytes[500]=original;

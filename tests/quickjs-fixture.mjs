@@ -10,6 +10,7 @@ import { inspectPackage } from '../src/package-format.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
 import { GameLifecycle } from '../src/game-lifecycle.mjs';
 import { installPlugins } from '../src/plugins.mjs';
+import { installCheats } from '../src/cheat-service.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -75,6 +76,20 @@ globalThis.testPassed = false;
   const moduleInput = await moduleHandler.validate({ sha256: moduleHash, source: 'manual' });
   const moduleLoaded = await moduleHandler.run(moduleInput, { id: '3'.repeat(32), signal: { aborted: false } });
   assert(moduleLoaded.initialized && await moduleHandler.verify(moduleLoaded, moduleInput), 'QuickJS game module receipt contract failed');
-  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer/plugin/module receipts, game lifecycle and controller wire passed. Native APIs not tested.');
+  let cheatHandler, cheatReceipt;
+  const cheatRuntime = { ...pluginRuntime, jobs: { register(_kind, handler) { cheatHandler = handler; }, snapshot: () => [] } };
+  const cheats = installCheats(cheatRuntime, {
+    systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true }, processes: [] }),
+    cheatStart(request, pid, generation, _title, _metadata, _module, packet) {
+      const bytes = Buffer.from(packet);assert(bytes.readUInt32LE(0) === 0x54435031 && bytes.readBigUInt64LE(16) === 16n, 'QuickJS native cheat packet failed');
+      cheatReceipt = { request, pid, generation, planHash: checksum(bytes), stage: 3, resumed: true, restored: false, writes: 1 };
+    }, cheatPoll: () => cheatReceipt
+  }, disk);
+  const cheatPack = await cheats.packs.import({ titleId: 'PPSA00001', version: '01.002.003', source: JSON.stringify({ name: 'Fixture', process: 'eboot.bin',
+    mods: [{ name: 'Test', memory: [{ offset: '10', on: '9090', off: '0102' }] }] }) });
+  const cheatInput = await cheatHandler.validate({ sha256: cheatPack.sha256, cheatId: '0', enabled: true });
+  const cheatLoaded = await cheatHandler.run(cheatInput, { id: '4'.repeat(32), signal: { aborted: false } });
+  assert(cheatLoaded.phase === 'applied' && await cheatHandler.verify(cheatLoaded, cheatInput), 'QuickJS cheat receipt failed');
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer/plugin/module/cheat receipts, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

@@ -20,6 +20,7 @@ test('native renderer availability is never inferred from phone availability', a
 });
 test('deck and phone share optimistic settings; stale controller selections do not overwrite phone changes', async t => {
   const runtime = await fixture(t), deck = runtime.consoleDeck;
+  await deck.action(action(runtime, 'previous')); assert.equal(deck.frame().page, 5);
   await deck.action(action(runtime, 'previous')); assert.equal(deck.frame().page, 4);
   const old = action(runtime, 'select', 4);
   await runtime.settings({ appearance: { reducedMotion: true } }, runtime.snapshot().revision);

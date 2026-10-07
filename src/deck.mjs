@@ -4,7 +4,7 @@
 import { invariant } from './errors.mjs';
 
 export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 1, bytes: 2800, rows: 8, rowBytes: 292 });
-const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences'];
+const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
   let length = Math.min(input.length, bytes - 1);
@@ -69,7 +69,7 @@ export class ConsoleDeck {
     } else if (this.page === 3) {
       for (const job of [...state.jobs].reverse()) row(job.kind, `${job.status}: ${job.error?.message || job.progress?.message || ''}`);
       if (!items.length) row('Nothing is running', 'Transfers and payload jobs appear here');
-    } else {
+    } else if (this.page === 4) {
       for (const [key, label, capability] of [['ip', 'IP address on screen', 'ip-overlay'], ['fps', 'Game FPS', 'fps'],
         ['ram', 'Memory usage', 'resources'], ['cpu', 'CPU usage', 'resources']])
         row(label, feature(capability) ? (state.settings.overlay[key] ? 'On' : 'Off') : 'Renderer is not ready',
@@ -77,6 +77,21 @@ export class ConsoleDeck {
           { revision: state.revision, patch: { overlay: { [key]: !state.settings.overlay[key] } } }, { on: state.settings.overlay[key] });
       row('Reduced motion', state.settings.appearance.reducedMotion ? 'On' : 'Off', 'settings.update',
         { revision: state.revision, patch: { appearance: { reducedMotion: !state.settings.appearance.reducedMotion } } }, { on: state.settings.appearance.reducedMotion });
+    } else if (this.cheatPack) {
+      const pack = this.cheatPack, matches = state.game?.titleId === pack.titleId && state.game?.version === pack.version;
+      row(pack.name, `${pack.titleId} · ${pack.version}`);
+      for (const cheat of pack.cheats) {
+        const job = runtime.jobs.snapshot().filter(j => j.kind === 'cheat.set' && j.args.sha256 === pack.sha256 && j.args.cheatId === cheat.id && j.args.generation === state.game?.generation).at(-1);
+        const active = job && !['completed', 'failed', 'cancelled'].includes(job.status);
+        const on = job?.status === 'completed' && job.result?.phase === 'applied' && job.args.enabled;
+        row(cheat.name, active ? job.error?.message || job.status : !matches ? 'Open the exact target game and version' : !cheat.supported ? 'Nonzero section adapter is not yet integrated' : on ? 'Last applied: On. Select to restore original bytes.' : 'Select to enable; expected bytes are checked first.',
+          matches && !active && cheat.supported && feature('cheats') && !state.safe ? 'job.enqueue' : null,
+          { kind: 'cheat.set', input: { sha256: pack.sha256, cheatId: cheat.id, enabled: !on } }, { on: Boolean(on) });
+      }
+      row('Other cheat packs', 'Return to the cheat library', '$cheat-back');
+    } else {
+      for (const pack of state.cheats || []) row(pack.name, `${pack.titleId} · ${pack.version} · ${pack.count} cheats`, '$cheat-open', { sha256: pack.sha256 });
+      if (!items.length) row('No cheat files imported', 'Import a JSON cheat pack from Cheats on your phone');
     }
     // Six content rows leave room for navigation on long libraries/inboxes.
     this.offset = Math.min(this.offset, Math.max(0, Math.floor((items.length - 1) / 6) * 6));
@@ -111,12 +126,14 @@ export class ConsoleDeck {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
         this.offset = 0; this.confirmation = null; this.notice = ''; return this.frame();
       }
-      if (input.kind === 'back') { this.confirmation = null; this.page = 0; this.offset = 0; this.notice = ''; return this.frame(); }
+      if (input.kind === 'back') { this.confirmation = null; if (this.page === 5 && this.cheatPack) this.cheatPack = null; else this.page = 0; this.offset = 0; this.notice = ''; return this.frame(); }
       invariant(input.kind === 'select' && Number.isInteger(input.row) && input.row >= 0 && input.row < frame.rows.length,
         'DECK_ACTION', 'Invalid deck action.', { status: 400 });
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$cheat-open') { this.cheatPack = await this.runtime.execute('cheat.inspect', selected.args); this.offset = 0; }
+      else if (selected.command === '$cheat-back') { this.cheatPack = null; this.offset = 0; }
       else if (selected.command === '$next') this.offset += 6;
       else if (selected.command === '$cancel') this.confirmation = null;
       else if (selected.command === '$confirm') {

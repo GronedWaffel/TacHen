@@ -36,8 +36,18 @@ observations establish its title/version for the phone and console deck. Ambiguo
 processes, missing metadata and native contention hold game actions; they never
 silently select cached library versions. Lifecycle consumers receive an abort
 signal when the verified instance becomes unavailable. This foundation is
-implemented and cross-built. Native PRX loading now uses this context; cheats and
-overlays still need their execution adapters and deferred console acceptance.
+implemented and cross-built. Native PRX loading and JSON cheat transactions now
+use this context. Overlays still need their execution adapters; all three paths
+require deferred console acceptance.
+
+The phone and controller Cheats page imports exact-title/version JSON packs,
+preserves their credits and offers enable/restore operations. Native execution
+stops the verified game instance, checks every expected byte before the first
+write, verifies writes and rolls back partial failure before resuming. Durable
+intent is saved before stopping the game; uncertain results prevent replay.
+The current adapter supports module-relative section-zero patches. Other section
+layouts, absolute/code-cave patches and encrypted/XML/BIN formats remain work in
+progress. Local tests do not establish real-game compatibility.
 
 The phone's Plugins tab now registers verified etaHEN `.plugin` containers, starts
 their embedded ELF as a named plugin process, and supports optional system or exact

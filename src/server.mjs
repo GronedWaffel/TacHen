@@ -16,11 +16,11 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
     const body = JSON.stringify(value);
     res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers }); res.end(body);
   }
-  async function json(req) {
+  async function json(req, limit = 65536) {
     const chunks = []; let bytes = 0;
     invariant(/^application\/json(?:;|$)/i.test(req.headers['content-type'] || ''), 'JSON_REQUIRED', 'Expected JSON.', { status: 400 });
     for await (const chunk of req) {
-      bytes += chunk.length; invariant(bytes <= 65536, 'BODY_LIMIT', 'Request is too large.', { status: 413 });
+      bytes += chunk.length; invariant(bytes <= limit, 'BODY_LIMIT', 'Request is too large.', { status: 413 });
       chunks.push(chunk);
     }
     try { const value = JSON.parse(Buffer.concat(chunks).toString('utf8')); invariant(value && typeof value === 'object' && !Array.isArray(value), 'JSON_REQUIRED', 'Expected an object.', { status: 400 }); return value; }
@@ -80,6 +80,10 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
       if (req.method === 'POST') {
         invariant(req.headers.origin === origin && req.headers['x-tachen-csrf'] === session.csrf,
           'REQUEST_REJECTED', 'This request is not from the connected TacHen page.', { status: 403 });
+        if (req.url === '/api/cheats/import') {
+          invariant(runtime.cheats, 'FEATURE_UNAVAILABLE', 'Cheat catalog is not installed.');
+          return send(res, 200, { result: await runtime.cheats.packs.import(await json(req, 6 * 1024 * 1024)) });
+        }
         const upload = /^\/api\/(uploads|package-uploads)\/([a-f0-9]{32})\?offset=(\d+)$/.exec(req.url);
         if (upload) {
           const inbox = upload[1] === 'uploads' ? runtime.inbox : runtime.packageInbox;

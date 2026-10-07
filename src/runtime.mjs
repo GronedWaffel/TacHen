@@ -57,6 +57,7 @@ export class TacRuntime {
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list() : null,
+      cheats: this.cheats ? this.cheats.list() : null,
       library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
       jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
@@ -83,6 +84,8 @@ export class TacRuntime {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'cheat.inspect':
+        invariant(this.cheats, 'FEATURE_UNAVAILABLE', 'Cheat catalog is not installed.'); return this.cheats.inspect(args.sha256);
       case 'plugin.register':
         invariant(this.plugins, 'FEATURE_UNAVAILABLE', 'Plugin lifecycle service is not installed.'); return this.plugins.register(args);
       case 'plugin.configure':
