@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111619"><title>TacHen · Command deck</title>
+  <link rel="stylesheet" href="/deck.css"><script type="module" src="/deck.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header><a class="brand" href="/" aria-label="TacHen home"><span class="mark">T<span>H</span></span>TacHen<span class="badge">DEVELOPMENT</span></a>
+      <span id="connection" role="status">Connecting…</span><button id="disconnect" class="quiet">Disconnect</button></header>
+    <main>
+      <div class="intro"><div><p class="eyebrow">YOUR CONSOLE. YOUR CONTROL.</p><h1 id="context-title">Command deck</h1>
+        <p id="context-detail">Opening a direct connection to TacHen.</p></div><div class="address"><span>LOCAL CONNECTION</span><strong id="address">—</strong></div></div>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <nav aria-label="Deck sections">
+        <button class="tab active" data-view="overview" aria-current="page">Overview</button>
+        <button class="tab" data-view="activity">Activity <span id="job-count">0</span></button>
+        <button class="tab" data-view="inbox">Payloads</button>
+        <button class="tab" data-view="preferences">Preferences</button>
+        <button class="tab" data-view="components">Components</button>
+      </nav>
+      <section id="overview" class="view">
+        <div class="feature-row"><article class="hero"><p class="eyebrow">SESSION</p><h2 id="session-title">Getting ready</h2>
+          <p id="session-detail">Reading coordinator state.</p><div id="session-chips" class="chips"></div>
+          <div class="hero-line"></div><p class="fine">Your phone and console share one command state. Closing this page leaves queued operations on the console.</p></article>
+          <article class="panel"><p class="eyebrow">WHAT’S RUNNING</p><h2>Services</h2><div id="services" class="stack"></div></article></div>
+        <div class="section-heading"><h2>Available in this build</h2><span id="available-count" class="muted"></span></div>
+        <div id="capabilities" class="cap-grid"></div>
+      </section>
+      <section id="activity" class="view" hidden><div class="section-heading"><h2>Background work</h2><span class="muted">Accepted ≠ completed</span></div><div id="jobs" class="stack"></div>
+        <div class="section-heading"><h2>This session</h2></div><div id="history" class="stack"></div></section>
+      <section id="inbox" class="view" hidden><article class="panel"><p class="eyebrow">DIRECT TO YOUR CONSOLE</p><h2>Payload inbox</h2><p>Choose an ELF or plugin on your phone or computer. TacHen checks the file before it can be loaded.</p><label class="setting">Choose a payload<input type="file" id="payload-file" accept=".elf,.plugin,.prx,.sprx"></label><p id="upload-progress" role="status" class="fine">Nothing selected.</p><p class="fine">This development build uploads and verifies files. The native execution service is still being integrated.</p></article><div class="section-heading"><h2>Your files</h2></div><div id="inbox-items" class="stack"></div></section>
+      <section id="preferences" class="view" hidden><div class="feature-row">
+        <article class="panel"><p class="eyebrow">AT A GLANCE</p><h2>Overlay</h2><div id="overlay-settings"></div><p class="fine">Native options become available when their service is integrated. Unavailable readings are never shown as zero.</p></article>
+        <article class="panel"><p class="eyebrow">MAKE IT YOURS</p><h2>Appearance</h2><label class="setting">Accent<select id="accent"><option value="mint">Mint</option><option value="amber">Amber</option><option value="ice">Ice</option></select></label><label class="setting">Reduce motion<input type="checkbox" id="reduced-motion"></label>
+          <p class="fine">Developer tools and support captures will stay separate from everyday controls.</p></article></div></section>
+      <section id="components" class="view" hidden><div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
+    </main>
+    <footer><span>TacHen / development workspace</span><span id="firmware">No hardware connection</span><span>Direct LAN · No cloud account</span></footer>
+  </div>
+</body></html>

@@ -1,0 +1,26 @@
+// Only portable coordinator code runs here. Native hardware APIs are absent.
+import { Buffer } from 'buffer';
+import { createHash } from '../platform/runtime/crypto.mjs';
+import { StateStore } from '../src/store.mjs';
+import { mergeSettings } from '../src/settings.mjs';
+import { inspectPayload } from '../src/payload-format.mjs';
+globalThis.Buffer = Buffer;
+globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
+function assert(value, message) { if (!value) throw Error(message); }
+globalThis.testPassed = false;
+(async () => {
+  const files = new Map(), checksum = text => createHash('sha256').update(text).digest('hex');
+  const disk = { read: async name => files.get(name) ?? null, replace: async (name, text) => files.set(name, text) };
+  const store = await new StateStore(disk, checksum).open();
+  await store.transaction(s => { s.settings = mergeSettings(s.settings, { appearance: { accent: 'ice' } }); });
+  const reopened = await new StateStore(disk, checksum).open();
+  assert(reopened.snapshot().settings.appearance.accent === 'ice', 'QuickJS persistence failed');
+  const binary = Buffer.alloc(160); Buffer.from([0x7f,69,76,70,2,1,1]).copy(binary);
+  binary.writeUInt16LE(3,16);binary.writeUInt16LE(62,18);binary.writeBigUInt64LE(128n,24);binary.writeBigUInt64LE(64n,32);
+  binary.writeUInt16LE(64,52);binary.writeUInt16LE(56,54);binary.writeUInt16LE(1,56);binary.writeUInt32LE(1,64);binary.writeUInt32LE(5,68);
+  binary.writeBigUInt64LE(160n,96);binary.writeBigUInt64LE(160n,104);
+  assert(inspectPayload(binary,'quickjs.elf').bytes===160,'QuickJS ELF parser failed');
+  assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
+  print('QuickJS: persistent state, preferences, SHA-256 and 64-bit ELF parser passed. Native APIs not tested.');
+  globalThis.testPassed = true;
+})().catch(error => print(error.stack || error.message));
