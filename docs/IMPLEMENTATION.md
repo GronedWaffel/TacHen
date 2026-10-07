@@ -1803,3 +1803,61 @@ Runtime **9,039,576 bytes**, SHA-256 `b5085a892b8f967eaecf448e2fc55729be3a2f91dd
 Launcher **9,200,704 bytes**, SHA-256 `df4b4261b697ea24d9e1afd6f9a8c090f121118a2674d6ca4cb6a7211da63496`.
 Update package **9,039,832 bytes**, SHA-256 `ae3f9f04a3e3c462099d562329b90447e383e77e1a7fd17ccb48ea34183b7c90`.
 Source fingerprint `dee0ae0075360038fd26fbbeddbe817e43bb8a9721f72f31c4fbf3caf0bd995b`.
+
+
+## Checkpoint 35 — MC4 cheat imports
+
+The existing phone importer now accepts base64 MC4 files as well as JSON and
+SHN/XML. MC4 uses the public etaHEN/LightningMods AES-256-CBC envelope constants,
+strict canonical base64/block checks and validated PKCS#7 padding. The pinned
+MIT @noble/ciphers 2.4.0 implementation is bundled, with its license and upstream
+provenance retained. Its tables initialize only when the first MC4 file is
+imported; the generated runtime confirms initialization remains behind the lazy
+import. Format decoding does not authenticate the author or patch correctness.
+
+Decoded text supports strict UTF-8 and BOM-marked UTF-16LE. Legacy whole-document
+escaped markup is unwrapped only when the document starts escaped; ordinary XML
+attribute entities stay data. Evidenced legacy utf-16 declarations in UTF-8
+exports are normalized after byte decoding, Toggle/Toggel metadata is accepted,
+and a one-digit PS4 major version is normalized before exact identity comparison.
+Other control types, invalid encodings/padding, external entities, malformed XML,
+wrong title/version and unsupported addressing remain rejected. Plain JSON/SHN
+imports retain their existing parser path.
+
+All formats converge on the same checksummed JSON pack, preserving author credit,
+deduplication and the existing expected-byte patch/undo transaction. Importing
+never dispatches a patch. Native addressing is still module-relative section
+zero; nonzero section semantics, absolute/code-cave handling and binary cheat
+formats remain outstanding compatibility work.
+
+Local format checks imported three pinned GoldHEN public samples: 3 Talixme
+cheats, 7 Celogamez cheats and 2 GamerX2 cheats, including legacy escaped markup
+and a default.elf module name. These bytes are only in ignored local research
+storage and are not distributed. `vendor/cheat-format-provenance.json` records
+source hashes and scope. Committed fixtures are original synthetic documents
+encrypted independently using Node/OpenSSL.
+
+All **344 local tests** pass (`.local/checkpoint35-tests.txt`). Tests cover
+independent encryption/decryption agreement, both native packet directions,
+legacy/UTF-16 imports, exact identity, malformed encodings/padding/entities,
+canonical durable identity and rejected imports without storage effects.
+QuickJS executes the real lazy AES importer; the production ELF build and current
+embedded-asset checks pass (`.local/checkpoint35-build.txt`).
+
+The production local phone page accepted `.local/mc4-preview.mc4`, displayed
+successful import and credits, and kept patch buttons disabled without a matching
+game. Browser warnings/errors were empty. `.local/mc4-import-preview.png` captures
+the import result. The temporary browser tab and loopback server were closed;
+no viewport override was applied. No console was contacted, no payload was loaded,
+and nothing was released or deployed.
+
+Native background-panel presentation is still unresolved: public PUI sources
+checked in this turn establish labels but not the required panel interface. No
+imagined ABI or firmware offset was added. The full implementation goal remains
+active, including remaining native presentation, compatibility/integration work
+and console acceptance last.
+
+Runtime **9,105,112 bytes**, SHA-256 `0e53cf774774f90688edb3d66cc556796b36598918da8a7fddd30680cc893821`.
+Launcher **9,266,240 bytes**, SHA-256 `1b2f73b555fecd90f6f653404fcdc59d362f41512c0c94e74ee8b6554ce22fd2`.
+Update package **9,105,368 bytes**, SHA-256 `278b339df4755ce7270b4add8b9f2342a8549c68c93dd66e86f652483bbaced5`.
+Source fingerprint `70557619384cbc95275040440e6e848d8fb79d71ad6eae898c6ed1952cfc0828`.

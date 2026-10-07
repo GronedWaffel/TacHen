@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { createHash } from 'node:crypto';
 import { importCheatJson } from './cheats.mjs';
-import { importCheatSource } from './cheat-xml.mjs';
+import { importCheatFile } from './cheat-import.mjs';
 import { canonical, clone, invariant } from './errors.mjs';
 const hashPattern = /^[a-f0-9]{64}$/;
 export function validateCheatRegistry(entries) {
@@ -24,7 +24,7 @@ export class CheatPacks {
   list() { return clone(this.runtime.store.snapshot().cheats || []); }
   import({ source, titleId, version }) {
     const work = this.tail.then(async () => {
-      const pack = importCheatSource(source, { titleId, version });
+      const pack = await importCheatFile(source, { titleId, version });
       const text = canonical({ id: titleId, version, name: pack.name, process: pack.process, credits: pack.credits,
         mods: pack.cheats.map(cheat => ({ name: cheat.name, description: cheat.description, memory: cheat.memory })) });
       invariant(Buffer.byteLength(text) <= 4 * 1024 * 1024, 'CHEAT_SIZE', 'The normalized cheat pack is too large.');

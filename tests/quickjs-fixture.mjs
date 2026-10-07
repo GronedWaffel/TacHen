@@ -27,6 +27,8 @@ import { makeUpdatePackage, inspectUpdate } from '../src/update-format.mjs';
 import { importCheatSource } from '../src/cheat-xml.mjs';
 import { compareCandidate } from '../src/scan-refinement.mjs';
 import { JobArchive } from '../src/job-archive.mjs';
+import { importCheatFile } from '../src/cheat-import.mjs';
+import mc4Fixture from './fixtures/mc4.json';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -56,6 +58,8 @@ globalThis.testPassed = false;
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
   const xmlCheat = importCheatSource('<Trainer Game="Fixture &amp; data" Moder="Fixture author" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
   assert(xmlCheat.name === 'Fixture & data' && xmlCheat.cheats[0].memory[0].on === '9090', 'QuickJS SHN parser failed');
+  const mc4Cheat = await importCheatFile(mc4Fixture.source, { titleId: 'CUSA00001', version: '01.20' });
+  assert(mc4Cheat.name === 'TacHen MC4 fixture' && mc4Cheat.cheats[0].memory[0].on === '9090', 'QuickJS lazy AES/MC4 import failed');
   const frame = encodeDeck({ sequence: 7, page: 1, ready: true, title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',
     rows: [{ token: 'a'.repeat(32), label: 'Payload 二', detail: 'Ready', enabled: true }] });
   assert(frame.length === 6424 && frame.readUInt16LE(4) === 5 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1 && frame.readUInt32LE(2800) === 1, 'QuickJS deck wire failed');

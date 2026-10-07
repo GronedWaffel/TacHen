@@ -81,7 +81,7 @@ function field(node, name, required = false) {
   if (!values.length) return '';
   const item = values[0];attributes(item, []);if (item.children.length) bad(`Nested content in ${name}.`);return item.text.trim();
 }
-export function importCheatXml(source, identity) {
+export function importCheatXml(source, identity, { legacyTrainer = false } = {}) {
   invariant(typeof source === 'string' && Buffer.byteLength(source) <= 4 * 1024 * 1024, 'CHEAT_SIZE', 'Cheat document is too large.');
   const root = xml(source);if (root.name !== 'Trainer') bad('Expected an SHN Trainer element.');
   attributes(root, ['Game', 'Process', 'Moder', 'Cusa', 'Version', 'xmlns:xsd', 'xmlns:xsi']);children(root, ['Cheat', 'Genres', 'Items']);
@@ -89,7 +89,8 @@ export function importCheatXml(source, identity) {
     attributes(metadata, metadata.name === 'Genres' ? ['Name'] : []);children(metadata, []);
   }
   const mods = root.children.filter(child => child.name === 'Cheat').map(node => {
-    attributes(node, ['Text', 'Description']);children(node, ['Cheatline']);
+    attributes(node, legacyTrainer ? ['Text', 'Description', 'Control'] : ['Text', 'Description']);children(node, ['Cheatline']);
+    if (legacyTrainer && node.attrs.Control != null && !['Toggle', 'Toggel'].includes(node.attrs.Control)) bad('This MC4 control is not a toggle cheat.');
     const memory = node.children.map(line => {
       attributes(line, []);children(line, ['Offset', 'Section', 'ValueOn', 'ValueOff', 'Absolute']);
       const on = field(line, 'ValueOn', true), off = field(line, 'ValueOff', true);
@@ -99,7 +100,8 @@ export function importCheatXml(source, identity) {
     });
     return { name: node.attrs.Text, description: node.attrs.Description, memory };
   });
-  return importCheatJson(JSON.stringify({ name: root.attrs.Game, process: root.attrs.Process, id: root.attrs.Cusa, version: root.attrs.Version,
+  const version = legacyTrainer && /^\d\.\d{2}$/.test(root.attrs.Version || '') ? '0' + root.attrs.Version : root.attrs.Version;
+  return importCheatJson(JSON.stringify({ name: root.attrs.Game, process: root.attrs.Process, id: root.attrs.Cusa, version,
     credits: root.attrs.Moder ? [root.attrs.Moder] : [], mods }), identity);
 }
 export function importCheatSource(source, identity) {
@@ -107,5 +109,5 @@ export function importCheatSource(source, identity) {
   const start = source.replace(/^\ufeff/, '').trimStart();
   if (start.startsWith('{')) return importCheatJson(start, identity);
   if (start.startsWith('<')) return importCheatXml(source, identity);
-  throw new TacError('CHEAT_FORMAT', 'Choose a JSON or unencrypted SHN/XML cheat file. Encrypted MC4 and binary formats are not supported yet.');
+  throw new TacError('CHEAT_FORMAT', 'Expected JSON or SHN/XML cheat text.');
 }

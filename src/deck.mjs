@@ -193,7 +193,7 @@ export class ConsoleDeck {
       row('Other cheat packs', 'Return to the cheat library', '$cheat-back');
     } else {
       for (const pack of state.cheats || []) row(pack.name, `${pack.titleId} · ${pack.version} · ${pack.count} cheats`, '$cheat-open', { sha256: pack.sha256 });
-      if (!items.length) row('No cheat files imported', 'Import a JSON cheat pack from Cheats on your phone');
+      if (!items.length) row('No cheat files imported', 'Import JSON, SHN/XML or MC4 from Cheats on your phone');
     }
     // Six content rows leave room for navigation on long libraries/inboxes.
     this.offset = Math.min(this.offset, Math.max(0, Math.floor((items.length - 1) / 6) * 6));

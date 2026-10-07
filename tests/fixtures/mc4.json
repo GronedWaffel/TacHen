@@ -1,0 +1,5 @@
+{
+  "note": "Original synthetic fixture, encrypted independently with Node/OpenSSL. Not a real game patch.",
+  "plain": "<Trainer Game=\"TacHen MC4 fixture\" Process=\"eboot.bin\" Moder=\"TacHen synthetic test\" Cusa=\"CUSA00001\" Version=\"01.20\"><Cheat Text=\"Fixture toggle\"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>",
+  "source": "ikqygMBn82AicbK+24rZ44j5xZWMa2IUH8SMWCwrLfX0OzUMy7s9IlNoyVQlKa9QkBBhzBrEXQhuuWSR8Nc+ENb+NX3Q2bvL4HKXOUUsT9JoyF0KLWfCUIIpTKooBbZxPp/BFA2SdP7JbKHR1tLnhMHoP1aSXekQV40zRXVsxDiYxxHrzMxxCyVsScaX5W4qENAYcsRyZBxlcVKEjOulscjOmFtxjVGDaRyH0QyvW/lxmt8ufCvwIwts8m/GxtfLJ1Z8vcf2YSQNNhN2bQ1HZ9932R4jaxq3KvdiUTb2SGRtXZF8L+XL72htaZvmv/fytC4oJaFR4LnekIAfsKujshQ5Wx48kVebscC84p3aZrk="
+}

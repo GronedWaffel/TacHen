@@ -1,0 +1,40 @@
+{
+  "format": "tachen-cheat-format-provenance-v1",
+  "envelope": {
+    "source": "https://raw.githubusercontent.com/etaHEN/etaHEN/dafa13b562ddb137a4b4a97b9aaa287c0c57cc9c/Source%20Code/util/source/mc4decrypter/mc4decrypter.c",
+    "sha256": "517f312cef9255f40eed6fb8d1c6bbfbcbe8daab4935c2aadbf49053a8c1e9ae",
+    "license": "GPL-3.0-or-later",
+    "authors": [
+      "etaHEN",
+      "LightningMods"
+    ]
+  },
+  "samples": [
+    {
+      "source": "https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/acc22fefac0f0ea35a0f59b3f9526707122098dd/mc4/CUSA00002_01.00.mc4",
+      "file": "CUSA00002_01.00.mc4",
+      "sha256": "875a90e9f4d50ef8044315d6f25101cd4a2feb8e8f6e822f30d2f7348f5dcfc4",
+      "bytes": 1881
+    },
+    {
+      "source": "https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/acc22fefac0f0ea35a0f59b3f9526707122098dd/mc4/CUSA00002_01.81.mc4",
+      "file": "CUSA00002_01.81.mc4",
+      "sha256": "ae10d76087faaa09b3727e10cd7ec261a79365aae803571f9d854b0975bffc7f",
+      "bytes": 4312
+    },
+    {
+      "source": "https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/acc22fefac0f0ea35a0f59b3f9526707122098dd/mc4/CUSA00018_01.20_default.elf.mc4",
+      "file": "CUSA00018_01.20_default.elf.mc4",
+      "sha256": "72a90f25d52a0ee534adb07a968f7c88cfb9da77038af4fcad12603f6a078347",
+      "bytes": 1580
+    }
+  ],
+  "aes": {
+    "package": "@noble/ciphers",
+    "version": "2.4.0",
+    "license": "MIT",
+    "source": "https://github.com/paulmillr/noble-ciphers/tree/d9e8a6a599e7ed729d9be03854c46a3c73bd9a79",
+    "integrity": "sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw=="
+  },
+  "scope": "Format decoding only. Public game patches are not redistributed; original synthetic fixtures cover parsing. No console execution or gameplay validation."
+}

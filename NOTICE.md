@@ -188,3 +188,20 @@ Format checks examined `shn/CUSA00002_01.00.shn` (Talixme) and
 padding. Those game patches are not bundled with TacHen. Synthetic regression
 fixtures are original. Imported author credits and instructions remain visible;
 parsing does not validate a cheat's gameplay effects or make it cross-version.
+
+MC4 envelope compatibility follows etaHEN / LightningMods' GPL-3.0-or-later
+`mc4decrypter.c`. The published format constants and pinned source are recorded
+in `vendor/cheat-format-provenance.json`. The bounded importer, encoding checks,
+legacy whole-document unwrapping and canonical pack integration are TacHen code.
+The AES-CBC implementation is **@noble/ciphers 2.4.0**, copyright Paul Miller and
+Thomas Pornin, under the MIT license retained in
+`vendor/NOBLE-CIPHERS-LICENSE.txt`. AES code is initialized on the first MC4
+import. No user key management or authenticity claim is attached to this legacy
+cheat-file format.
+
+MC4 format checks examined the pinned GoldHEN repository's
+`CUSA00002_01.00.mc4` (Talixme), `CUSA00002_01.81.mc4` (Celogamez) and
+`CUSA00018_01.20_default.elf.mc4` (GamerX2). Hashes and upstream URLs are recorded
+in the provenance file. These game patches are not bundled. The committed
+encrypted fixture is original synthetic data generated independently with
+Node/OpenSSL for portable-runtime verification.
