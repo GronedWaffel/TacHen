@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-// Caller owns the native operation guard. Reject a stale SDK PID cache before
-// using any SDK API that internally dereferences its cached proc pointer.
+// Caller owns the native operation guard. Require agreement between an explicit
+// live-list walk and the SDK entry point (wrapped by process-fresh.c in all
+// console artifacts). This is not a substitute for a stopped generation lease.
 int tac_process_current(int pid);

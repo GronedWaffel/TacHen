@@ -578,3 +578,33 @@ recorded in checkpoint ten, native cheat/MCP memory leases, FPS/resource overlay
 save operations, loadout application, update recovery, controller plugin controls,
 safe plugin stop/restart and the remaining package firmware adapters. The overall
 TacHen goal is active and unfinished.
+
+## Checkpoint twelve — uncached native process lookup
+
+The coordinator, managed deck and package helper now link `process-fresh.c` with
+`--wrap=kernel_get_proc`. This removes the SDK v0.43 PID-only cache from active
+lookup paths without modifying the installed SDK or existing stable projects.
+Each call walks the current process list, validates kernel pointers, checks read
+results and stops after at most 4,096 entries. CRT startup uses the same direct
+getpid syscall ABI as the SDK, before imported functions are available.
+
+This was checked at the final machine-code level, including SDK-to-SDK calls in
+the same `crt1.o`, not just the linker command. `audit-process-links.py` decodes
+every sized executable function and inspects allocated relocations in all three
+ELFs. It rejects external references to the old lookup or its cache storage and
+requires key SDK callers to reference the replacement. Its negative regression
+changes a real compiled SDK call back to the old function and verifies rejection.
+It is a static link audit, not proof of process lifetime or console behavior.
+
+Host execution covers PID reuse with a different kernel object, a disappeared
+PID, early-CRT current-PID lookup, invalid pointers, read failures and cyclic
+lists. All **161 local tests** and the actual QuickJS core smoke check pass.
+The runtime is **8,489,264 bytes**, SHA-256
+`28b37afb40837d98404e1014bc9f5d8c7cfdd79e9199e09a34ac9376ff738b37`.
+The deck and package helper were rebuilt too. Hardware remains untouched.
+
+Fresh lookup does not make a process immutable between calls. Native cheat/MCP
+work still requires stopped, generation-verified leases, bounded module/VM
+inspection and transactional writes. Other SDK linked-list/tree walks are not
+all bounded by this change. The remaining feature work and deferred hardware
+acceptance described above still apply; this is not overall completion.

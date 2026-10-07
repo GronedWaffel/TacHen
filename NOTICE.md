@@ -123,7 +123,9 @@ Its PRX callback and split-permission arena strategy were checked against
 The symbol resolver's basename semantics and PID-only process cache were verified
 in [ps5-payload-sdk v0.43 kernel.c](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/kernel.c),
 copyright John Törnblom, GPL-3.0-or-later. TacHen adds a bounded fresh-process-list
-comparison before using cached SDK process pointers in the new game injector.
+comparison in the game injector and replaces the SDK's PID-cached lookup with
+an uncached bounded walk in all three console artifacts. The early-CRT fallback
+retains the SDK's direct getpid syscall convention, without depending on imports.
 The callback control ABI, slot validation and host execution tests are TacHen
 code; these checks do not establish PS5 runtime compatibility.
 

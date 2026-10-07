@@ -134,6 +134,10 @@ through the standalone ELF loader.
 `node scripts/test-quickjs.mjs` additionally executes portable core code in the
 actual embedded JavaScript engine on Windows. `ZIG` and `PS5_PAYLOAD_SDK` can
 override the local Zig 0.14.1 and PS5 payload SDK v0.43 paths in build scripts.
+The artifact link regression also requires Python 3 with Capstone 5; `PYTHON`
+can select that interpreter. `python scripts/audit-process-links.py` checks all
+three built ELFs for calls or relocations into the SDK's obsolete PID cache.
+Build the artifacts before running that check. It runs entirely on the host.
 
 Original work lives in `src/`, `ui/` and `tests/`. Reused low-level foundations
 must retain source, licensing and provenance. Existing etaHEN, Neighborhood,
