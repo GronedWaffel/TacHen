@@ -208,3 +208,12 @@ supervisor is not connected yet. The bridge preserves native read results,
 records bounded input events, and can filter only the controller identified by
 a short-lived capture lease. Host machine-code tests cover this path; it is not
 yet a usable in-game menu and has not been run on a PS5.
+
+Game input preparation now starts independently of PRX loading and shares its
+callback ownership, queue exclusions and durable receipt. It requires a verified
+game instance, kernel services and a fresh deck renderer. Interrupted attempts
+are retained rather than reinjected. An asynchronous native input exchange is
+also compiled: it drains published events and writes only the private pad
+lease/cursors, with bounded leases and fresh process/page checks. Host tests run
+that protocol against the actual bridge machine code. The renderer supervisor
+and event routing are still unfinished, so this build does not enable capture.

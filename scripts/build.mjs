@@ -41,6 +41,7 @@ const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/pub
       'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
       'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
+  'platform/native/pad-worker.c', 'platform/native/pad-exchange.c', 'platform/native/user-write.c',
   'platform/game/game-trampoline.cpp', 'platform/game/pad-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
@@ -94,7 +95,8 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },
-  padBridge: { ...padBridge, nativeInjectorCompiled: true, coordinatorWired: false, captureEnabled: false },
+  padBridge: { ...padBridge, nativeInjectorCompiled: true, independentPreparationWired: true,
+    exchangeWorkerCompiled: true, coordinatorWired: false, captureEnabled: false },
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: false },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),

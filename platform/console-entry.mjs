@@ -24,6 +24,7 @@ import { installMemory } from '../src/memory-service.mjs';
 import { installMcp } from '../src/mcp.mjs';
 import { installTelemetry } from '../src/telemetry.mjs';
 import { installPs4Fps } from '../src/ps4-fps.mjs';
+import { installGameInput } from '../src/game-input.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -53,6 +54,7 @@ globalThis.__ready = (async () => {
       installCheats(runtime, __native, await new FileStorage('/data/tachen/cheat-packs').init());
       installMemory(runtime, __native);installMcp(runtime);
       installPs4Fps(runtime, __native);installTelemetry(runtime, __native);
+      installGameInput(runtime, __native);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });
@@ -70,6 +72,7 @@ globalThis.__ready = (async () => {
   runtime.plugins.start();
   runtime.telemetry?.start();
   runtime.ps4Fps?.start();
+  runtime.gameInput?.start();
   // The phone stays responsive while durable native startup jobs execute.
   runtime.nativeServices.startConfigured().then(() => { runtime.nativeServices.startMonitoring(); runtime.nativeDeck.startMonitoring(); }).catch(error => {
     console.error(error.message); __native.notify('TacHen startup needs attention. Open Activity on your phone.');

@@ -55,6 +55,7 @@ export class TacRuntime {
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       telemetry: this.telemetry ? this.telemetry.snapshot() : null,
+      gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list() : null,
@@ -143,5 +144,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.mcp?.revoke(); this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.mcp?.revoke(); this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

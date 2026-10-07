@@ -15,6 +15,7 @@ import { installMemory } from '../src/memory-service.mjs';
 import { installMcp } from '../src/mcp.mjs';
 import { CounterWindow } from '../src/telemetry.mjs';
 import { installPs4Fps } from '../src/ps4-fps.mjs';
+import { installGameInput } from '../src/game-input.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -127,6 +128,14 @@ globalThis.testPassed = false;
     bcFpsPoll: () => ps4Receipt });
   const ps4Input = ps4Handler.validate({}), ps4Result = await ps4Handler.run(ps4Input, { id: '6'.repeat(32), signal: { aborted: false } });
   assert(ps4Handler.verify(ps4Result, ps4Input), 'QuickJS PS4 counter installation contract failed');
+  let inputHandler, inputReceipt;
+  const inputRuntime = { ...ps4Runtime, capabilities: new Map([['deck', { available: true }]]), nativeDeck: { inspect: () => ({ ready: true }) },
+    jobs: { register(kind, handler) { if (kind === 'game.input.prepare') inputHandler = handler; } } };
+  installGameInput(inputRuntime, { systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true } }),
+    gameInputStart(request, pid, generation, title, metadataHash) { assert(title === 'CUSA00001', 'Input game identity failed');inputReceipt = { request, pid, generation, metadataHash, stage: 2, phase: 2 }; },
+    gameInputPoll: () => inputReceipt });
+  const inputTarget = inputHandler.validate({}), inputResult = await inputHandler.run(inputTarget, { id: '7'.repeat(32), signal: { aborted: false } });
+  assert(inputHandler.verify(inputResult, inputTarget) && inputResult.phase === 'prepared', 'QuickJS shared game input preparation failed');
   print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, telemetry, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

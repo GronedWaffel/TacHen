@@ -3,6 +3,7 @@
 // module initialization merely from hook publication or a positive handle.
 #include "quickjs.h"
 #include "module-session.h"
+#include "pad-worker.h"
 #include "prx-image.h"
 #include "game-inject.h"
 #include "game-source.h"
@@ -24,6 +25,12 @@
 #define ROOT "/data/tachen/modules"
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static TacModuleSession current;static unsigned currentSlot;static int running;
+int tac_module_live_session(int pid,const char *generation,const char *metadata,TacModuleSession *out){
+  pthread_mutex_lock(&mutex);
+  int valid=!running&&current.pid==pid&&!strcmp(current.generation,generation)&&!strcmp(current.metadataHash,metadata)&&
+    current.phase==TAC_ARENA_READY&&current.arenaStage==2&&!tac_module_session_held(&current);
+  if(valid)*out=current;pthread_mutex_unlock(&mutex);return valid?0:-1;
+}
 static void sha_hex(const void *bytes,size_t length,char out[65]){
   SHA256_CTX h;unsigned char digest[32];sha256_init(&h);sha256_update(&h,bytes,length);sha256_final(&h,digest);
   for(unsigned i=0;i<32;i++)snprintf(out+i*2,3,"%02x",digest[i]);
@@ -151,13 +158,12 @@ static int start(const char *request,const char *upload,const char *hash,int pid
   pthread_mutex_lock(&mutex);if(running||!tac_native_claim()){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
   int result=-1;TacModuleSession s;int loaded=load(generation,&s);
   if(loaded&&errno!=ENOENT)goto done;
-  if(loaded){memset(&s,0,sizeof s);s.magic=TAC_MODULE_SESSION_MAGIC;s.version=1;s.pid=pid;strcpy(s.generation,generation);strcpy(s.title,title);strcpy(s.metadataHash,metadata);}
+  if(loaded){memset(&s,0,sizeof s);s.magic=TAC_MODULE_SESSION_MAGIC;s.version=TAC_MODULE_SESSION_VERSION;s.pid=pid;strcpy(s.generation,generation);strcpy(s.title,title);strcpy(s.metadataHash,metadata);}
   if(s.pid!=pid||strcmp(s.title,title)||strcmp(s.metadataHash,metadata)){errno=EINVAL;goto done;}
   int slot=tac_module_slot(&s,request);
   if(slot>=0){TacModuleReceipt *r=&s.slots[slot];if(strcmp(r->upload,upload)||strcmp(r->sha256,hash)||strcmp(r->extension,extension)){errno=EEXIST;goto done;}
     current=s;currentSlot=(unsigned)slot;result=0;goto done;}
-  if(s.phase==TAC_ARENA_INTENT||s.phase==TAC_ARENA_UNKNOWN){errno=EALREADY;goto done;}
-  for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s.slots[i].stage==TAC_PRX_QUEUED||s.slots[i].stage==TAC_PRX_ARMING||s.slots[i].stage==TAC_PRX_UNKNOWN){errno=EALREADY;goto done;}
+  if(tac_module_session_held(&s)){errno=EALREADY;goto done;}
   for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s.slots[i].stage&&!(s.slots[i].stage==TAC_PRX_REJECTED&&s.slots[i].clean)&&!strcmp(s.slots[i].sha256,hash)){errno=EALREADY;goto done;}
   for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(!s.slots[i].stage){slot=(int)i;break;}
   if(slot<0){errno=ENOSPC;goto done;}
@@ -218,7 +224,87 @@ static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *arg
   JS_SetPropertyStr(c,out,"handle",JS_NewInt32(c,r.handle));JS_SetPropertyStr(c,out,"startResult",JS_NewInt32(c,r.startResult));
   JS_SetPropertyStr(c,out,"noSideEffects",JS_NewBool(c,r.clean));JS_SetPropertyStr(c,out,"message",JS_NewString(c,r.message));return out;
 }
+// Arena preparation has its own durable request but shares the game session,
+// native guard and hook owner with PRX loading. It consumes no module slot.
+static int arena_outcome(TacModuleSession *s,unsigned stage,const char *message,int durable){
+  s->arenaStage=stage;snprintf(s->arenaMessage,sizeof s->arenaMessage,"%s",message);
+  int bad=durable?save(s):0;
+  if(bad){s->arenaStage=4;snprintf(s->arenaMessage,sizeof s->arenaMessage,"Game input outcome could not be saved; original intent retained");}
+  publish(s);return bad?-1:0;
+}
+static void *arena_worker(void *ignored){
+  (void)ignored;TacModuleSession s;pthread_mutex_lock(&mutex);s=current;pthread_mutex_unlock(&mutex);
+  char reason[192]="Game input dependencies changed before preparation";
+  const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
+  TacKstuffSnapshot a=tac_kstuff_read(base,profile),b=tac_kstuff_read(base,profile);
+  if(!profile||!tac_kstuff_snapshot_equal(&a,&b)||!tac_kstuff_injection_ready(base,&b)||!identity(&s)||!metadata_matches(&s,reason)){
+    arena_outcome(&s,3,reason,1);goto done;
+  }
+  if(s.phase==TAC_ARENA_READY){arena_outcome(&s,2,"Existing game callback adopted; input capture remains disabled",1);goto done;}
+  arc4random_buf(&s.cookie,sizeof s.cookie);if(!s.cookie)s.cookie=1;s.phase=TAC_ARENA_INTENT;
+  if(arena_outcome(&s,1,"Preparing the shared game input callback",1))goto done;
+  TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,identity,&s,&injected);
+  s.arena=injected.arena;s.control=injected.control;
+  s.phase=result<0?TAC_ARENA_UNKNOWN:result>0?TAC_ARENA_EMPTY:TAC_ARENA_READY;
+  if(!injected.resumed){s.phase=TAC_ARENA_UNKNOWN;arena_outcome(&s,4,"Game resume is unconfirmed; original input intent retained",0);}
+  else arena_outcome(&s,result<0?4:result>0?3:2,injected.message,1);
+done:
+  pthread_mutex_lock(&mutex);running=0;tac_native_release();pthread_mutex_unlock(&mutex);return NULL;
+}
+static int arena_start(const char *request,int pid,const char *generation,const char *title,const char *metadata){
+  if(!tac_hex_string(request,32)||pid<=1||!generation||!*generation||strlen(generation)>=128||!tac_game_title(title)||!tac_hex_string(metadata,64)){errno=EINVAL;return -1;}
+  pthread_mutex_lock(&mutex);if(running||!tac_native_claim()){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
+  int result=-1;TacModuleSession s;int missing=load(generation,&s);
+  if(missing&&errno!=ENOENT)goto done;
+  if(missing){memset(&s,0,sizeof s);s.magic=TAC_MODULE_SESSION_MAGIC;s.version=TAC_MODULE_SESSION_VERSION;s.pid=pid;
+    strcpy(s.generation,generation);strcpy(s.title,title);strcpy(s.metadataHash,metadata);}
+  if(s.pid!=pid||strcmp(s.title,title)||strcmp(s.metadataHash,metadata)){errno=EINVAL;goto done;}
+  int claim=tac_module_arena_claim(&s,request);
+  if(claim<0){errno=EALREADY;goto done;}
+  if(claim>0){current=s;result=0;goto done;}
+  if(!identity(&s)){errno=ESRCH;goto done;}
+  if(save(&s))goto done;
+  current=s;running=1;pthread_t thread;int err=pthread_create(&thread,NULL,arena_worker,NULL);
+  if(err){running=0;s.arenaStage=3;snprintf(s.arenaMessage,sizeof s.arenaMessage,"Game input worker could not start");
+    if(save(&s)){s.arenaStage=4;snprintf(s.arenaMessage,sizeof s.arenaMessage,"Worker startup receipt is unconfirmed");}
+    current=s;errno=err;goto done;
+  }
+  pthread_detach(thread);result=0;
+done:
+  if(!running)tac_native_release();pthread_mutex_unlock(&mutex);return result;
+}
+static JSValue arena_start_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  (void)self;if(argc!=5)return JS_ThrowTypeError(c,"Expected request, PID, generation, title and metadata hash");
+  const char *v[5]={0};int32_t pid=0;int valid=!JS_ToInt32(c,&pid,argv[1]);
+  for(unsigned i=0;i<5;i++)if(i!=1){v[i]=JS_ToCString(c,argv[i]);if(!v[i])valid=0;}
+  int result=valid?arena_start(v[0],pid,v[2],v[3],v[4]):-1,saved=errno;
+  for(unsigned i=0;i<5;i++)if(v[i])JS_FreeCString(c,v[i]);errno=saved;return result?failure(c):JS_UNDEFINED;
+}
+static JSValue arena_poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  (void)self;if(argc!=3)return JS_ThrowTypeError(c,"Expected input request, PID and generation");
+  const char *request=JS_ToCString(c,argv[0]),*generation=JS_ToCString(c,argv[2]);int32_t pid=0;
+  if(!tac_hex_string(request,32)||!generation||!*generation||strlen(generation)>=128||JS_ToInt32(c,&pid,argv[1])||pid<=1){
+    if(request)JS_FreeCString(c,request);if(generation)JS_FreeCString(c,generation);return JS_ThrowTypeError(c,"Invalid input receipt identity");
+  }
+  TacModuleSession s;pthread_mutex_lock(&mutex);int busy=running,found=!strcmp(current.generation,generation)&&!strcmp(current.arenaRequest,request);
+  if(found)s=current;pthread_mutex_unlock(&mutex);
+  if(!found){if(!load(generation,&s)&&!strcmp(s.arenaRequest,request))found=1;}
+  JSValue out=JS_NULL;
+  if(found&&s.pid==pid){
+    unsigned stage=s.arenaStage;
+    if(s.phase==TAC_ARENA_UNKNOWN||(!busy&&stage==1))stage=4;
+    out=JS_NewObject(c);JS_SetPropertyStr(c,out,"request",JS_NewString(c,request));JS_SetPropertyStr(c,out,"pid",JS_NewInt32(c,s.pid));
+    JS_SetPropertyStr(c,out,"generation",JS_NewString(c,s.generation));JS_SetPropertyStr(c,out,"metadataHash",JS_NewString(c,s.metadataHash));
+    JS_SetPropertyStr(c,out,"stage",JS_NewUint32(c,stage));JS_SetPropertyStr(c,out,"phase",JS_NewUint32(c,s.phase));
+    JS_SetPropertyStr(c,out,"busy",JS_NewBool(c,busy));JS_SetPropertyStr(c,out,"captureEnabled",JS_FALSE);
+    JS_SetPropertyStr(c,out,"message",JS_NewString(c,stage==4&&s.arenaStage==1?"Previous input preparation was interrupted; no replay":s.arenaMessage));
+  }
+  JS_FreeCString(c,request);JS_FreeCString(c,generation);return out;
+}
 void tac_module_bind(JSContext *c,JSValue api){
+  tac_pad_worker_bind(c,api);
   JS_SetPropertyStr(c,api,"gameModuleStart",JS_NewCFunction(c,start_js,"gameModuleStart",8));
   JS_SetPropertyStr(c,api,"gameModulePoll",JS_NewCFunction(c,poll_js,"gameModulePoll",3));
+  JS_SetPropertyStr(c,api,"gameInputStart",JS_NewCFunction(c,arena_start_js,"gameInputStart",5));
+  JS_SetPropertyStr(c,api,"gameInputPoll",JS_NewCFunction(c,arena_poll_js,"gameInputPoll",3));
 }

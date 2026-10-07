@@ -34,7 +34,7 @@ int main(int argc,char **argv){
   self[0]=0x4f;self[1]=0x15;self[2]=0x3d;self[3]=0x1d;CHECK(!tac_prx_inspect(self,sizeof self,&platform,reason,sizeof reason));CHECK(platform==4);
   self[48]=0xff;CHECK(tac_prx_inspect(self,sizeof self,&platform,reason,sizeof reason));
   CHECK(tac_prx_inspect(NULL,512,&platform,reason,sizeof reason));CHECK(tac_prx_inspect(bytes,63,&platform,reason,sizeof reason));
-  TacModuleSession s={0},decoded;s.magic=TAC_MODULE_SESSION_MAGIC;s.version=1;s.pid=88;s.phase=TAC_ARENA_READY;s.arena=0x100000;s.control=0x104000;s.cookie=123;
+  TacModuleSession s={0},decoded;s.magic=TAC_MODULE_SESSION_MAGIC;s.version=TAC_MODULE_SESSION_VERSION;s.pid=88;s.phase=TAC_ARENA_READY;s.arena=0x100000;s.control=0x104000;s.cookie=123;
   strcpy(s.generation,"100:0/88/102:1");strcpy(s.title,"PPSA00001");memset(s.metadataHash,'a',64);
   TacModuleReceipt *r=&s.slots[0];memset(r->request,'b',32);memset(r->upload,'c',32);memset(r->sha256,'d',64);strcpy(r->extension,"sprx");r->stage=TAC_PRX_ARMING;
   tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded));CHECK(tac_module_slot(&decoded,r->request)==0);
@@ -49,5 +49,21 @@ int main(int argc,char **argv){
   reset(&s);failWrite=2;CHECK(tac_module_stage(&s,0,&ops)==1);CHECK(!memcmp(&empty,&gate.modules[0],sizeof empty));
   reset(&s);failRead=3;CHECK(tac_module_stage(&s,0,&ops)==1);CHECK(!memcmp(&empty,&gate.modules[0],sizeof empty));
   reset(&s);alwaysFail=1;CHECK(tac_module_stage(&s,0,&ops)==-1);
+  // Menu preparation and PRX loading must share one durable arena owner.
+  char request[33];memset(request,'e',32);request[32]=0;
+  CHECK(tac_module_session_held(&s));CHECK(tac_module_arena_claim(&s,request)==-1);
+  memset(s.slots,0,sizeof s.slots);CHECK(!tac_module_session_held(&s));
+  CHECK(tac_module_arena_claim(&s,request)==0&&s.arenaStage==1&&tac_module_session_held(&s));
+  CHECK(tac_module_arena_claim(&s,request)==1);request[0]='f';CHECK(tac_module_arena_claim(&s,request)==-1);request[0]='e';
+  tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded));
+  CHECK(!memcmp(s.slots,decoded.slots,sizeof s.slots));CHECK(decoded.arenaStage==1&&!strcmp(decoded.arenaRequest,request));
+  s.arenaStage=2;tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded)&&!tac_module_session_held(&decoded));
+  s.phase=TAC_ARENA_UNKNOWN;tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded)&&tac_module_session_held(&decoded));
+  s.phase=TAC_ARENA_EMPTY;tac_module_seal(&s);CHECK(tac_module_decode(&s,sizeof s,s.generation,&decoded));
+  s.arenaStage=3;tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded));
+  CHECK(tac_module_arena_claim(&s,request)==1); // A rejected request is still never dispatched again.
+  s.arenaStage=4;tac_module_seal(&s);CHECK(!tac_module_decode(&s,sizeof s,s.generation,&decoded)&&tac_module_session_held(&decoded));
+  s.arenaRequest[1]='z';tac_module_seal(&s);CHECK(tac_module_decode(&s,sizeof s,s.generation,&decoded));
+  s.arenaRequest[1]='e';s.version=1;tac_module_seal(&s);CHECK(tac_module_decode(&s,sizeof s,s.generation,&decoded));
   puts("Native module container, durable session and stopped-slot rollback checks passed");return 0;
 }

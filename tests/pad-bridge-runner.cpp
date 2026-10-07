@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "pad-bridge.h"
+extern "C" {
+#include "pad-exchange.h"
+}
 #include "check.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -7,9 +10,10 @@
 #include <string.h>
 using Bridge=int(TAC_GAME_SYSV *)(TacPadBridge*,uint64_t,unsigned,uint64_t,int,TacPadSample*,int);
 static Bridge bridge;static TacPadBridge state;static uint64_t now=UINT64_C(1000000000),tick=1;
+static uint64_t expectedControl=0x10000;
 static TacPadSample source[64];static int returned=1,expectedCapacity=1,expectedHandle=17,originalCalls,clockFails,moduleCalls,nest;
 static int TAC_GAME_SYSV clock_stub(int clock,TacPadTime *out){CHECK(clock==4);out->sec=now/1000000000;out->nsec=now%1000000000;return clockFails;}
-static void TAC_GAME_SYSV module(TacGameGate *control,uint64_t cookie,unsigned lane){CHECK((uintptr_t)control==0x10000&&cookie==state.cookie&&lane<=1);moduleCalls++;}
+static void TAC_GAME_SYSV module(TacGameGate *control,uint64_t cookie,unsigned lane){CHECK((uintptr_t)control==expectedControl&&cookie==state.cookie&&lane<=1);moduleCalls++;}
 static int TAC_GAME_SYSV original(int handle,TacPadSample *out,int capacity){
  CHECK(handle==expectedHandle&&capacity==expectedCapacity);originalCalls++;
  if(returned>0&&returned<=64)memcpy(out,source,returned*sizeof *out);return returned;
@@ -38,6 +42,13 @@ static int TAC_GAME_SYSV state_original(int handle,TacPadSample *out){
 static int TAC_GAME_SYSV nested_original(int handle,TacPadSample *out,int capacity){
  CHECK(!nest);nest=1;int result=bridge(&state,state.cookie,1,(uintptr_t)original,handle,out,capacity);nest=0;return result;
 }
+static int transport_read(void*,size_t at,void *out,size_t n){
+ if(at>sizeof state||n>sizeof state-at)return -1;memcpy(out,(char*)&state+at,n);return 0;
+}
+static int transport_write(void*,size_t at,const void *in,size_t n){
+ if(at>sizeof state||n>sizeof state-at)return -1;memcpy((char*)&state+at,in,n);return 0;
+}
+static uint64_t transport_clock(void*){return now;}
 int main(int argc,char **argv){
  if(argc>1&&!strcmp(argv[1],"--fail-check"))CHECK(0);CHECK(argc==2);
  FILE *file=fopen(argv[1],"rb");CHECK(file);unsigned char blob[8192];size_t length=fread(blob,1,sizeof blob,file);fclose(file);CHECK(length>0&&length<sizeof blob);
@@ -89,5 +100,24 @@ int main(int argc,char **argv){
  CHECK(!tac_pad_trampoline(entry,64,(uintptr_t)entry,(uintptr_t)stub,(uintptr_t)&state,state.cookie,(uintptr_t)bridge,0,&built));memcpy(stub,built.bytes,built.size);
  CHECK(VirtualProtect(entry,0x2000,PAGE_EXECUTE_READ,&old));CHECK(FlushInstructionCache(GetCurrentProcess(),entry,0x2000));
  using ReadState=int(TAC_GAME_SYSV *)(int,TacPadSample*);CHECK(((ReadState)stub)(17,out)==0&&is_neutral(out[0])&&originalCalls==1);
+ // Run the real transport against the actual compiled bridge. The copy
+ // adapters model private cross-process access, not PS5 kernel APIs.
+ reset();auto arena=(unsigned char*)VirtualAlloc(NULL,0x8000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);CHECK(arena&& !((uintptr_t)arena&0x3fff));
+ arena[0]=0xff;arena[1]=0x25;uint64_t callback=(uintptr_t)module;memcpy(arena+6,&callback,8);
+ CHECK(VirtualProtect(arena,0x4000,PAGE_EXECUTE_READ,&old));CHECK(FlushInstructionCache(GetCurrentProcess(),arena,0x4000));
+ expectedControl=(uintptr_t)arena+0x4000;state.moduleEntry=(uintptr_t)arena;state.moduleControl=expectedControl;state.enabled=0;state.lease={};
+ TacPadExchangeOps transport{nullptr,transport_read,transport_write,transport_clock};TacPadRequest request{99,TAC_PAD_OBSERVE,-1,0};TacPadBatch batch{};
+ CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch)&&batch.reset);
+ CHECK(invoke(out)==1&&!memcmp(out,source,sizeof *out));now+=10000000;
+ CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch)&&batch.count==1&&batch.events[0].buttons==source[0].buttons);
+ request.mode=TAC_PAD_CAPTURE;request.owner=17;request.connection=3;
+ CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch));source[0]=sample(0x2000);now+=10000000;
+ CHECK(invoke(out)==1&&is_neutral(out[0]));CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch)&&batch.count==1&&batch.events[0].buttons==0x2000);
+ request.mode=TAC_PAD_OFF;CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch)&&state.enabled);
+ CHECK(invoke(out)==1&&is_neutral(out[0])); // Closing press must drain before gameplay resumes.
+ now+=TAC_PAD_DRAIN_NS+1;CHECK(invoke(out)==1&&!memcmp(out,source,sizeof *out));
+ request.mode=TAC_PAD_CAPTURE;CHECK(!tac_pad_exchange(&transport,(uintptr_t)arena,state.cookie,&request,now,&batch));CHECK(invoke(out)==1&&is_neutral(out[0]));
+ now+=TAC_PAD_LEASE_NS+TAC_PAD_DRAIN_NS+1;CHECK(invoke(out)==1&&!memcmp(out,source,sizeof *out));
+ CHECK(VirtualFree(arena,0,MEM_RELEASE));
  CHECK(VirtualFree(code,0,MEM_RELEASE));puts("Actual post-read pad bridge: typed ABI, original results, ownership, expiry, nested reads, batches and overflow passed");return 0;
 }

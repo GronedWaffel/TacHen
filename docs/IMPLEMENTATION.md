@@ -879,3 +879,53 @@ loss handling across processes, independent arena startup without a PRX, and
 normal-pad runtime compatibility checks remain next. Extended input APIs need
 separate adapters. Full in-game presentation and the rest of TacHen's requested
 scope remain unfinished. No console connection, test or publication occurred.
+
+## Checkpoint nineteen — independent callback and private input transport
+
+The coordinator now prepares the shared game callback without requiring a PRX
+plugin. It binds a durable request to PID, process generation, title/version and
+mounted metadata, and checks kernel-service and native-renderer readiness. The
+input request and PRX requests share native ownership and queue exclusions;
+preparation consumes no module slot. Existing callbacks can be adopted, while
+interrupted/rejected requests are retained without automatic reinjection. The
+private module receipt is version 2; older development receipts are rejected
+rather than interpreted under the new layout. An unconfirmed game resume keeps
+the original disk intent and publishes uncertainty only in memory.
+
+The native input exchange runs on a separate worker under the common native
+operation guard. It accepts identity and lease fields, never arbitrary user
+addresses. A RAM-only lookup selects a prepared game session. Process identity,
+module-gate cookie and pad header are checked before exchange. Reads and writes
+translate every 4 KiB page freshly and check identity around each copy. Writes
+are restricted to the private pad lease, consumed cursor and enable flag; no
+ptrace, credential changes or filesystem operations occur in this path.
+
+The transport drains only published ring entries before advancing their cursor.
+It checks sequence wrap and concurrent faults, flushes old events on a new epoch,
+and publishes a lease through odd/even revisions with readback. Lease expiry is
+400 ms from the exchange's initial monotonic timestamp; exchanges taking over
+100 ms are discarded. A copy failure can be partial and is reported uncertain,
+without replay or rollback of a live lease. These checks bound accepted results
+and memory operations; they do not preempt a kernel syscall that stops returning.
+Turning capture off preserves the filter's short release drain so the closing
+Circle/X press does not immediately become a game action. A stopped coordinator
+cannot keep renewing capture.
+
+The full suite passed **204 local tests**, and the embedded QuickJS fixture
+passed. After correcting the explicit-release drain, the seven affected tests
+and final ELF process-link audit passed again. Tests execute the actual compiled
+pad bridge with the real C exchange protocol using local copy adapters, covering
+observation, capture, event consumption, release and expiration. Fault injection
+covers every protocol write, including accepted-but-reported-failed writes;
+bounded page writes are tested across page boundaries and identity loss. The
+PS5 kernel copy adapters and worker are cross-built only. Runtime **8,642,008
+bytes**, SHA-256
+`ef8432520076867f9c0e5c70f4afc4c23cea69c1f7d055e6b7e700fe29ef879f`.
+
+Capture remains disabled by the coordinator. Next is the renderer/input
+supervisor, event-to-deck routing, controller ownership and renderer-loss
+handling across processes, including normal-pad compatibility checks. The
+transport alone does not deliver a usable in-game menu. Full presentation,
+saves, remaining cheat formats, per-game loadouts, recovery/update flows and
+older-firmware installer ABIs remain outstanding. No console was contacted and
+no artifact was published.

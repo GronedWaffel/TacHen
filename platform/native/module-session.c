@@ -9,8 +9,11 @@ static void digest(const TacModuleSession *s,unsigned char out[32]){SHA256_CTX h
 void tac_module_seal(TacModuleSession *s){digest(s,s->checksum);}
 int tac_module_decode(const void *bytes,size_t length,const char *generation,TacModuleSession *s){
   if(!bytes||!generation||length!=sizeof *s)return -1;memcpy(s,bytes,sizeof *s);unsigned char hash[32];digest(s,hash);
-  if(memcmp(hash,s->checksum,32)||s->magic!=TAC_MODULE_SESSION_MAGIC||s->version!=1||s->phase>TAC_ARENA_UNKNOWN||s->pid<=1||
+  if(memcmp(hash,s->checksum,32)||s->magic!=TAC_MODULE_SESSION_MAGIC||s->version!=TAC_MODULE_SESSION_VERSION||s->phase>TAC_ARENA_UNKNOWN||s->pid<=1||
     s->generation[127]||s->title[9]||s->metadataHash[64]||strcmp(s->generation,generation)||!tac_game_title(s->title)||!tac_hex_string(s->metadataHash,64))return -1;
+  if(s->arenaRequest[32]||s->arenaMessage[191]||s->arenaStage>4||
+    (s->arenaStage&&!tac_hex_string(s->arenaRequest,32))||(!s->arenaStage&&s->arenaRequest[0])||
+    (s->arenaStage==2&&s->phase!=TAC_ARENA_READY&&s->phase!=TAC_ARENA_UNKNOWN))return -1;
   if(s->phase==TAC_ARENA_READY&&(!s->cookie||s->arena<0x10000||s->arena>UINT64_C(0x7fffffffffff)-0x8000||
     (s->arena&0x3fff)||s->control!=s->arena+0x4000))return -1;
   for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++){
@@ -26,6 +29,17 @@ int tac_module_decode(const void *bytes,size_t length,const char *generation,Tac
   return 0;
 }
 int tac_module_slot(const TacModuleSession *s,const char *request){for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s->slots[i].stage&&!strcmp(s->slots[i].request,request))return (int)i;return -1;}
+int tac_module_session_held(const TacModuleSession *s){
+  if(!s||s->phase==TAC_ARENA_INTENT||s->phase==TAC_ARENA_UNKNOWN||s->arenaStage==1||s->arenaStage==4)return 1;
+  for(unsigned i=0;i<TAC_GAME_MODULE_SLOTS;i++)if(s->slots[i].stage==TAC_PRX_QUEUED||s->slots[i].stage==TAC_PRX_ARMING||s->slots[i].stage==TAC_PRX_UNKNOWN)return 1;
+  return 0;
+}
+int tac_module_arena_claim(TacModuleSession *s,const char *request){
+  if(!s||!tac_hex_string(request,32))return -1;
+  if(s->arenaRequest[0])return strcmp(s->arenaRequest,request)?-1:1;
+  if(tac_module_session_held(s))return -1;
+  strcpy(s->arenaRequest,request);s->arenaStage=1;snprintf(s->arenaMessage,sizeof s->arenaMessage,"Game input preparation queued");return 0;
+}
 void tac_module_path(const TacModuleReceipt *r,char path[256]){snprintf(path,256,TAC_GAME_MODULE_PREFIX "%s.%s",r->sha256,r->extension);}
 int tac_module_gate_valid(const TacModuleSession *s,const TacGameGate *g){
   return s->phase==TAC_ARENA_READY&&g->magic==TAC_GAME_GATE_MAGIC&&g->version==1&&g->bytes==sizeof *g&&g->cookie==s->cookie&&

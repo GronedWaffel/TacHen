@@ -8,8 +8,12 @@ test('actual post-read pad binary preserves reads and bounds menu capture to its
   const build = spawnSync(process.execPath, ['scripts/build-pad-bridge.mjs', 'build/pad-test'], { cwd: root, encoding: 'utf8', env });
   assert.equal(build.status, 0, build.stderr);
   const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
+  const exchange = path.join(root, 'build/pad-exchange-bridge-test.o');
+  const transport = spawnSync(zig, ['cc', '-O1', '-Wall', '-Wextra', '-Werror', '-Iplatform/native', '-Iplatform/game',
+    '-c', 'platform/native/pad-exchange.c', '-o', exchange], { cwd: root, encoding: 'utf8', env });
+  assert.equal(transport.status, 0, transport.stderr);
   const compiled = spawnSync(zig, ['c++', '-O1', '-Wall', '-Wextra', '-Werror', '-DHDE_DECODE_ONLY', '-std=c++17',
-    '-Iplatform/game', '-Ivendor/deck', 'tests/pad-bridge-runner.cpp', 'platform/game/pad-trampoline.cpp',
+    '-Iplatform/game', '-Iplatform/native', '-Ivendor/deck', 'tests/pad-bridge-runner.cpp', 'platform/game/pad-trampoline.cpp', exchange,
     'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', '-o', exe], { cwd: root, encoding: 'utf8', env });
   assert.equal(compiled.status, 0, compiled.stderr || compiled.error?.message);
   const fail = spawnSync(exe, ['--fail-check'], { encoding: 'utf8', timeout: 10000 });assert.equal(fail.status, 90);
