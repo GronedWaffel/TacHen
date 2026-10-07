@@ -407,3 +407,54 @@ Remaining work still includes native plugin/cheat/save execution, in-game input
 arbitration and rendering, FPS/resource telemetry, MCP scanning, applied loadouts,
 staged update recovery, older-firmware installer adaptation, and hardware acceptance
 for all new native paths. The full goal remains active.
+
+## Ninth implementation checkpoint: standalone plugin processes
+
+2026-10-07: **144 local tests pass**, plus the actual QuickJS coordinator smoke
+checks. The native runtime cross-build is 8,437,192 bytes, SHA-256
+`7e97721645ad15de5f12f0b3f43829b0faa6801822b328d8b77de916390eca78`.
+The resident deck and isolated package helper are unchanged. No console access,
+payload execution, deployment or publication was performed.
+
+- `.plugin` is handled as its real 29-byte etaHEN container. The native worker
+  hashes the entire private container buffer, validates its embedded executable
+  ELF and dispatches only the embedded bytes with the plugin's own process name.
+  Plugin ID/version are not misinterpreted as game title/version. PRX/SELF modules
+  cannot enter this daemon loader; their in-game module injection is separate work.
+- Registration is durable, bounded to 64 unique plugin identities/hashes, and
+  checksummed with the coordinator state. Autostart is off initially. Users may
+  manually start a watcher before opening a game, or arm system startup/exact
+  game-title-and-version startup. Game targeting controls launch scheduling; it
+  cannot constrain arbitrary third-party plugin code once that process runs.
+- Launch acceptance and execution reverify bytes/configuration. Safe startup,
+  unverified native hooks, changed configuration and changing game context hold
+  startup. Automatic attempts are not silently repeated after an unresolved result.
+  Disabling autostart also prevents an accepted but not-yet-dispatched automatic
+  launch after native worker contention clears.
+- The native loader refuses a live owner of the plugin process name and duplicate
+  same-boot plugin identities even when a different version has a different hash.
+  A dispatch receipt captures the observed PID and process start generation.
+  Monitoring distinguishes process present, exited and unavailable census. Process
+  presence does not assert successful plugin initialization or active game patches.
+- Checksummed version-2 receipts remain able to read original ELF-only version-1
+  receipts. Corruption, truncation and unexplained prior state remain held. Native
+  duplicate policy and old/new receipt decoding execute in a host C test runner
+  with unconditional checks. The shared loader now claims the native operation
+  before saving a queued receipt: a BUSY return cannot strand a saved queue intent.
+- Phone registration, game-target fields and autostart toggling were exercised
+  against a localhost-only fixture using the actual coordinator API. At a 390-pixel
+  viewport, the form/card fit without horizontal overflow and emitted no browser
+  errors. The fixture never invokes PS5 native APIs and is not hardware evidence.
+- QuickJS smoke coverage includes plugin registration, configuration serialization
+  and a simulated receipt adapter, using actual runtime globals. Native C tests
+  validate real container parsing, embedded ELF bounds, malformed headers, receipt
+  checksums/migration, and duplicate rules. Job tests cover PID reuse, game exit
+  during verification, cancellation of autostart before dispatch, safe startup,
+  changed bytes, duplicate requests and uncertain native results.
+
+Remaining plugin work: safe process stop/restart with explicit effects semantics,
+native `.prx`/`.sprx` injection into exact compatible game instances, shared game
+callback/input ownership, and controller-side plugin management. This checkpoint
+deliberately does not advertise a universal unload ABI or treat killing a plugin
+process as undoing patches. The other outstanding native cheat/save, overlay/FPS,
+MCP, loadout, update and older-firmware package integrations remain in scope.

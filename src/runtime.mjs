@@ -56,6 +56,7 @@ export class TacRuntime {
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
+      plugins: this.plugins ? this.plugins.list() : null,
       library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
       jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
@@ -82,6 +83,10 @@ export class TacRuntime {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'plugin.register':
+        invariant(this.plugins, 'FEATURE_UNAVAILABLE', 'Plugin lifecycle service is not installed.'); return this.plugins.register(args);
+      case 'plugin.configure':
+        invariant(this.plugins, 'FEATURE_UNAVAILABLE', 'Plugin lifecycle service is not installed.'); return this.plugins.configure(args);
       case 'library.refresh':
         invariant(this.library, 'FEATURE_UNAVAILABLE', 'The game library requires the native ShadowMount adapter.');
         return this.library.refresh();
@@ -127,5 +132,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

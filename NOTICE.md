@@ -102,3 +102,12 @@ responses. The SFO field layout/formats are informed by that port's
 `638f430f8cb4b5df73c6d5116c45b2248b5bd88685fa912ba1de6723f8516afb`).
 The bounded metadata parser and lifecycle/lease implementation are original
 TacHen code. Source comparisons do not establish console hardware validation.
+
+The native `.plugin` container parser uses the etaHEN-Plugins container layout
+credited above. The standalone process convention (plugin ID as process name,
+embedded ELF at byte 29) was cross-checked against the GPL GronedWaffel etaHEN
+port's `port_plugin_runtime.h` and `daemon/source/game_plugins.cpp` in the local
+`compatibility-worktrees/etahen-main-update` source. TacHen implements its own
+checksum-bound registry, autostart policy, process-generation receipts and
+duplicate/recovery behavior. No universal stop or unload contract is implied by
+the etaHEN container format.

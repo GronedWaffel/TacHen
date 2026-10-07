@@ -9,6 +9,7 @@ import { encodeDeck } from '../src/deck.mjs';
 import { inspectPackage } from '../src/package-format.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
 import { GameLifecycle } from '../src/game-lifecycle.mjs';
+import { installPlugins } from '../src/plugins.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -53,6 +54,18 @@ globalThis.testPassed = false;
   await lifecycle.refresh(); assert(!gameRuntime.game, 'QuickJS lifecycle published one unconfirmed observation');
   await lifecycle.refresh(); assert(gameRuntime.game.version === '01.002.003', 'QuickJS lifecycle metadata failed');
   lifecycle.stop(); assert(lifecycle.lease.signal.aborted, 'QuickJS native-runtime abort implementation failed');
-  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer receipts, game lifecycle and controller wire passed. Native APIs not tested.');
+  let pluginHandler, pluginReceipt;
+  const pluginHash = 'a'.repeat(64), pluginUpload = 'b'.repeat(32), pluginRequest = 'c'.repeat(32);
+  const pluginRuntime = { store, sequence: 0, graph: { safe: false }, capability() {},
+    inbox: { verify: async () => ({ id: pluginUpload, name: 'test.plugin', format: 'plugin', sha256: pluginHash, pluginId: 'TACP00001', pluginVersion: '1.00' }) },
+    jobs: { register(kind, handler) { pluginHandler = handler; }, snapshot: () => [] } };
+  const plugins = installPlugins(pluginRuntime, { systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true }, processes: [] }),
+    pluginStart(request, upload, sha256) { pluginReceipt = { request, sha256, stage: 3, plugin: true, pluginId: 'TACP00001',
+      pluginVersion: '1.00', pid: 88, generation: '100:0/88/101:0' }; }, loaderPoll: () => pluginReceipt });
+  await plugins.register({ upload: pluginUpload, scope: 'system', revision: store.snapshot().revision });
+  const pluginInput = await pluginHandler.validate({ sha256: pluginHash, source: 'manual' });
+  const loaded = await pluginHandler.run(pluginInput, { id: pluginRequest, signal: { aborted: false } });
+  assert(await pluginHandler.verify(loaded, pluginInput) && loaded.initialized === false, 'QuickJS plugin dispatch contract failed');
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer/plugin receipts, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

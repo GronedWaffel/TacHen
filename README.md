@@ -36,8 +36,19 @@ observations establish its title/version for the phone and console deck. Ambiguo
 processes, missing metadata and native contention hold game actions; they never
 silently select cached library versions. Lifecycle consumers receive an abort
 signal when the verified instance becomes unavailable. This foundation is
-implemented and cross-built; game plugins, cheats and overlays still need their
-native execution adapters and deferred console acceptance.
+implemented and cross-built; native PRX injection, cheats and overlays still need
+their execution adapters and deferred console acceptance.
+
+The phone's Plugins tab now registers verified etaHEN `.plugin` containers, starts
+their embedded ELF as a named plugin process, and supports optional system or exact
+game/version autostart. Manual start works before a game opens. Plugin identity is
+kept separate from game title identity. Durable receipts bind the actual file hash,
+console boot and process generation; PID reuse never counts as the same running
+plugin. Process presence is reported separately from plugin feature initialization.
+This development stage permits one dispatch per plugin identity per boot; disabling
+autostart prevents future automatic launches but does not stop an existing process
+or undo its patches. Safe stop/restart, native PRX loading and controller plugin
+controls remain unfinished. No plugin has been executed on console for this build.
 
 On console builds, verified ELF entries offer **Run payload**. A separate native
 worker hashes the exact execution buffer, validates memory/relocation bounds and

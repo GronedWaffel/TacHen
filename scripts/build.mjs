@@ -36,7 +36,7 @@ await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@pro
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
-      'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-metadata.c'].map(file => 'platform/native/' + file),
+      'package-core.c', 'package-io.c', 'package-worker.c', 'game-info.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c'].map(file => 'platform/native/' + file),
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
 const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild',

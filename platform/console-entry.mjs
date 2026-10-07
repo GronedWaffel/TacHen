@@ -18,6 +18,7 @@ import { installLibrary } from '../src/library.mjs';
 import { installStorageJobs } from '../src/storage-jobs.mjs';
 import { installConsoleDeck } from '../src/native-deck.mjs';
 import { installGameLifecycle } from '../src/game-lifecycle.mjs';
+import { installPlugins } from '../src/plugins.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -43,6 +44,7 @@ globalThis.__ready = (async () => {
       installStorageJobs(runtime);
       installConsoleDeck(runtime, __native);
       installGameLifecycle(runtime, __native);
+      installPlugins(runtime, __native);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });
@@ -57,6 +59,7 @@ globalThis.__ready = (async () => {
   await serve(runtime, { assets, host: '0.0.0.0', port: 8780, id });
   __native.notify(`TacHen development runtime loaded\nPhone: http://${runtime.identity.ip}:8780`);
   runtime.gameLifecycle.start();
+  runtime.plugins.start();
   // The phone stays responsive while durable native startup jobs execute.
   runtime.nativeServices.startConfigured().then(() => { runtime.nativeServices.startMonitoring(); runtime.nativeDeck.startMonitoring(); }).catch(error => {
     console.error(error.message); __native.notify('TacHen startup needs attention. Open Activity on your phone.');

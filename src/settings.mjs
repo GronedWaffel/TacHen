@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { clone, invariant } from './errors.mjs';
+import { validatePlugins } from './plugin-schema.mjs';
 export const defaults = Object.freeze({
   overlay: { fps: false, ram: false, cpu: false, ip: false, adaptive: true },
   services: { ftp: true, inboxAutoRun: false, shadowmount: true, payloadManager: true },
@@ -30,7 +31,7 @@ export function mergeSettings(current, patch) {
 }
 export function initialState() {
   return { schema: 1, revision: 0, settings: clone(defaults), knownGood: clone(defaults),
-    startup: { pending: false, session: null, safe: false }, jobs: [], profiles: {}, history: [] };
+    startup: { pending: false, session: null, safe: false }, jobs: [], profiles: {}, plugins: [], history: [] };
 }
 export function validateState(state) {
   invariant(state?.schema === 1 && Number.isSafeInteger(state.revision) && state.revision >= 0 &&
@@ -40,5 +41,6 @@ export function validateState(state) {
   'STATE_INVALID', 'Saved TacHen state is not valid.');
   state.settings = mergeSettings(defaults, state.settings);
   state.knownGood = mergeSettings(defaults, state.knownGood);
+  state.plugins = validatePlugins(state.plugins ?? []);
   return state;
 }
