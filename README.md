@@ -49,6 +49,39 @@ The current adapter supports module-relative section-zero patches. Other section
 layouts, absolute/code-cave patches and encrypted/XML/BIN formats remain work in
 progress. Local tests do not establish real-game compatibility.
 
+## Developer MCP
+
+On the console-hosted phone page, open **Preferences → Developer tools**, enable
+the tools, then choose **Create connection**. Configure a Streamable HTTP client
+with the displayed `/mcp` endpoint and `Authorization: Bearer …` header. Access
+lasts one hour; creating another connection invalidates the previous token.
+**Disconnect MCP clients** revokes it immediately. Tokens stay in runtime/browser
+memory, are omitted from snapshots and logs, and are not saved in configuration.
+This is a direct HTTP connection for a trusted LAN, without a cloud relay.
+
+MCP exposes readiness, imported cheat details, operation status, module lookup,
+bounded memory reads and hex/wildcard scanning. A scan targets an explicit module
+range, up to 16 MiB, in reads of at most 64 KiB. Each read stops and resumes the
+verified game instance; different chunks are not an atomic snapshot. Scans retain
+at most 8,192 matches and explicitly report truncation. Results have a five-minute
+access window in bounded session RAM; raw memory is not written into job history.
+Cancel stops between confirmed reads. Unconfirmed resume retains the operation
+for reconciliation instead of permitting a competing memory operation.
+
+The separate **Allow MCP cheat writes** switch authorizes imported, exact-version
+cheat transactions. It resets when TacHen starts. The MCP client cannot enable
+this switch itself. Revocation is checked again before queued execution and
+between scan chunks; a native operation already underway finishes its cleanup.
+Arbitrary native code execution and raw unrestricted writes are not MCP tools.
+
+Transport follows the [MCP Streamable HTTP specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports),
+using JSON responses and negotiated 2025-06-18 or 2025-03-26 sessions. GET returns
+405 because this endpoint does not provide server-initiated SSE. Host/Origin,
+bearer authorization, session identity and protocol version are checked. Local
+HTTP tests and the embedded QuickJS check pass; console syscalls and third-party
+client interoperability still need hardware acceptance. Heap-region enumeration,
+unknown-value/differential refinement and broader debugging are not implemented.
+
 The phone's Plugins tab now registers verified etaHEN `.plugin` containers, starts
 their embedded ELF as a named plugin process, and supports optional system or exact
 game/version autostart. Manual start works before a game opens. Plugin identity is

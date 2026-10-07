@@ -73,6 +73,14 @@ $('#cheat-file').onchange = async event => {
 };
 function draw() {
   drawCheats();
+  $('#mcp-enabled').checked = state.settings.developer.enabled;
+  $('#mcp-enabled').disabled = !capability('mcp')?.available || state.safe;
+  $('#mcp-writes').checked = state.settings.developer.memoryWrites;
+  $('#mcp-writes').disabled = !state.settings.developer.enabled || state.safe;
+  $('#mcp-create').disabled = !state.settings.developer.enabled || !capability('mcp')?.available || state.safe;
+  $('#mcp-revoke').disabled = !state.settings.developer.enabled;
+  if (!state.settings.developer.enabled) { $('#mcp-token').value = '';$('#mcp-connection').hidden = true; }
+  if (!capability('mcp')?.available) $('#mcp-status').textContent = capability('mcp')?.reason || 'Native memory tools are not installed.';
   document.body.dataset.accent = state.settings.appearance.accent;
   document.body.dataset.reducedMotion = String(state.settings.appearance.reducedMotion);
   $('#connection').textContent = 'Connected locally';
@@ -293,6 +301,24 @@ for (const button of document.querySelectorAll('[data-view]')) button.onclick = 
 };
 $('#accent').onchange = () => command('settings.update', { patch: { appearance: { accent: $('#accent').value } }, revision: state.revision });
 $('#reduced-motion').onchange = () => command('settings.update', { patch: { appearance: { reducedMotion: $('#reduced-motion').checked } }, revision: state.revision });
+$('#mcp-enabled').onchange = () => command('settings.update', { patch: { developer: { enabled: $('#mcp-enabled').checked } }, revision: state.revision });
+$('#mcp-writes').onchange = () => command('settings.update', { patch: { developer: { memoryWrites: $('#mcp-writes').checked } }, revision: state.revision });
+$('#mcp-create').onclick = async () => {
+  if (busy) return;busy = true;
+  try {
+    const { result } = await api('/api/command', { command: 'developer.connect', args: {} });
+    $('#mcp-url').value = location.origin + result.path;$('#mcp-token').value = 'Bearer ' + result.token;
+    $('#mcp-connection').hidden = false;$('#mcp-status').textContent = 'Connection ready. Access expires at ' + new Date(result.expires).toLocaleTimeString() + '.';
+  } catch (error) { $('#mcp-status').textContent = error.message; }
+  finally { busy = false; }
+};
+$('#mcp-revoke').onclick = async () => {
+  if (busy) return;busy = true;
+  try { await api('/api/command', { command: 'developer.disconnect', args: {} });$('#mcp-token').value = '';$('#mcp-connection').hidden = true;$('#mcp-status').textContent = 'MCP clients disconnected. A read already in progress will finish its resume check; no further scan chunks will start.'; }
+  catch (error) { $('#mcp-status').textContent = error.message; }
+  finally { busy = false; }
+};
+$('#mcp-select').onclick = () => { $('#mcp-token').focus();$('#mcp-token').select(); };
 $('#payload-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy) return; busy = true;
   try {
@@ -339,7 +365,7 @@ $('#package-file').onchange = async event => {
   finally { packageUploading = false; event.target.value = ''; await refresh(); }
 };
 $('#disconnect').onclick = async () => {
-  try { await api('/api/disconnect', {}); connected = false; clearTimeout(timer); $('#connection').textContent = 'Disconnected'; notice('Disconnected. Reload this page to reconnect.'); }
+  try { await api('/api/disconnect', {}); connected = false; clearTimeout(timer); $('#mcp-token').value = '';$('#mcp-connection').hidden = true;$('#connection').textContent = 'Disconnected'; notice('Disconnected. Reload this page to reconnect.'); }
   catch (error) { notice(error.message); }
 };
 async function refresh() {

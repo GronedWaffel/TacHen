@@ -78,12 +78,18 @@ export class TacRuntime {
         message: 'Preferences changed', fields: Object.keys(patch), undo: false });
       state.history = state.history.slice(-256);
     }, revision);
+    if (!this.store.snapshot().settings.developer.enabled) this.mcp?.revoke();
     this.sequence++; return this.snapshot();
   }
   async execute(command, args) {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'developer.connect':
+        invariant(this.mcp, 'FEATURE_UNAVAILABLE', 'MCP is not installed.');return this.mcp.issue();
+      case 'developer.disconnect': this.mcp?.revoke();return { disconnected: true };
+      case 'memory.result':
+        invariant(this.memory, 'FEATURE_UNAVAILABLE', 'Native memory inspection is not installed.');return this.memory.result(args.id);
       case 'cheat.inspect':
         invariant(this.cheats, 'FEATURE_UNAVAILABLE', 'Cheat catalog is not installed.'); return this.cheats.inspect(args.sha256);
       case 'plugin.register':
@@ -135,5 +141,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.mcp?.revoke(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

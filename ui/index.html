@@ -42,7 +42,15 @@
       <section id="preferences" class="view" hidden><div class="feature-row">
         <article class="panel"><p class="eyebrow">AT A GLANCE</p><h2>Overlay</h2><div id="overlay-settings"></div><p class="fine">Native options become available when their service is integrated. Unavailable readings are never shown as zero.</p></article>
         <article class="panel"><p class="eyebrow">MAKE IT YOURS</p><h2>Appearance</h2><label class="setting">Accent<select id="accent"><option value="mint">Mint</option><option value="amber">Amber</option><option value="ice">Ice</option></select></label><label class="setting">Reduce motion<input type="checkbox" id="reduced-motion"></label>
-          <p class="fine">Developer tools and support captures will stay separate from everyday controls.</p></article></div></section>
+          <p class="fine">Developer tools and support captures stay separate from everyday controls.</p></article></div>
+        <details class="panel" id="developer-panel"><summary>Developer tools</summary><p>Connect an MCP client directly to this console. Scanning runs only when requested. Access expires after one hour, and you can disconnect clients here at any time.</p>
+          <label class="setting">Enable developer tools<input id="mcp-enabled" type="checkbox"></label>
+          <label class="setting">Allow MCP cheat writes<input id="mcp-writes" type="checkbox"></label>
+          <p class="fine">Reads briefly stop and resume the current game. Memory writes are a separate option and turn off when TacHen restarts. Use this connection on your trusted local network.</p>
+          <div class="actions"><button id="mcp-create">Create connection</button><button id="mcp-revoke">Disconnect MCP clients</button></div>
+          <p id="mcp-status" class="fine" role="status">Developer access is off by default.</p>
+          <div id="mcp-connection" hidden><label class="mcp-field">MCP endpoint<input id="mcp-url" readonly></label><label class="mcp-field">Authorization header<textarea id="mcp-token" readonly rows="3" spellcheck="false"></textarea></label><button id="mcp-select">Select connection details</button><p class="fine">Treat this access token as private. Creating another connection invalidates the previous token. This page does not save it.</p></div>
+        </details></section>
       <section id="components" class="view" hidden><div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
     </main>
     <footer><span>TacHen / development workspace</span><span id="firmware">No hardware connection</span><span>Direct LAN · No cloud account</span></footer>

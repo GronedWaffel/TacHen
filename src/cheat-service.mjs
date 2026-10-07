@@ -52,10 +52,17 @@ export class CheatService {
   }
   handler() {
     const self = this, { runtime, native } = this;
+    function developerGate(input) {
+      if (input.developerSession !== undefined || input.developerGrant !== undefined) invariant(
+        input.developerSession === runtime.session && input.developerGrant && input.developerGrant === runtime.mcp?.grant &&
+        runtime.mcp.expires > runtime.now() && runtime.store.snapshot().settings.developer.enabled && runtime.store.snapshot().settings.developer.memoryWrites,
+        'MEMORY_WRITES_DISABLED', 'The MCP memory-write authorization ended. No new patch was started.');
+    }
     async function validate(input) {
       invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && typeof input.cheatId === 'string' && typeof input.enabled === 'boolean',
         'CHEAT_INPUT', 'Choose an imported cheat and its desired state.');
       invariant(!runtime.graph.safe, 'SAFE_STARTUP', 'Memory modifications are held during safe startup.');
+      developerGate(input);
       const game = clone(runtime.game); requireGame(game);
       invariant(/^[a-f0-9]{64}$/.test(game.metadataHash), 'CHEAT_GAME', 'Wait for verified running-game metadata.');
       const pack = await self.packs.read(input.sha256);
@@ -65,6 +72,7 @@ export class CheatService {
         game.generation.startsWith(probe.boot + '/' + game.pid + '/'), 'CHEAT_READINESS', 'Wait for verified kernel services and game identity.');
       const accepted = { sha256: input.sha256, cheatId: input.cheatId, enabled: input.enabled, module: pack.process, planHash: packetHash(packet),
         boot: probe.boot, pid: game.pid, generation: game.generation, titleId: game.titleId, version: game.version, metadataHash: game.metadataHash };
+      if (input.developerSession !== undefined) Object.assign(accepted, { developerSession: input.developerSession, developerGrant: input.developerGrant });
       if (input.generation) invariant(canonical(accepted) === canonical(input), 'CHEAT_CONTEXT_CHANGED', 'The queued cheat belongs to a different game context.');
       return accepted;
     }
@@ -76,6 +84,8 @@ export class CheatService {
         } catch (error) { error.noSideEffects = true; throw error; }
         for (;;) {
           if (context.signal.aborted || !same(input, runtime.game)) throw clean('CHEAT_CONTEXT_CHANGED', 'The game changed before cheat dispatch.');
+          if (runtime.graph.safe) throw clean('SAFE_STARTUP', 'Memory modifications are held during safe startup.');
+          try { developerGate(input); } catch (error) { error.noSideEffects = true;throw error; }
           try {
             native.cheatStart(context.id, input.pid, input.generation, input.titleId, input.metadataHash, input.module,
               packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength)); break;

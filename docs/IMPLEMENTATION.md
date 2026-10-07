@@ -664,3 +664,48 @@ untouched. Nonzero sections, absolute/code-cave patches and encrypted/XML/BIN
 formats remain unsupported by this execution adapter. Native MCP scans, overlays,
 saves, loadouts, updates and the other outstanding work above remain unfinished;
 this checkpoint does not complete TacHen.
+
+## Checkpoint fourteen — opt-in MCP and native memory inspection
+
+The console runtime now wires a Streamable HTTP MCP endpoint and phone connection
+controls. Authorization is explicit, expires in one hour, never enters persistent
+state or ordinary snapshots, and can be revoked locally. Session initialization,
+protocol negotiation, tool discovery, bounded requests, Host/Origin checks and
+disconnect are exercised through the actual localhost HTTP server. The client
+cannot enable its own memory-write switch. Queued MCP cheats retain their access
+grant and recheck it before dispatch; disabling or rotating access prevents a
+previous queued write from starting. Regular controller/phone cheats retain their
+existing path.
+
+Native inspection reuses the kernel-copy guard, generation/metadata checks,
+stopped-game lease, bounded module/VM readers and durable native receipt path.
+It changes no target permissions or memory. The actual C inspection core limits
+reads to 64 KiB, verifies identity between 16 KiB pieces, requires confirmed
+resume/credential restoration and clears partial data after failure. Host tests
+execute this core with failure injection. Actual attach/read/detach syscalls have
+not run on hardware. Existing two-second inter-step limits are not preemptive
+kernel-call guarantees.
+
+The coordinator implements module information, bounded reads, and explicit
+module-range hex/wildcard scans up to 16 MiB. It resumes between chunks, detects
+cross-chunk matches, supports alignment, bounds matches at 8,192 and reports
+truncation. Results remain in bounded RAM with a five-minute access window;
+durable jobs contain identity/progress rather than memory dumps. Revocation and
+cancellation stop between completed reads. Unknown resume holds exclusion and
+can reconcile its original receipt or a proven game exit without replay. Whole
+heap scans and unknown-value/differential refinement remain future work.
+
+All **182 local tests** pass. The embedded QuickJS check executes inspection
+packet/results and MCP initialization/discovery using test native contracts;
+these are not hardware evidence. The rebuilt runtime is **8,573,120 bytes**,
+SHA-256 `505334d9b811bc1ce1f0bef227edec5c6c8d569e9a580e898ab6810ae3cf095b`.
+At 390 pixels, the real phone UI can enable developer access, create a local
+fixture connection and revoke it with visible confirmation, without horizontal
+overflow or browser errors. `build/mcp-phone.jpg` shows the revoked state without
+a credential. The localhost fixture and browser were closed afterward.
+
+Remaining hardware acceptance includes real stopped-game reads, timing while
+playing, cancellation/revocation, restart recovery and third-party MCP clients.
+The broader in-game deck, overlays, saves, loadouts, update recovery, remaining
+format/firmware adapters and other open requirements still apply. No console
+connection, test, deployment or publication occurred. TacHen remains unfinished.

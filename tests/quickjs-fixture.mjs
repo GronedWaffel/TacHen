@@ -11,6 +11,8 @@ import { installPackageInstaller } from '../src/package-install.mjs';
 import { GameLifecycle } from '../src/game-lifecycle.mjs';
 import { installPlugins } from '../src/plugins.mjs';
 import { installCheats } from '../src/cheat-service.mjs';
+import { installMemory } from '../src/memory-service.mjs';
+import { installMcp } from '../src/mcp.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -90,6 +92,26 @@ globalThis.testPassed = false;
   const cheatInput = await cheatHandler.validate({ sha256: cheatPack.sha256, cheatId: '0', enabled: true });
   const cheatLoaded = await cheatHandler.run(cheatInput, { id: '4'.repeat(32), signal: { aborted: false } });
   assert(cheatLoaded.phase === 'applied' && await cheatHandler.verify(cheatLoaded, cheatInput), 'QuickJS cheat receipt failed');
-  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, installer/plugin/module/cheat receipts, game lifecycle and controller wire passed. Native APIs not tested.');
+  let inspectionReceipt, inspectionHandler, counter = 100;
+  await store.transaction(state => { state.settings.developer.enabled = true; });
+  const inspectionRuntime = { ...cheatRuntime, now: Date.now, session: 'fixture-session', id: () => (++counter).toString(16).padStart(32, '0'),
+    jobs: { handlers: new Map(), register(kind, handler) { inspectionHandler = handler;this.handlers.set(kind, handler); } } };
+  const memory = installMemory(inspectionRuntime, {
+    systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true }, processes: [] }),
+    inspectStart(request, pid, generation, _title, _metadata, _module, wire) {
+      const bytes = Buffer.from(wire);assert(bytes.readUInt32LE(12) === 0x544d5231, 'QuickJS inspection packet failed');
+      inspectionReceipt = { request, pid, generation, planHash: checksum(bytes), stage: 3, resumed: true, restored: true, writes: 0,
+        base: '0x400000', size: '0x100000', bytes: new Uint8Array([1, 2, 3, 4]).buffer };
+    }, inspectPoll: () => inspectionReceipt
+  });
+  const input = await inspectionHandler.validate({ mode: 'read', module: 'eboot.bin', offset: '0x10', length: 4 });
+  const inspected = await inspectionHandler.run(input, { id: '5'.repeat(32), signal: { aborted: false }, checkpoint: async () => {}, progress: async () => {} });
+  assert(await inspectionHandler.verify(inspected, input) && memory.result(inspected.result).bytes === '01020304', 'QuickJS inspection result failed');
+  const mcp = installMcp(inspectionRuntime), access = mcp.issue();mcp.authenticate('Bearer ' + access.token);
+  const init = await mcp.message({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo: { name: 'QuickJS fixture' } } });
+  await mcp.message({ jsonrpc: '2.0', method: 'notifications/initialized' }, init.session);
+  const listed = await mcp.message({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, init.session);
+  assert(listed.body.result.tools.some(t => t.name === 'memory_inspect'), 'QuickJS MCP lifecycle failed');mcp.revoke();
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF/PKG parsers, native adapter receipts, memory inspection/MCP, game lifecycle and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

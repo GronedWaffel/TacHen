@@ -11,3 +11,8 @@ input[type=file]{width:100%;max-width:340px;height:auto;min-width:0;font-size:12
 .storage-dialog .setting input{width:100%;height:auto;min-width:0;font:inherit;padding:12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:9px}.row.plugin-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;overflow-wrap:anywhere}.plugin-row>p,.plugin-row>.actions{grid-column:1/-1}.plugin-row>.status{white-space:normal;text-align:right}#plugin-items{margin-top:20px}
 @media(max-width:760px){nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible}.tab{padding:12px 4px;white-space:normal}input[type=file]{max-width:100%}}
 #cheat-title,#cheat-version{width:100%;height:auto;min-width:0;font:inherit;padding:12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:9px}#cheats .setting:has(#cheat-title),#cheats .setting:has(#cheat-version){display:grid;gap:8px;padding:14px 0}#cheat-packs,#cheat-details{margin-top:18px}#cheat-items .row{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}#cheat-items .status{white-space:normal;overflow-wrap:anywhere}#cheat-items .actions{justify-content:flex-start}#cheat-packs .row>div{min-width:0;overflow-wrap:anywhere}
+/* Advanced connection details must wrap on phones and are never in storage. */
+#developer-panel { margin-top: 20px; }
+#developer-panel summary { cursor: pointer; font-weight: 700; }
+.mcp-field { display: grid; gap: 8px; margin: 16px 0; }
+.mcp-field input, .mcp-field textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; padding: 10px; }

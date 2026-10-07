@@ -60,6 +60,23 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
         const asset = staticFiles.get(req.url);
         res.writeHead(200, { 'Content-Type': asset.mime, 'Cache-Control': 'no-store' }); return res.end(asset.body);
       }
+      if (req.url === '/mcp') {
+        invariant(runtime.mcp, 'FEATURE_UNAVAILABLE', 'MCP is not installed.', { status: 404 });
+        runtime.mcp.authenticate(req.headers.authorization);
+        const protocol = req.headers['mcp-protocol-version'], sessionId = req.headers['mcp-session-id'];
+        invariant(!protocol || ['2025-06-18', '2025-03-26'].includes(protocol), 'MCP_PROTOCOL', 'Unsupported MCP protocol version.', { status: 400 });
+        if (req.method === 'GET') { res.writeHead(405, { Allow: 'POST, DELETE' });return res.end(); }
+        if (req.method === 'DELETE') {
+          invariant(runtime.mcp.sessions.delete(sessionId), 'MCP_SESSION', 'MCP session ended.', { status: 404 });
+          res.writeHead(204);return res.end();
+        }
+        invariant(req.method === 'POST', 'METHOD', 'Use POST for MCP requests.', { status: 405 });
+        const accept = (req.headers.accept || '').split(',').map(v => v.trim().split(';')[0]);
+        invariant(accept.includes('application/json') && accept.includes('text/event-stream'), 'MCP_ACCEPT', 'Accept JSON and event-stream responses.', { status: 406 });
+        const response = await runtime.mcp.message(await json(req), sessionId, protocol);
+        if (response.status === 202) { res.writeHead(202);return res.end(); }
+        return send(res, response.status, response.body, response.session ? { 'Mcp-Session-Id': response.session } : {});
+      }
       for (const [key, session] of sessions) if (session.expires <= now()) sessions.delete(key);
       if (req.method === 'POST' && req.url === '/api/session') {
         invariant(req.headers.origin === origin, 'ORIGIN_REQUIRED', 'Open the TacHen page to connect.', { status: 403 });

@@ -2,6 +2,7 @@
 #include "quickjs.h"
 #include "cheat-transaction.h"
 #include "memory-map.h"
+#include "memory-inspect.h"
 #include "game-source.h"
 #include "game-info.h"
 #include "native-operation.h"
@@ -35,9 +36,13 @@ typedef struct {
   uint64_t proc,start;int attached,dirty;uint64_t pcs[2048];unsigned pcCount;
   int ownerPid,credentialsSaved,intentSaved;uint64_t ownerAuth;unsigned char ownerCaps[16];
   TacMemoryMapping changes[16];size_t changed;
+  int inspect;uint64_t inspectOffset;size_t inspectLength;
 } Work;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static Receipt current;static int running;
+static unsigned char inspected[TAC_INSPECT_MAX_BYTES];
+static size_t inspectedLength;static uint64_t inspectedBase,inspectedSize;
+static int inspectedReady;
 static void digest(const void *bytes,size_t size,unsigned char out[32]){SHA256_CTX h;sha256_init(&h);sha256_update(&h,bytes,size);sha256_final(&h,out);}
 static void hash(const void *bytes,size_t size,char out[65]){unsigned char d[32];digest(bytes,size,d);for(unsigned i=0;i<32;i++)snprintf(out+i*2,3,"%02x",d[i]);}
 static int hex(const char *s,size_t size){if(!s||strlen(s)!=size)return 0;for(size_t i=0;i<size;i++)if(!((s[i]>='0'&&s[i]<='9')||(s[i]>='a'&&s[i]<='f')))return 0;return 1;}
@@ -107,6 +112,11 @@ static int range(void *arg,uint64_t address,size_t size){
   if(executable)for(unsigned i=0;i<w->pcCount;i++)if(w->pcs[i]>=address-14&&w->pcs[i]<address+size)return -1;
   return 0;
 }
+static int readable(void *arg,uint64_t address,size_t size){
+  Work *w=arg;TacMemoryMapping maps[16];size_t count=0;if(span(w,address,size,maps,&count))return -1;
+  for(size_t i=0;i<count;i++)if(!(maps[i].protection&1))return -1;
+  return 0;
+}
 static int readbytes(void *arg,uint64_t at,void *bytes,size_t length){Work *w=arg;return !identity(w)?-1:pt_copyout(w->record.pid,at,bytes,length);}
 static int unchanged(Work *w,const TacMemoryMapping *m){
   uint64_t limits[2];return identity(w)&&!kernel_copyout(m->entry+0x20,limits,sizeof limits)&&limits[0]==m->start&&limits[1]==m->end;
@@ -155,6 +165,8 @@ static int metadata(Work *w){unsigned char *bytes=NULL;size_t size=0;char reason
 }
 static void *worker(void *arg){
   Work *w=arg;TacCheatResult result={.status=TAC_CHEAT_REJECTED,.resumed=1,.restored=1};
+  unsigned char *readBuffer=w->inspect?calloc(1,TAC_INSPECT_MAX_BYTES):NULL;
+  uint64_t readBase=0,readSize=0;
   snprintf(result.reason,sizeof result.reason,"Game metadata or process identity changed before native execution");
   const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
   TacKstuffSnapshot a=tac_kstuff_read(base,profile),b=tac_kstuff_read(base,profile);
@@ -162,13 +174,23 @@ static void *worker(void *arg){
   if(!ready)snprintf(result.reason,sizeof result.reason,"Verified kernel services are not ready for native game memory operations");
   if(ready&&metadata(w)&&identity(w)){
     TacCheatOps ops={w,attach,detach,identity,deadline,module,range,readbytes,writebytes,journal,healthy};
-    result=tac_cheat_apply(&w->plan,&ops);
+    if(w->inspect){
+      ops.range=readable;
+      if(readBuffer)result=tac_memory_inspect(&ops,w->inspectOffset,w->inspectLength,readBuffer,&readBase,&readSize);
+      else snprintf(result.reason,sizeof result.reason,"Could not allocate bounded inspection buffer");
+    } else result=tac_cheat_apply(&w->plan,&ops);
   }
   w->record.phase=result.status==TAC_CHEAT_APPLIED?APPLIED:result.status==TAC_CHEAT_REJECTED?REJECTED:UNKNOWN;
   w->record.resumed=result.resumed;w->record.restored=result.restored;w->record.writes=result.writes;
   snprintf(w->record.message,sizeof w->record.message,"%s",result.reason);
   if(save(&w->record)){w->record.phase=UNKNOWN;snprintf(w->record.message,sizeof w->record.message,"Cheat outcome could not be saved; no replay is allowed for this game instance");}
-  pthread_mutex_lock(&mutex);current=w->record;running=0;tac_native_release();pthread_mutex_unlock(&mutex);
+  pthread_mutex_lock(&mutex);current=w->record;
+  if(w->inspect&&w->record.phase==APPLIED){
+    memcpy(inspected,readBuffer,w->inspectLength);inspectedLength=w->inspectLength;
+    inspectedBase=readBase;inspectedSize=readSize;inspectedReady=1;
+  }
+  running=0;tac_native_release();pthread_mutex_unlock(&mutex);
+  if(readBuffer){memset(readBuffer,0,TAC_INSPECT_MAX_BYTES);free(readBuffer);}
   free(w->wire);free(w);return NULL;
 }
 static int same(const Receipt *a,const Receipt *b){return a->pid==b->pid&&!strcmp(a->request,b->request)&&!strcmp(a->generation,b->generation)&&
@@ -177,13 +199,16 @@ static int start(Work *w){
   pthread_mutex_lock(&mutex);if(running||!tac_native_claim()){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
   int result=-1;Receipt previous;
   if(!load(w->record.request,&previous)){
-    if(!same(&previous,&w->record)){errno=EEXIST;goto done;}current=previous;result=0;goto done;
+    if(!same(&previous,&w->record)){errno=EEXIST;goto done;}
+    if(strcmp(current.request,previous.request)){inspectedReady=0;memset(inspected,0,sizeof inspected);}
+    current=previous;result=0;goto done;
   }
   if(errno!=ENOENT)goto done;
   int held=unresolved(w->record.generation);if(held){errno=held>0?EALREADY:EIO;goto done;}
   if(!identity(w)){errno=ESRCH;goto done;}
   if(save(&w->record))goto done;
   w->intentSaved=1;
+  inspectedReady=0;memset(inspected,0,sizeof inspected);
   current=w->record;pthread_t thread;pthread_attr_t attr;int err=pthread_attr_init(&attr);
   if(!err){err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);if(!err)err=pthread_create(&thread,&attr,worker,w);pthread_attr_destroy(&attr);}
   if(err){w->record.phase=REJECTED;w->record.resumed=w->record.restored=1;snprintf(w->record.message,sizeof w->record.message,"Cheat worker could not start");save(&w->record);current=w->record;errno=err;goto done;}
@@ -227,7 +252,41 @@ static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *arg
   JS_SetPropertyStr(c,out,"resumed",JS_NewBool(c,r.resumed));JS_SetPropertyStr(c,out,"restored",JS_NewBool(c,r.restored));
   JS_SetPropertyStr(c,out,"writes",JS_NewUint32(c,r.writes));JS_SetPropertyStr(c,out,"message",JS_NewString(c,r.message));return out;
 }
+static JSValue inspect_start_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  (void)self;if(argc!=7)return JS_ThrowTypeError(c,"Expected game identity, module and inspection packet");
+  Work *w=calloc(1,sizeof *w);if(!w)return JS_ThrowOutOfMemory(c);
+  const char *s[6]={0};int32_t pid=0;size_t length=0;int valid=!JS_ToInt32(c,&pid,argv[1]);
+  for(unsigned i=0;i<6;i++)if(i!=1){s[i]=JS_ToCString(c,argv[i]);if(!s[i])valid=0;}
+  unsigned char *wire=JS_GetArrayBuffer(c,&length,argv[6]);
+  valid=valid&&wire&&length==16&&hex(s[0],32)&&pid>1&&strlen(s[2])>0&&strlen(s[2])<128&&
+    tac_game_title(s[3])&&hex(s[4],64)&&strlen(s[5])>0&&strlen(s[5])<128;
+  uint64_t offset=0;uint32_t size=0,magic=0;
+  if(valid){memcpy(&offset,wire,8);memcpy(&size,wire+8,4);memcpy(&magic,wire+12,4);
+    valid=magic==0x544d5231&&size<=TAC_INSPECT_MAX_BYTES&&(size||!offset);}
+  int result=-1,saved=EINVAL;
+  if(valid){
+    Receipt *r=&w->record;r->magic=MAGIC;r->version=1;r->phase=QUEUED;r->pid=pid;r->resumed=r->restored=1;
+    strcpy(r->request,s[0]);strcpy(r->generation,s[2]);strcpy(r->title,s[3]);strcpy(r->metadataHash,s[4]);strcpy(r->module,s[5]);hash(wire,length,r->planHash);
+    w->inspect=1;w->inspectOffset=offset;w->inspectLength=size;
+    snprintf(r->message,sizeof r->message,"Memory inspection queued");result=start(w);saved=errno;
+  }
+  for(unsigned i=0;i<6;i++)if(s[i])JS_FreeCString(c,s[i]);if(result!=1)free(w);
+  return result<0?failure(c,saved):JS_UNDEFINED;
+}
+static JSValue inspect_poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
+  JSValue out=poll_js(c,self,argc,argv);if(JS_IsException(out)||JS_IsNull(out))return out;
+  const char *id=JS_ToCString(c,argv[0]);if(!id){JS_FreeValue(c,out);return JS_EXCEPTION;}
+  pthread_mutex_lock(&mutex);
+  if(!running&&inspectedReady&&!strcmp(id,current.request)&&current.phase==APPLIED){
+    char base[24],size[24];snprintf(base,sizeof base,"0x%llx",(unsigned long long)inspectedBase);snprintf(size,sizeof size,"0x%llx",(unsigned long long)inspectedSize);
+    JS_SetPropertyStr(c,out,"base",JS_NewString(c,base));JS_SetPropertyStr(c,out,"size",JS_NewString(c,size));
+    JS_SetPropertyStr(c,out,"bytes",JS_NewArrayBufferCopy(c,inspected,inspectedLength));
+  }
+  pthread_mutex_unlock(&mutex);JS_FreeCString(c,id);return out;
+}
 void tac_cheat_bind(JSContext *c,JSValue api){
   JS_SetPropertyStr(c,api,"cheatStart",JS_NewCFunction(c,start_js,"cheatStart",7));
   JS_SetPropertyStr(c,api,"cheatPoll",JS_NewCFunction(c,poll_js,"cheatPoll",1));
+  JS_SetPropertyStr(c,api,"inspectStart",JS_NewCFunction(c,inspect_start_js,"inspectStart",7));
+  JS_SetPropertyStr(c,api,"inspectPoll",JS_NewCFunction(c,inspect_poll_js,"inspectPoll",1));
 }
