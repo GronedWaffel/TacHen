@@ -2,6 +2,7 @@
 let csrf, state, connected = true, timer, busy = false;
 let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
 let packageUploading = false, packageStop = false, packageResume = null;
+let updateUploading = false, updateResume = null;
 let cheatPack = null;
 let savePage = { entries: [], volumes: [], total: 0, offset: 0, updatedAt: null }, saveBusy = false;
 let adaptiveId = null, adaptiveSequence = null, adaptiveDeadline = 0, adaptiveTimer;
@@ -251,7 +252,7 @@ function draw() {
   document.body.dataset.reducedMotion = String(state.settings.appearance.reducedMotion);
   $('#connection').textContent = 'Connected locally';
   $('#address').textContent = state.identity.ip;
-  $('#firmware').textContent = state.identity.firmware ? 'PS5 · ' + state.identity.firmware : 'Local development · No PS5 connection';
+  $('#firmware').textContent = state.identity.mode === 'console' ? 'PS5 · ' + state.identity.firmware : 'Local development · No PS5 connection';
   $('#context-title').textContent = state.game?.name || 'Command deck';
   $('#context-detail').textContent = state.game ? `${state.game.titleId} · ${state.game.version}` : state.gameStatus?.message || 'Everything starts with a reliable session.';
   $('#session-title').textContent = state.safe ? 'Safe startup' : state.identity.mode === 'development' ? 'Development workspace' : 'TacHen coordinator online';
@@ -276,6 +277,19 @@ function draw() {
     startup.safe ? `Recovery is holding native operations. ${startup.last?.error?.message || 'The previous startup needs review.'}` : startup.last?.status === 'ready' ? 'Configured services passed startup readiness checks.' : 'Native startup has not been verified.';
   $('#startup-known-good').textContent = startup?.knownGood ? `Last verified startup saved: ${new Date(startup.knownGood.at).toLocaleString()}. This is startup readiness evidence, not a guarantee of overall stability.` : 'No verified startup configuration has been saved yet. Recovery uses the default preferences.';
   $('#startup-review').disabled = !startup || startup.running;
+  const updates=state.updates,selection=updates?.state,updating=state.jobs.some(j=>j.kind==='update.stage'&&!['completed','failed','cancelled'].includes(j.status));
+  const updateAvailable=updates?.available&&!selection?.recovered;
+  $('#update-status').textContent=!updates?'Update recovery is not installed in this runtime.':updates.error?.message||selection?.recovered?'Update selection needs attention: '+(updates.error?.message||'a saved snapshot is corrupt.'):
+    `${({idle:'No pending update',staged:'Package staged',armed:'Selected for next boot',trial:'Startup verification pending'})[selection?.phase] || 'Unknown selection'} · ${selection?.managed?'Running through the TacHen launcher.':'Direct runtime launch; use tachen.elf for next-boot selection.'}${selection?.rolledBack?' The launcher selected a fallback build.':''}`;
+  if(!updateUploading&&selection?.phase==='staged')$('#update-progress').textContent=selection.good?'Package verified and staged. Choose it for the next boot when ready.':'Package verified and staged. First run tachen.elf and let startup finish to establish a verified fallback.';
+  if(!updateUploading&&selection?.phase==='armed')$('#update-progress').textContent='Selection saved. Load the TacHen launcher after your next boot.';
+  $('#update-file').disabled=updateUploading||!updateAvailable||selection?.phase!=='idle';$('#update-hash').disabled=updateUploading;
+  $('#update-refresh').disabled=!updates;$('#update-arm').disabled=!updateAvailable||updating||selection?.phase!=='staged'||!selection?.good;
+  $('#update-revert').disabled=!updateAvailable||updating||!(selection?.phase==='trial'?selection.good:selection?.previous);
+  $('#update-discard').disabled=!updateAvailable||updating||!['staged','armed'].includes(selection?.phase);
+  $('#update-builds').replaceChildren(...[['Verified startup',selection?.good],['Previous build',selection?.previous],['Next selection',selection?.candidate]].filter(([,build])=>build).map(([label,build])=>row(label,build.label,build.sha256.slice(0,12))));
+  $('#update-files').replaceChildren(...(updates?.items||[]).map(item=>{const node=row(item.name,`${formatBytes(item.offset||0)} / ${formatBytes(item.bytes||0)}`,item.status),button=el('button','',item.offset===item.bytes?'Stage this upload':'Resume transfer');
+    button.disabled=!updateAvailable||updateUploading||updating||selection?.phase!=='idle'||item.status==='unreadable';button.onclick=()=>{if(item.offset===item.bytes)command('job.enqueue',{kind:'update.stage',input:{id:item.id,revision:selection.revision},key:requestKey()});else{updateResume=item;$('#update-progress').textContent='Choose the exact original update file to resume.';$('#update-file').click();}};node.append(button);return node;}));
   for (const [selector, key] of [['#startup-shadowmount', 'shadowmount'], ['#startup-payload-manager', 'payloadManager']]) {
     $(selector).checked = state.settings.services[key];$(selector).disabled = !startup || startup.running;
   }
@@ -528,6 +542,23 @@ $('#startup-review').onclick = async () => {
     dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
   } catch (error) { notice(error.message); }
   finally { busy = false; }
+};
+$('#update-refresh').onclick=()=>command('update.refresh',{});
+for(const action of ['arm','revert','discard'])$('#update-'+action).onclick=()=>{
+  const revision=state.updates?.state?.revision,dialog=el('dialog','storage-dialog'),status=el('p','fine',action==='discard'?'Cancel the pending selection. Uploaded files and the running build are retained.':'Select this build for the next boot. Nothing will be launched or stopped now.'),apply=el('button','',action==='discard'?'Cancel selection':'Confirm next-boot selection'),back=el('button','','Back');
+  back.onclick=()=>dialog.close();apply.onclick=async()=>{apply.disabled=true;try{await api('/api/command',{command:'update.'+action,args:{revision}});dialog.close();await refresh();}catch(error){status.textContent=error.message;}};
+  const actions=el('div','actions');actions.append(apply,back);dialog.append(el('h2','','Review update selection'),status,actions);dialog.onclose=()=>dialog.remove();document.body.append(dialog);dialog.showModal();
+};
+$('#update-file').oncancel=()=>{updateResume=null;};
+$('#update-file').onchange=async event=>{
+  const file=event.target.files[0];if(!file||updateUploading)return;const resume=updateResume;updateResume=null;updateUploading=true;draw();
+  try{
+    let entry;if(resume){if(file.name!==resume.name||file.size!==resume.bytes)throw Error('Choose the original file with the same name and size.');({result:entry}=await api('/api/command',{command:'update.status',args:{id:resume.id}}));}
+    else{const sha256=$('#update-hash').value.trim().toLowerCase();if(sha256&&!/^[a-f0-9]{64}$/.test(sha256))throw Error('Expected SHA-256 must contain 64 hexadecimal characters.');({result:entry}=await api('/api/command',{command:'update.begin',args:{name:file.name,bytes:file.size,...(sha256?{sha256}:{})}}));}
+    for(let offset=entry.offset;offset<file.size;){const response=await fetch(`/api/update-uploads/${entry.id}?offset=${offset}`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-TacHen-CSRF':csrf},body:file.slice(offset,offset+1024*1024)}),result=await response.json();if(!response.ok)throw Error(result.error?.message||'Update upload failed.');offset=result.offset;$('#update-progress').textContent=`${file.name}: ${Math.floor(offset/file.size*100)}%`;}
+    await refresh();await api('/api/command',{command:'job.enqueue',args:{kind:'update.stage',input:{id:entry.id,revision:state.updates.state.revision},key:requestKey()}});
+    $('#update-progress').textContent='Upload complete. Verification and staging continue in Activity. Activation still needs confirmation.';
+  }catch(error){$('#update-progress').textContent=error.message;}finally{updateUploading=false;event.target.value='';await refresh();}
 };
 $('#diagnostics-export').onclick = async () => {
   if (busy) return;busy = true;

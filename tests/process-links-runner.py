@@ -10,8 +10,9 @@ root = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('audit', root / 'scripts/audit-process-links.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-for part in ('runtime', 'deck', 'package-helper'):
+for part in ('runtime', 'deck', 'package-helper', 'save-helper'):
     module.audit(root / 'build' / f'tachen-{part}.elf')
+module.audit(root / 'build/tachen.elf')
 
 # Prove that the auditor detects an actual SDK call redirected back to the
 # legacy cached lookup, without changing the built artifacts on disk.
@@ -55,4 +56,4 @@ with tempfile.TemporaryDirectory(prefix='tachen-links-') as tmp:
             raise
     else:
         raise RuntimeError('Auditor accepted an actual call into the legacy cache')
-print('three artifacts and negative link regression passed')
+print('five artifacts and negative link regression passed')

@@ -75,6 +75,14 @@
         <label class="setting">Start Payload Manager<input id="startup-payload-manager" type="checkbox"></label>
         <p class="fine">These choices apply to the next startup attempt. They do not stop an already running service. kstuff and the command deck remain required.</p>
         <button id="startup-review">Review startup</button></article>
+        <article class="panel"><h2>TacHen updates</h2><p id="update-status" role="status"></p>
+        <p class="fine">Stage a trusted .tachen package, then choose it for the next boot. The running build stays in place. Checksums detect changed files; they do not verify the publisher.</p>
+        <label class="setting">Choose update package<input type="file" id="update-file" accept=".tachen"></label>
+        <label class="package-hash">Expected package SHA-256 (optional)<input id="update-hash" maxlength="64" autocomplete="off" spellcheck="false"></label>
+        <p id="update-progress" class="fine" role="status">No update transfer running.</p>
+        <div id="update-builds" class="stack"></div><div class="actions"><button id="update-refresh">Refresh update status</button><button id="update-arm">Use staged build next boot</button><button id="update-revert">Use previous build next boot</button><button id="update-discard">Cancel pending selection</button></div>
+        <p class="fine">Next boot, load tachen.elf using your payload loader. A trial without verified startup falls back on the following boot. This does not reboot the console or replace running hooks.</p>
+        <div id="update-files" class="stack"></div></article>
         <div class="section-heading"><h2>Integration status</h2><span class="muted">Honest readiness</span></div><div id="component-list" class="stack"></div></section>
     </main>
     <footer><span>TacHen / development workspace</span><span id="firmware">No hardware connection</span><span>Direct LAN · No cloud account</span></footer>

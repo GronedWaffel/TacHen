@@ -50,6 +50,14 @@ test('ordered native startup promotes known-good preferences only after every co
   assert.equal(r.store.snapshot().knownGood.developer.enabled, false);assert.equal(r.snapshot().recovery.last.status, 'ready');await r.close();
 });
 
+test('binary update acknowledgement follows complete native readiness and the committed startup receipt', async () => {
+  const f=await fixture(),r=f.runtime;let confirmations=0;
+  r.updates={snapshot:()=>({available:true}),confirmStartup(){confirmations++;assert.equal(r.store.snapshot().startup.native.status,'ready');assert.equal(r.store.snapshot().startup.pending,false);assert.equal(r.graph.safe,false);assert.equal(r.store.snapshot().knownGoodReceipt.services.length,4);}};
+  await r.nativeServices.startConfigured();assert.equal(confirmations,1);await r.close();
+  const failed=await fixture({fail:'clean-once'});failed.runtime.updates={snapshot:()=>({available:true}),confirmStartup(){assert.fail('An unsuccessful startup must not confirm an update');}};
+  await failed.runtime.nativeServices.startConfigured();assert(failed.runtime.graph.safe);await failed.runtime.close();
+});
+
 test('safe startup is read-only until a reviewed confirmation; clean failures can retry once with a new durable request', async () => {
   const f = await fixture({ fail: 'clean-once' }), r = f.runtime;
   await r.nativeServices.startConfigured();assert(r.graph.safe);assert.equal(r.store.snapshot().knownGoodReceipt, null);

@@ -8,5 +8,5 @@ test('final console artifacts redirect internal SDK lookups and reject a regress
   const result = spawnSync(process.env.PYTHON || 'python', ['tests/process-links-runner.py'],
     { cwd: root, encoding: 'utf8', maxBuffer: 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
-  assert.match(result.stdout, /three artifacts and negative link regression passed/);
+  assert.match(result.stdout, /five artifacts and negative link regression passed/);
 });

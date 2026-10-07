@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { sourceFingerprint } from './source-fingerprint.mjs';
+import { makeUpdatePackage } from '../src/update-format.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-neighbourhood/tools/ps5-sdk-0.43/ps5-payload-sdk'));
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
@@ -32,6 +33,7 @@ const alias = {
   'node:path': 'path-browserify', 'stream': 'readable-stream', 'buffer': 'buffer/', 'events': 'events/'
 };
 const buildIdentity = { source: await sourceFingerprint(root), components: components.map(({ id, version, sha256 }) => ({ id, version, sha256 })) };
+await fs.writeFile(path.join(root,'build/update-source.h'), '#define TACHEN_SOURCE_HASH "' + buildIdentity.source + '"\n');
 await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], bundle: true, platform: 'browser',
   format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias, define: { TACHEN_BUILD: JSON.stringify(buildIdentity) } });
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
@@ -39,6 +41,7 @@ await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned cha
 await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.global tachen_deck_start\n.global tachen_deck_end\ntachen_deck_start:\n.incbin "build/tachen-deck.elf"\ntachen_deck_end:\n.section .note.GNU-stack,"",@progbits\n');
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
+    'platform/native/update-core.c','platform/native/update-io.c','platform/native/update-bindings.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
       'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
       'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
@@ -89,13 +92,24 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--
   '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
 for (const source of sources) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
-  run([...compile, ...(source.startsWith('platform/native/save-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
+  run([...compile, ...(source.startsWith('platform/native/save-') || source.startsWith('platform/native/update-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall', '--wrap=ptrace', '--wrap=kernel_get_proc',
   '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
   ...objects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
+const updatePackage=makeUpdatePackage(elf,{source:buildIdentity.source,label:'TacHen development ' + buildIdentity.source.slice(0,12)});
+await fs.writeFile(path.join(root,'build/tachen-update.tachen'),updatePackage);
+await fs.writeFile(path.join(root,'build/fallback.S'),'.section .rodata,"a",@progbits\n.global tachen_fallback_start\n.global tachen_fallback_end\ntachen_fallback_start:\n.incbin "build/tachen-update.tachen"\ntachen_fallback_end:\n.section .note.GNU-stack,"",@progbits\n');
+const launcherObjects=[];
+for(const source of ['platform/native/update-launcher.c','platform/native/update-core.c','platform/native/update-io.c','platform/native/elf-image.c','platform/native/elf-map.c','platform/native/process-fresh.c',
+  'platform/native/trace-wait.c','platform/loader/elfldr.c','platform/loader/pt.c','platform/loader/sha256.c','platform/loader/syscall-shim.S','build/fallback.S']) {
+  const object='build/launcher_'+source.replaceAll('/','_')+'.o';run([...compile,...(source.includes('/update-')?['-Wall','-Wextra','-Werror']:[]),'-c',source,'-o',object]);launcherObjects.push(object);
+}
+run(['ld.lld','--no-dependent-libraries','--wrap=syscall','--wrap=__syscall','--wrap=ptrace','--wrap=kernel_get_proc','-pie','--hash-style=gnu','-z','max-page-size=0x4000','-T',sdk+'/ldscripts/elf_x86_64.x',
+  ...launcherObjects,sdk+'/target/lib/crt1.o','-L',sdk+'/target/lib','--start-group',sdk+'/target/lib/libc.a','-ldl','--end-group','-lkernel_web','-lSceLibcInternal','-o','build/tachen.elf']);
+const launcher=await fs.readFile(path.join(root,'build/tachen.elf'));
 const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 const packageElf = await fs.readFile(path.join(root, 'build/tachen-package-helper.elf'));
 const saveElf = await fs.readFile(path.join(root, 'build/tachen-save-helper.elf'));
@@ -105,6 +119,8 @@ if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.rea
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   buildIdentity,
+  updatePackage:{file:'tachen-update.tachen',bytes:updatePackage.length,sha256:createHash('sha256').update(updatePackage).digest('hex'),format:1,stateSchema:1,signed:false},
+  launcher:{file:'tachen.elf',bytes:launcher.length,sha256:createHash('sha256').update(launcher).digest('hex'),hardwareVerified:false},
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },

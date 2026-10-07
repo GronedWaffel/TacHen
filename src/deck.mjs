@@ -157,6 +157,13 @@ export class ConsoleDeck {
           { revision: state.revision, patch: { overlay: { [key]: !state.settings.overlay[key] } } }, { on: state.settings.overlay[key] });
       row('Reduced motion', state.settings.appearance.reducedMotion ? 'On' : 'Off', 'settings.update',
         { revision: state.revision, patch: { appearance: { reducedMotion: !state.settings.appearance.reducedMotion } } }, { on: state.settings.appearance.reducedMotion });
+      if(state.updates){const updates=state.updates,selection=updates.state,available=updates.available&&!selection?.recovered;
+        row('TacHen updates',updates.error?.message||`${selection?.phase || 'unknown'} · Upload packages from Components on your phone`,'update.refresh');
+        if(selection?.candidate)row(selection.candidate.label,'Staged build · '+selection.candidate.sha256.slice(0,12));
+        if(selection?.phase==='staged')row('Use staged build next boot',selection.good?'Requires tachen.elf launcher; running build stays in place':'First complete one launcher startup to establish a verified fallback',available&&selection.good?'update.arm':null,{revision:selection.revision},{confirm:true});
+        if(selection?.phase==='trial'?selection.good:selection?.previous)row('Use previous build next boot','Retain current session; switch on another boot',available?'update.revert':null,{revision:selection.revision},{confirm:true});
+        if(['staged','armed'].includes(selection?.phase))row('Cancel pending selection','Retain uploaded files and the running build',available?'update.discard':null,{revision:selection.revision},{confirm:true});
+      }
       row('Adaptive notices', state.settings.overlay.adaptive ? 'Brief session updates are on' : 'Off; results remain in Activity', 'settings.update',
         { revision: state.revision, patch: { overlay: { adaptive: !state.settings.overlay.adaptive } } }, { on: state.settings.overlay.adaptive });
     } else if (this.cheatPack) {

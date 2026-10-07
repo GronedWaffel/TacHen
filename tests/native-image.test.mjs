@@ -81,7 +81,7 @@ test('a second segment cannot hide nonempty file data behind zero memory size', 
   const result = await inspect(t, data); assert.equal(result.accepted, false); assert.match(result.reason, /File bytes/);
 });
 test('current TacHen coordinator and resident deck cross-builds pass the actual native validator', async () => {
-  for (const file of ['tachen-runtime.elf', 'tachen-deck.elf', 'tachen-package-helper.elf']) {
+  for (const file of ['tachen-runtime.elf', 'tachen-deck.elf', 'tachen-package-helper.elf', 'tachen-save-helper.elf', 'tachen.elf']) {
     const result = spawnSync(exe, [path.join(root, 'build', file), '--inspect-only'], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr); const parsed = JSON.parse(result.stdout); assert.equal(parsed.accepted, true, file + ': ' + parsed.reason);
   }

@@ -136,7 +136,8 @@ save and filesystem operations never expire through this rule. A renderer from a
 previous coordinator cannot be adopted with an obsolete private connection.
 The known-good preferences are saved only after the complete configured service
 set passes readiness again. This is startup evidence, not hardware validation or
-proof that every setting or feature is stable. Binary update rollback is unfinished.
+proof that every setting or feature is stable. Binary update selection is described
+below; its console acceptance remains outstanding.
 
 The coordinator also embeds `build/tachen-deck.elf`, an internal ShellUI module
 with controller navigation and a shared phone/console command bridge. It starts
@@ -288,3 +289,37 @@ fixed bound. Recording can be disabled without losing the saved evidence.
 See [support capture behavior and limits](docs/SUPPORT-CAPTURES.md). Local tests,
 the embedded interpreter and a real browser download were verified; console
 storage durability and diagnostic coverage on hardware remain acceptance work.
+
+## Staged builds and next-boot recovery
+
+The build now produces `build/tachen.elf` (launcher with an embedded fallback),
+`build/tachen-runtime.elf` (direct development runtime) and
+`build/tachen-update.tachen` (update package). These artifacts remain hardware
+untested. None is a kernel exploit; launch still requires the existing payload
+execution environment. The launcher uses the credited ELF loader, validates the
+kernel state, hashes the exact private bytes it will dispatch and records an
+attempt before spawning. It refuses another launch attempt in the same boot.
+
+After a successful launcher startup establishes a verified fallback, use
+**Components → TacHen updates** on the phone to upload a trusted `.tachen` file.
+Verification and staging run as a durable job. Choose **Use staged build next
+boot** and confirm; the running runtime and hooks stay in place. Load the launcher
+again after the next normal console boot and jailbreak. Controller Preferences
+offers the same selection/cancellation/previous-build actions. Uploads can be
+resumed, and completed uploads can be staged without another transfer.
+
+The native launcher maintains two checksummed selection snapshots and retains
+the current and previous executable packages. A trial becomes good only after
+the selected process, source fingerprint and boot identity match its receipt,
+and the runtime has verified the configured native startup and committed its
+configuration. If acknowledgement never arrives, the following boot returns to
+the last confirmed build. This does not claim to detect or recover an already
+confirmed build's later crash. A manual previous-build selection also waits for
+another boot. Cancelling a selection retains files and does not stop anything.
+
+Format 1 updates require backward-compatible state schema 1 and an exact declared
+firmware profile. Their checksums establish integrity, **not publisher identity**;
+there is no automatic remote updater or signing authority. A corrupt selection
+snapshot blocks changes and launch for inspection. Native disk-failure tests,
+console cold-boot acceptance and bounded retirement of unused update files remain
+work in progress. Do not claim these builds are release-ready.

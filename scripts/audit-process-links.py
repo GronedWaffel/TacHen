@@ -94,6 +94,6 @@ def audit(path):
 
 if __name__ == '__main__':
     root = Path(__file__).resolve().parent.parent
-    files = sys.argv[1:] or [root / 'build' / f'tachen-{part}.elf' for part in ('runtime', 'deck', 'package-helper', 'save-helper')]
+    files = sys.argv[1:] or [*[root / 'build' / f'tachen-{part}.elf' for part in ('runtime', 'deck', 'package-helper', 'save-helper')], root / 'build/tachen.elf']
     for file in files:
         print(json.dumps(audit(file)))

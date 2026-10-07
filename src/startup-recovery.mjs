@@ -119,6 +119,10 @@ export class StartupRecovery {
         this.history(state, 'Configured native startup verified', 'The complete configured service set passed readiness checks.');
       });
       r.graph.safe = false;r.diagnostics?.record('startup', { status: 'native-ready' });
+      // Binary promotion follows the complete native readiness check and its
+      // durable configuration commit. A failed acknowledgement preserves the
+      // launcher's unconfirmed trial; it does not undo live native services.
+      r.updates?.confirmStartup();
     } catch (error) {
       failure = publicError(error);r.graph.safe = true;
       try {

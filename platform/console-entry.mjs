@@ -28,6 +28,7 @@ import { installGameInput } from '../src/game-input.mjs';
 import { installGameInputRelay } from '../src/game-input-relay.mjs';
 import { installLoadouts } from '../src/loadouts.mjs';
 import { installSaves } from '../src/saves.mjs';
+import { installUpdates } from '../src/updates.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -41,6 +42,7 @@ globalThis.__ready = (async () => {
       runtime.inbox = await new PayloadInbox('/data/tachen/inbox', { id }).init();
       runtime.inboxItems = await runtime.inbox.list();
       await installPackageInbox(runtime, '/data/tachen/packages');
+      await installUpdates(runtime, __native);
       installPackageInstaller(runtime, __native);
       installSaves(runtime, __native);
       runtime.capability('inbox', true, 'Resumable file upload and verification.');

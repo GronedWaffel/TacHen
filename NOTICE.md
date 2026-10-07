@@ -173,3 +173,8 @@ TacHen's typed post-read trampoline, capture leases, bounded event queue and
 controller ownership/release policy are new code. Relocation continues to use
 the credited etaHEN/HDE foundation above. No extended input ABI or hardware
 compatibility is implied by this normal-pad reference.
+
+The TacHen update package format, selection journal, next-boot policy and launcher
+are original GPL-3.0-or-later code. The launcher links the same credited John
+Törnblom ELF loader, SDK and SHA-256 sources already described above; it does not
+provide an independent kernel exploit. Build package checksums are not signatures.

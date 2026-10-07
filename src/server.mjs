@@ -105,16 +105,17 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
           invariant(runtime.cheats, 'FEATURE_UNAVAILABLE', 'Cheat catalog is not installed.');
           return send(res, 200, { result: await runtime.cheats.packs.import(await json(req, 6 * 1024 * 1024)) });
         }
-        const upload = /^\/api\/(uploads|package-uploads)\/([a-f0-9]{32})\?offset=(\d+)$/.exec(req.url);
+        const upload = /^\/api\/(uploads|package-uploads|update-uploads)\/([a-f0-9]{32})\?offset=(\d+)$/.exec(req.url);
         if (upload) {
-          const inbox = upload[1] === 'uploads' ? runtime.inbox : runtime.packageInbox;
+          const inbox = upload[1] === 'uploads' ? runtime.inbox : upload[1] === 'package-uploads' ? runtime.packageInbox : runtime.updates?.inbox;
           invariant(inbox, 'FEATURE_UNAVAILABLE', 'This file inbox is not installed.');
           invariant(req.headers['content-type'] === 'application/octet-stream', 'BINARY_REQUIRED', 'Expected binary payload bytes.', { status: 400 });
           const chunks = []; let count = 0;
           for await (const chunk of req) { count += chunk.length; invariant(count <= 1024 * 1024, 'BODY_LIMIT', 'Upload chunks are limited to 1 MiB.', { status: 413 }); chunks.push(chunk); }
           const result = await inbox.append(upload[2], Number(upload[3]), Buffer.concat(chunks));
           if (upload[1] === 'uploads') runtime.inboxItems = await inbox.list();
-          else runtime.packageItems = await inbox.list();
+          else if (upload[1] === 'package-uploads') runtime.packageItems = await inbox.list();
+          else await runtime.updates.list();
           return send(res, 200, result);
         }
         if (req.url === '/api/disconnect') {

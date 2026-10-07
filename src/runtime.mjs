@@ -26,7 +26,7 @@ export class TacRuntime {
     this.graph = new ServiceGraph({ changed, allowOptional: id => this.recovery?.permits(id) === true });
     this.jobs = new JobQueue(store, { id, now, session: this.session, changed,
       evidence: (job, value) => this.diagnostics?.receipt(job, value), admit: (kind, args) => {
-        if (kind === 'package.verify') return;
+        if (kind === 'package.verify' || kind === 'update.stage') return;
         const permitted = this.recovery?.permitsJob(kind, args);
         invariant(!this.recovery?.pending || permitted, 'STARTUP_BUSY', 'Native startup is in progress. Wait for it to finish.');
         invariant(!this.graph.safe || permitted, kind === 'component.start' ? 'SAFE_START' : 'SAFE_STARTUP',
@@ -89,6 +89,7 @@ export class TacRuntime {
       notices: this.notices.snapshot(state, services),
       diagnostics: this.diagnostics.snapshot(state),
       recovery: this.recovery?.snapshot(state) || null,
+      updates: this.updates?.snapshot() || null,
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
@@ -147,6 +148,17 @@ export class TacRuntime {
       case 'startup.resume':
         invariant(this.recovery, 'FEATURE_UNAVAILABLE', 'Native startup recovery is not installed.');
         return command === 'startup.preview' ? this.recovery.preview() : this.recovery.resume(args);
+      case 'update.begin':
+      case 'update.status':
+      case 'update.refresh':
+      case 'update.arm':
+      case 'update.revert':
+      case 'update.discard':
+        invariant(this.updates,'FEATURE_UNAVAILABLE','Update recovery is not installed.');
+        if(command==='update.begin')return this.updates.begin(args);
+        if(command==='update.status')return this.updates.status(args);
+        if(command==='update.refresh')return this.updates.refresh();
+        return this.updates.select(command.slice(7),args);
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':

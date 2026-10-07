@@ -1350,3 +1350,80 @@ controller/phone review agreement and storage failure. No console was contacted;
 nothing was published or deployed. Artifact update rollback, original final visual
 presentation, remaining cheat formats, older-firmware installer ABIs and deferred
 hardware acceptance remain unfinished. The full TacHen goal stays active.
+
+## Checkpoint twenty-seven — native launcher and staged build selection
+
+Build output now includes a separate native tachen.elf launcher, a versioned
+tachen-update.tachen package and the existing direct runtime. The launcher embeds
+a fallback package and uses the existing credited ELF loader. Package headers
+bind the payload length/hash, embedded source fingerprint, exact firmware bitmask,
+state schema and bounded ASCII label. Both JavaScript and native code validate
+the fixed 256-byte format. The native launcher additionally validates the complete
+ELF and hashes the private byte buffer that it dispatches. Profiles exclude 11.40
+and firmware below 11.00. Format 1 requires backward-compatible state schema 1;
+checksums do not authenticate the publisher.
+
+Native selection uses a separately locked pair of revisioned, checksummed binary
+snapshots. Good, previous, candidate and attempted headers are retained alongside
+the attempt's boot and PID. Intent commits before spawn. A recorded attempt is
+not retried in the same boot. The runtime can acknowledge only the matching PID,
+boot and compiled source identity, after all configured native services pass
+readiness and their configuration receipt commits. A missing acknowledgement
+returns to the good build on the following boot. Unreadable candidate files fall
+back to a verified good/embedded image before any dispatch. A corrupt selection
+snapshot prevents launch or mutation instead of guessing whether an intent ran.
+
+An initial directly loaded runtime has no verified rollback target. It can upload
+and stage a package, but cannot activate it until one launcher startup succeeds.
+The native core and shared API both enforce this requirement. Manually choosing
+the previous build, or cancelling a not-yet-running selection, does not unload
+hooks or reboot anything. Cancellation preserves files. The launcher is not a
+kernel exploit, and its embedded fallback does not bypass an invalid kernel state.
+
+Update uploads use the authenticated same-origin/CSRF channel and an isolated inbox.
+Staging is a durable filesystem job, available even while native startup is held.
+It preserves existing builds, checks free space, streams a private copy, verifies
+its payload hash, syncs and publishes it before selecting the candidate. Existing
+files with conflicting metadata are preserved and rejected. The launcher rechecks
+the complete file before execution. Progress persistence is throttled rather than
+syncing one state revision per 64 KiB. Update selection uses its own expected
+revision; an uncertain selection write requires reconciliation instead of blind
+retry. The phone and controller share the same selection API.
+
+All **291 local tests** pass. The compiled C runner covers first-baseline promotion,
+no-baseline activation refusal, stale revisions, once-per-boot attempts, wrong
+PID/source/boot acknowledgement, staged versus armed selection, unacknowledged
+trial fallback, manual rollback, cancellation and malformed state. Cross-language
+format tests include checksummed-but-invalid headers, schemas, profiles and changed
+ELF bytes. Real desktop file tests cover successful staging, separate activation,
+no-baseline refusal, corrupt bytes and preserved conflicting files. Startup tests
+prove acknowledgement occurs only after committed complete readiness. Embedded
+QuickJS also checks package encoding, decoding and corruption rejection. All five
+ELFs pass native image inspection and the machine-code process-lookup audit; the
+negative audit test still detects an intentionally regressed SDK call.
+
+The actual loopback browser uploaded a built update, staged it, reused its retained
+upload and confirmed next-boot selection against a simulated native selector.
+After adding the first-baseline requirement, the phone explicitly held activation
+and displayed the reason. The 390-pixel layouts are captured in
+.local/updates-phone-preview.png and .local/update-baseline-preview.png. The former
+captures the earlier selection flow; the latter captures the final no-baseline
+guard. A final copy edit changed the stage heading to the neutral “Package staged.”
+All temporary tabs and preview servers were closed, and viewport overrides reset.
+
+Runtime **8,989,736 bytes**, SHA-256
+`3e740a68a2e04734fc2c93d2391f1e82e48ccf95856ee68eb33658c3b19152bc`.
+Launcher **9,135,048 bytes**, SHA-256
+`2858932fc3d9eedae99a765231692c24cb46e9efca4e0c6448e91fdcef217b86`.
+Update package **8,989,992 bytes**, SHA-256
+`dd3c1fda10860b76df2119adb31626610c19f320e7f793164f2c67826f5f1b16`.
+Source fingerprint
+`579d47bef06be0cfe6495c43e5731bdb14f3b62e8cbd1a91f83a49ad59fa8a8c`.
+
+These checks do not exercise PS5 spawn, native disk durability or real cold-boot
+recovery. Native I/O fault injection, bounded removal of unused package files,
+later-crash/manual recovery acceptance and firmware coverage remain outstanding.
+There is no updater signing/deployment infrastructure or automatic remote update.
+No console was contacted and no artifact was published. The goal remains active,
+including final original presentation, remaining cheat formats, save recovery,
+older-firmware installer ABIs and deferred hardware acceptance.
