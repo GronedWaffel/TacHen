@@ -4,6 +4,7 @@ import { createHash } from '../platform/runtime/crypto.mjs';
 import { StateStore } from '../src/store.mjs';
 import { mergeSettings } from '../src/settings.mjs';
 import { inspectPayload } from '../src/payload-format.mjs';
+import { encodeDeck } from '../src/deck.mjs';
 globalThis.Buffer = Buffer;
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
 function assert(value, message) { if (!value) throw Error(message); }
@@ -21,6 +22,9 @@ globalThis.testPassed = false;
   binary.writeBigUInt64LE(160n,96);binary.writeBigUInt64LE(160n,104);
   assert(inspectPayload(binary,'quickjs.elf').bytes===160,'QuickJS ELF parser failed');
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
-  print('QuickJS: persistent state, preferences, SHA-256 and 64-bit ELF parser passed. Native APIs not tested.');
+  const frame = encodeDeck({ sequence: 7, page: 1, ready: true, title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',
+    rows: [{ token: 'a'.repeat(32), label: 'Payload 二', detail: 'Ready', enabled: true }] });
+  assert(frame.length === 2800 && frame.readUInt32LE(8) === 7 && frame.readUInt32LE(752) === 1, 'QuickJS deck wire failed');
+  print('QuickJS: persistent state, preferences, SHA-256, 64-bit ELF parser and controller wire passed. Native APIs not tested.');
   globalThis.testPassed = true;
 })().catch(error => print(error.stack || error.message));

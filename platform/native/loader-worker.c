@@ -6,6 +6,7 @@
 #include "elfldr.h"
 #include "sha256.h"
 #include "kstuff-probe.h"
+#include "native-operation.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,9 +115,9 @@ static void *run(void *unused){
 rejected:
   if(fd>=0)close(fd);free(data);transition(&r,TAC_DISPATCH_FAILED,1,reason);
 done:
-  pthread_mutex_lock(&mutex);busy=0;pthread_mutex_unlock(&mutex);return NULL;
+  pthread_mutex_lock(&mutex);busy=0;tac_native_release();pthread_mutex_unlock(&mutex);return NULL;
 }
-int tac_loader_busy(void){pthread_mutex_lock(&mutex);int result=busy;pthread_mutex_unlock(&mutex);return result;}
+int tac_loader_busy(void){return tac_native_busy();}
 int tac_loader_start(const char *request,const char *upload,const char *sha256){
   if(!hex(request,32)||!hex(upload,32)||!hex(sha256,64)){errno=EINVAL;return -1;}
   pthread_mutex_lock(&mutex);
@@ -134,9 +135,10 @@ int tac_loader_start(const char *request,const char *upload,const char *sha256){
   if(sysctl(mib,2,&boot,&boot_size,NULL,0)||boot_size!=sizeof boot){pthread_mutex_unlock(&mutex);return -1;}
   current.boot_sec=boot.tv_sec;current.boot_usec=boot.tv_usec;
   if(receipt_write(&current)){pthread_mutex_unlock(&mutex);return -1;}
+  if(!tac_native_claim()){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
   busy=1;pthread_t thread;pthread_attr_t attr;int result=pthread_attr_init(&attr);
   if(!result){result=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);if(!result)result=pthread_create(&thread,&attr,run,NULL);pthread_attr_destroy(&attr);}
-  if(result){busy=0;current.stage=TAC_DISPATCH_FAILED;snprintf(current.message,sizeof current.message,"Native loader worker could not start");receipt_write(&current);}
+  if(result){busy=0;tac_native_release();current.stage=TAC_DISPATCH_FAILED;snprintf(current.message,sizeof current.message,"Native loader worker could not start");receipt_write(&current);}
   pthread_mutex_unlock(&mutex);if(result){errno=result;return -1;}return 0;
 }
 int tac_loader_poll(const char *request,TacDispatchReceipt *receipt){

@@ -80,7 +80,9 @@ test('a second segment cannot hide nonempty file data behind zero memory size', 
   data.writeUInt32LE(1, 120); data.writeBigUInt64LE(0x100000n, 136); data.writeBigUInt64LE(0n, 160);
   const result = await inspect(t, data); assert.equal(result.accepted, false); assert.match(result.reason, /File bytes/);
 });
-test('current TacHen cross-build is accepted by the actual native validator', async () => {
-  const result = spawnSync(exe, [path.join(root, 'build/tachen-runtime.elf'), '--inspect-only'], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr); const parsed = JSON.parse(result.stdout); assert.equal(parsed.accepted, true, parsed.reason);
+test('current TacHen coordinator and resident deck cross-builds pass the actual native validator', async () => {
+  for (const file of ['tachen-runtime.elf', 'tachen-deck.elf']) {
+    const result = spawnSync(exe, [path.join(root, 'build', file), '--inspect-only'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); const parsed = JSON.parse(result.stdout); assert.equal(parsed.accepted, true, file + ': ' + parsed.reason);
+  }
 });

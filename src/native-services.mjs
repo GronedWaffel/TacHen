@@ -165,6 +165,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
       let failure = null;
       try {
         await runtime.graph.start('kstuff');
+        if (runtime.graph.definitions.has('native-deck')) await runtime.graph.start('native-deck');
         for (const id of ['shadowmount', 'payload-manager']) {
           if (runtime.store.snapshot().settings.services[id === 'shadowmount' ? 'shadowmount' : 'payloadManager']) await runtime.graph.start(id);
         }

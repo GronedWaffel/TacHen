@@ -2,7 +2,9 @@
 import http from 'node:http';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import { invariant, publicError } from './errors.mjs';
+import { encodeDeck } from './deck.mjs';
 
 export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, now = Date.now } = {}) {
   const sessions = new Map();
@@ -36,6 +38,24 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+      if (req.url === '/native/deck' || req.url === '/native/deck/action') {
+        // This private bridge is for the injected renderer. A LAN browser never
+        // receives its process-session credential and cannot use phone cookies
+        // as a substitute. Native credential is not included in snapshots/logs.
+        const credential = req.headers['x-tachen-native'] || '';
+        invariant(runtime.consoleDeck && runtime.deckCredential &&
+          ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) &&
+          !req.headers.origin && /^[a-f0-9]{32}$/.test(credential) &&
+          timingSafeEqual(Buffer.from(credential), Buffer.from(runtime.deckCredential)),
+          'NATIVE_SESSION', 'Native renderer session required.', { status: 403 });
+        let frame;
+        if (req.method === 'GET' && req.url === '/native/deck') frame = runtime.consoleDeck.frame();
+        else if (req.method === 'POST' && req.url === '/native/deck/action') frame = await runtime.consoleDeck.action(await json(req));
+        else return send(res, 405, { error: { code: 'METHOD', message: 'Method not allowed.' } });
+        const body = encodeDeck(frame);
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+        return res.end(body);
+      }
       if (req.method === 'GET' && staticFiles.has(req.url)) {
         const asset = staticFiles.get(req.url);
         res.writeHead(200, { 'Content-Type': asset.mime, 'Cache-Control': 'no-store' }); return res.end(asset.body);

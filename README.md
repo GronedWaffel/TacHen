@@ -45,6 +45,14 @@ consistent process instance. The phone remains available throughout startup.
 Unknown state blocks another launch. Recovered startup enters recovery mode;
 it does not automatically replay interrupted native operations.
 
+The coordinator also embeds `build/tachen-deck.elf`, an internal ShellUI module
+with controller navigation and a shared phone/console command bridge. It starts
+after verified kstuff and requires a fresh render heartbeat before exposing deck
+or IP-overlay controls. The internal module is injected by the coordinator; it is
+not a separately loadable user payload. Its initial list presentation, managed
+metadata checks and injector are cross-built only. Final visual design and
+in-game input arbitration remain unfinished; all console testing is deferred.
+
 Before starting Payload Manager, TacHen backs up its existing configuration and
 disables its independent autoload, automatic browser opening, disc-player kill
 and automatic dashboard-app installation. User payloads and other settings are

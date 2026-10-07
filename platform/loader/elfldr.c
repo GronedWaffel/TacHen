@@ -80,8 +80,8 @@ extern intptr_t tac_elf_map(pid_t, const uint8_t*, size_t);
 /**
  * Create payload args in the address space of the process with the given pid.
  **/
-static intptr_t
-elfldr_payload_args(pid_t pid) {
+intptr_t
+tac_payload_args(pid_t pid) {
   int victim_sock;
   int master_sock;
   intptr_t buf;
@@ -99,12 +99,12 @@ elfldr_payload_args(pid_t pid) {
     return 0;
   }
 
-  pt_setint(pid, buf+0x00, 20);
-  pt_setint(pid, buf+0x04, IPPROTO_IPV6);
-  pt_setint(pid, buf+0x08, IPV6_TCLASS);
-  pt_setint(pid, buf+0x0c, 0);
-  pt_setint(pid, buf+0x10, 0);
-  pt_setint(pid, buf+0x14, 0);
+  if(pt_setint(pid, buf+0x00, 20))return 0;
+  if(pt_setint(pid, buf+0x04, IPPROTO_IPV6))return 0;
+  if(pt_setint(pid, buf+0x08, IPV6_TCLASS))return 0;
+  if(pt_setint(pid, buf+0x0c, 0))return 0;
+  if(pt_setint(pid, buf+0x10, 0))return 0;
+  if(pt_setint(pid, buf+0x14, 0))return 0;
   if(pt_setsockopt(pid, master_sock, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, buf, 24)) {
     LOG_PT_PERROR(pid, "pt_setsockopt");
     return 0;
@@ -115,11 +115,11 @@ elfldr_payload_args(pid_t pid) {
     return 0;
   }
 
-  pt_setint(pid, buf+0x00, 0);
-  pt_setint(pid, buf+0x04, 0);
-  pt_setint(pid, buf+0x08, 0);
-  pt_setint(pid, buf+0x0c, 0);
-  pt_setint(pid, buf+0x10, 0);
+  if(pt_setint(pid, buf+0x00, 0))return 0;
+  if(pt_setint(pid, buf+0x04, 0))return 0;
+  if(pt_setint(pid, buf+0x08, 0))return 0;
+  if(pt_setint(pid, buf+0x0c, 0))return 0;
+  if(pt_setint(pid, buf+0x10, 0))return 0;
   if(pt_setsockopt(pid, victim_sock, IPPROTO_IPV6, IPV6_PKTINFO, buf, 20)) {
     LOG_PT_PERROR(pid, "pt_setsockopt");
     return 0;
@@ -136,29 +136,31 @@ elfldr_payload_args(pid_t pid) {
   }
   pipe0 = pt_getint(pid, buf);
   pipe1 = pt_getint(pid, buf+4);
+  if(pipe0<0||pipe1<0)return 0;
 
   intptr_t args       = buf;
   intptr_t rwpipe     = buf + 0x100;
   intptr_t rwpair     = buf + 0x200;
   intptr_t kpipe_addr = kernel_get_proc_file(pid, pipe0);
   intptr_t payloadout = buf + 0x300;
+  if(!kpipe_addr)return 0;
   // SDK v0.43 expects sys_dynlib_dlsym, not the getpid function.
   intptr_t dlsym = pt_resolve(pid, "LwG8g3niqwA");
   uint8_t call[5]; int32_t rel32;
   if (!dlsym || pt_copyout(pid, dlsym + 4, call, sizeof(call)) || call[0] != 0xe8) return 0;
   memcpy(&rel32, call + 1, sizeof(rel32));
   dlsym += 9 + rel32;
-  pt_setlong(pid, args + 0x00, dlsym);
-  pt_setlong(pid, args + 0x08, rwpipe);
-  pt_setlong(pid, args + 0x10, rwpair);
-  pt_setlong(pid, args + 0x18, kpipe_addr);
-  pt_setlong(pid, args + 0x20, KERNEL_ADDRESS_DATA_BASE);
-  pt_setlong(pid, args + 0x28, payloadout);
-  pt_setint(pid, rwpipe + 0, pipe0);
-  pt_setint(pid, rwpipe + 4, pipe1);
-  pt_setint(pid, rwpair + 0, master_sock);
-  pt_setint(pid, rwpair + 4, victim_sock);
-  pt_setint(pid, payloadout, 0);
+  if(pt_setlong(pid, args + 0x00, dlsym))return 0;
+  if(pt_setlong(pid, args + 0x08, rwpipe))return 0;
+  if(pt_setlong(pid, args + 0x10, rwpair))return 0;
+  if(pt_setlong(pid, args + 0x18, kpipe_addr))return 0;
+  if(pt_setlong(pid, args + 0x20, KERNEL_ADDRESS_DATA_BASE))return 0;
+  if(pt_setlong(pid, args + 0x28, payloadout))return 0;
+  if(pt_setint(pid, rwpipe + 0, pipe0))return 0;
+  if(pt_setint(pid, rwpipe + 4, pipe1))return 0;
+  if(pt_setint(pid, rwpair + 0, master_sock))return 0;
+  if(pt_setint(pid, rwpair + 4, victim_sock))return 0;
+  if(pt_setint(pid, payloadout, 0))return 0;
 
   return args;
 }
@@ -183,7 +185,7 @@ elfldr_prepare_exec(pid_t pid, uint8_t *elf, size_t size) {
     return -1;
   }
 
-  if(!(args=elfldr_payload_args(pid))) {
+  if(!(args=tac_payload_args(pid))) {
     LOG_PUTS("elfldr_payload_args failed");
     return -1;
   }

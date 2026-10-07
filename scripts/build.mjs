@@ -32,15 +32,15 @@ await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], 
   format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias });
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
 await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned char tachen_bundle[]={' + [...bundle, 0].join(',') + '};\n');
-await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.section .note.GNU-stack,"",@progbits\n');
+await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.global tachen_deck_start\n.global tachen_deck_end\ntachen_deck_start:\n.incbin "build/tachen-deck.elf"\ntachen_deck_end:\n.section .note.GNU-stack,"",@progbits\n');
 const q = 'vendor/quickjs';
-const sources = ['platform/runtime/host.c', 'build/assets.S',
-  ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c'].map(file => 'platform/native/' + file),
+const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
+  ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c'].map(file => 'platform/native/' + file),
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
 const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild',
   '-target', 'x86_64-linux-none', '-U__linux__', '-D__FreeBSD__=11', '-D__PS5__', '-DTACHEN_EMBEDDED',
-  '-DETAHEN_PORT_1360', '-Iplatform/native', '-Iplatform/loader',
+  '-DETAHEN_PORT_1360', '-Iplatform/deck', '-Iplatform/native', '-Iplatform/loader',
   '-isystem', sdk + '/target/include', '-fPIE', '-fno-stack-protector', '-fno-plt', '-femulated-tls',
   '-nostdlib'];
 function run(args) {
@@ -49,6 +49,17 @@ function run(args) {
   if (result.status !== 0) throw Error(result.error?.message || result.stderr || 'Native build failed');
 }
 const objects = [];
+const deckObjects = [];
+for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
+  'platform/deck/deck-view.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp']) {
+  const object = 'build/' + source.replaceAll('/', '_') + '.o';
+  run([...compile, '-Iplatform/deck', '-Ivendor/deck', '-DHDE_DECODE_ONLY',
+    ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti'] : ['-std=c11']), '-c', source, '-o', object]);
+  deckObjects.push(object);
+}
+run(['ld.lld', '--no-dependent-libraries', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
+  ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
 for (const source of sources) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-c', source, '-o', object]); objects.push(object);
@@ -58,10 +69,13 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall',
   ...objects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
+const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.readUInt16LE(18) !== 62) throw Error('Output is not an x86-64 ELF');
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
+  nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
+    hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: false },
   components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');
 console.log(`Built TacHen runtime ELF: ${elf.length} bytes. Hardware untested; native HEN feature integrations remain outstanding.`);

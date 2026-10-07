@@ -72,6 +72,17 @@ for (const [name, from] of Object.entries(files)) {
     // payload. The caller owns this child and may terminate it on failure.
     text = text.replace('if(pt_detach(pid, 0)) {\n    LOG_PERROR("pt_detach");',
       'if(pt_detach(pid, error ? SIGKILL : 0)) {\n    LOG_PERROR("pt_detach");');
+    // Reuse the payload ABI constructor for resident module threads. Check
+    // every remote write; a partially prepared argument page is never invoked.
+    text = text.replace('static intptr_t\nelfldr_payload_args', 'intptr_t\ntac_payload_args')
+      .replaceAll('elfldr_payload_args(pid)', 'tac_payload_args(pid)');
+    const argsStart = text.indexOf('intptr_t\ntac_payload_args('), argsEnd = text.indexOf('/**\n * Prepare registers', argsStart);
+    if (argsStart < 0 || argsEnd < argsStart) throw Error('Review payload argument constructor');
+    let constructor = text.slice(argsStart, argsEnd);
+    constructor = constructor.replace(/^(\s*)(pt_set(?:int|long)\(pid,[^\n]+\));$/gm, '$1if($2)return 0;')
+      .replace('  pipe1 = pt_getint(pid, buf+4);', '  pipe1 = pt_getint(pid, buf+4);\n  if(pipe0<0||pipe1<0)return 0;')
+      .replace('  intptr_t payloadout = buf + 0x300;', '  intptr_t payloadout = buf + 0x300;\n  if(!kpipe_addr)return 0;');
+    text = text.slice(0, argsStart) + constructor + text.slice(argsEnd);
   }
   if (name === 'elfldr.h') {
     text = text.replace('uint8_t* elf, const char* name);', 'uint8_t* elf, const char* name, size_t size);')

@@ -182,3 +182,47 @@ identities. Requests bind their original durable intent on retry, even if a
 successful first operation changed the state used during validation. The phone
 layout was checked at 390×844 with no horizontal document overflow. Kernel/process
 and mount behavior still await hardware tests; storage conversion jobs remain open.
+
+## Fourth implementation checkpoint: native deck and controller bridge
+
+2026-10-07: The build now produces and embeds an original `tachen-deck.elf` resident
+module alongside the coordinator. **94 local tests pass**, and the real embedded
+QuickJS test additionally exercises the controller wire format. Neither ELF has
+been loaded on the PS5. No console connection or hardware test was performed.
+
+- Added native PUI labels, scene tracking, pinned managed-object handles, removal
+  of replaced scene widgets and controller navigation. The initial presentation
+  is a text/card list scaffold; visual polish, backgrounds and actual television
+  layout remain open. It is not the final designed command deck.
+- Mono entry points, method signatures, button-enum backing type, all controller
+  field offsets, return size/alignment, font and color metadata are checked before
+  hooks are prepared. An unfamiliar ABI fails closed. Metadata checks themselves
+  are cross-built only and still need firmware acceptance.
+- Added an injected-thread bootstrap and two-hook publication transaction. It
+  rechecks ShellUI generation after attaching, stops threads, checks instruction
+  pointers, verifies original bytes, writes through the VM/ptrace path, restores
+  per-page protections and attempts rollback before resume on failure. ShellUI's
+  process-wide credentials are never temporarily replaced. SDK remote arguments
+  now check every write before invoking the module.
+- Durable injection intent, boot/process identity and single-attempt guards
+  prevent automatic reinjection of an uncertain resident module. The worker
+  shares native-operation exclusion with ordinary payload dispatch. A fresh PUI
+  render heartbeat is required before console-deck/IP capabilities are enabled.
+- Added a fixed-size, validated UTF-8 frame protocol and private loopback bridge.
+  Its per-session credential is never in browser state. Controller and phone use
+  the same runtime commands, durable queue and optimistic settings revisions.
+- Payload/mount actions require confirmation. Controller requests have bounded
+  deduplication, immutable source bindings and stale-selection rejection. The
+  controller will not activate a newly received row until it was rendered.
+  Input callbacks do no file/network work; stale connections release the deck.
+- Actual C tests cover wire decoding, multiple controllers, hold/repeat/debounce,
+  display acknowledgement, stale release and publication rollback/error cases.
+  Publication callbacks are simulated; **PS5 ptrace and VM behavior is untested**.
+
+Outstanding within this deck: final original visual design; in-game controller
+arbitration (ShellUI input alone cannot consume a game's pad events); scene and
+resolution behavior; resource/FPS overlay wiring; accessibility and shortcut
+preferences. Remaining overall features still include package/storage jobs,
+native plugin/cheat/save adapters, developer MCP, loadouts and staged updates.
+The imported ptrace helpers also retain blocking stop/step waits; bounded wait
+recovery needs review before hardware acceptance. The full goal is not complete.

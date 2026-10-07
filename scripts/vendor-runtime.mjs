@@ -31,8 +31,8 @@ for (const name of files) {
     text = text.replace('JSRuntime *rt=JS_NewRuntime();', 'JSRuntime *rt=JS_NewRuntime();if(!rt)return 4;')
       .replace('context=JS_NewContext(rt);', 'context=JS_NewContext(rt);if(!context){JS_FreeRuntime(rt);return 4;}');
     text = text.replace('if(n!=0&&n!=8780)', 'if(n!=0&&n!=8780&&n!=2122)');
-    text = text.replace('#include "quickjs.h"', '#include "quickjs.h"\n#include "loader-worker.h"\nextern void tac_loader_bind(JSContext*,JSValue);\nextern void tac_system_bind(JSContext*,JSValue);\nextern void tac_manager_bind(JSContext*,JSValue);');
-    text = text.replace('JS_SetPropertyStr(context,global,"__native",api);', 'tac_loader_bind(context,api);tac_system_bind(context,api);tac_manager_bind(context,api);JS_SetPropertyStr(context,global,"__native",api);');
+    text = text.replace('#include "quickjs.h"', '#include "quickjs.h"\n#include "loader-worker.h"\nextern void tac_loader_bind(JSContext*,JSValue);\nextern void tac_system_bind(JSContext*,JSValue);\nextern void tac_manager_bind(JSContext*,JSValue);\nextern void tac_deck_bind(JSContext*,JSValue);');
+    text = text.replace('JS_SetPropertyStr(context,global,"__native",api);', 'tac_loader_bind(context,api);tac_system_bind(context,api);tac_manager_bind(context,api);tac_deck_bind(context,api);JS_SetPropertyStr(context,global,"__native",api);');
     text = text.replace('case N_STOP:stopping=1;break;', 'case N_STOP:if(tac_loader_busy()){result=JS_ThrowInternalError(c,"A native dispatch is still active");break;}stopping=1;break;');
   } else {
     text = text.replaceAll('/data/ps-neighborhood-local', '/data/tachen');

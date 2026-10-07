@@ -45,7 +45,8 @@ export class TacRuntime {
     this.graph.validate(); this.started = true;
     // 'ready' here covers this coordinator only, never unstarted native services.
     await this.store.transaction(state => { state.startup.pending = false; });
-    this.capability('deck', true); this.capability('phone', true);
+    // A served webpage does not prove the native console renderer is running.
+    this.capability('phone', true);
     return this;
   }
   snapshot() {
@@ -111,5 +112,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.nativeServices?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

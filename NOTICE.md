@@ -53,3 +53,20 @@ public DATA-relative tables. Immutable source references and values are retained
 in `vendor/firmware-provenance.json`. The kstuff marker classifier is adapted from
 that GPL port's `port_kstuff_state.hpp`; TacHen adds consistent snapshot checks,
 worker serialization and process/API generation checks without modifying hooks.
+
+Native deck PUI discovery is informed by etaHEN / LightningMods' `overlay-ui.cpp`
+and `MonoUtils.cpp`. Resident thread staging and stopped-thread publication derive
+from John Törnblom's libNineS and the GronedWaffel controller-stability work.
+TacHen's renderer, controller state machine, private bridge, generation checks and
+presentation/command adapter are new GPL-3.0-or-later code. They do not embed
+etaHEN's Toolbox pages, dashboard card installer or Boot hook.
+
+The conservative instruction relocator in `vendor/deck` comes from the same GPL
+port. HDE64 is by Vyacheslav Patkov (2008–2009); its BSD redistribution notice is
+retained in `vendor/deck/HDE64-LICENSE.txt`, from the upstream
+[MinHook license collection](https://github.com/TsudaKageyu/minhook/blob/master/LICENSE.txt).
+Input hashes and import adaptations are recorded in `vendor/deck-provenance.json`.
+The opaque Mono declarations were checked against the public
+[Mono object API](https://github.com/mono/mono/blob/main/mono/metadata/object.h).
+These references document interfaces and provenance; they do not establish the
+PS5 firmware-specific managed signatures or hardware compatibility.

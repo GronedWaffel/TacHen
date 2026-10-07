@@ -13,6 +13,7 @@ import { ftpInboxReceiver } from '../src/ftp-inbox.mjs';
 import { ComponentAssets } from '../src/components.mjs';
 import { installNativeServices } from '../src/native-services.mjs';
 import { installLibrary } from '../src/library.mjs';
+import { installConsoleDeck } from '../src/native-deck.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -33,6 +34,7 @@ globalThis.__ready = (async () => {
       runtime.nativeServices = installNativeServices(runtime, __native,
         new ComponentAssets(runtime.inbox, components, (offset, length) => __native.asset(offset, length)));
       installLibrary(runtime);
+      installConsoleDeck(runtime, __native);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });
@@ -47,7 +49,7 @@ globalThis.__ready = (async () => {
   await serve(runtime, { assets, host: '0.0.0.0', port: 8780, id });
   __native.notify(`TacHen development runtime loaded\nPhone: http://${runtime.identity.ip}:8780`);
   // The phone stays responsive while durable native startup jobs execute.
-  runtime.nativeServices.startConfigured().then(() => runtime.nativeServices.startMonitoring()).catch(error => {
+  runtime.nativeServices.startConfigured().then(() => { runtime.nativeServices.startMonitoring(); runtime.nativeDeck.startMonitoring(); }).catch(error => {
     console.error(error.message); __native.notify('TacHen startup needs attention. Open Activity on your phone.');
   });
 })().catch(error => { console.error(error.stack || error.message); __native.notify('TacHen could not start. Existing HEN services were not changed.'); __native.stop(); });
