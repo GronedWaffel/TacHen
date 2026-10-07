@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonical, clone, invariant, TacError } from './errors.mjs';
 import { requireGame } from './firmware.mjs';
+import { validateComparison, compareCandidate, candidateWindows } from './scan-refinement.mjs';
 const hex = /^0x[0-9a-f]{1,16}$/;
 const same = (a, b) => b && ['pid', 'generation', 'titleId', 'version', 'metadataHash'].every(k => a[k] === b[k]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -38,13 +39,22 @@ export class MemoryService {
     return clone(entry.value);
   }
   forget() { this.results.clear(); }
+  source(id) {
+    invariant(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'SCAN_SOURCE', 'Choose a completed scan result.');
+    this.prune();const entry = this.results.get(id);
+    invariant(entry?.baseline && ['scan', 'refine'].includes(entry.value.mode), 'SCAN_SOURCE_EXPIRED', 'The source scan is unavailable or expired. Start a new scan.');
+    invariant(same(entry.game, this.runtime.game), 'GAME_CHANGED', 'The source scan belongs to a previous game instance.');
+    return entry;
+  }
   async validate(input) {
     this.permitted(input);requireGame(this.runtime.game);const game = clone(this.runtime.game);
-    invariant(input && ['module', 'read', 'scan'].includes(input.mode) && typeof input.module === 'string' &&
-      /^[\x21-\x7e]{1,127}$/.test(input.module) && !/[/\\]/.test(input.module), 'MEMORY_INPUT', 'Choose a module basename and inspection mode.');
-    const offset = input.offset ?? '0x0', length = input.length ?? 0;
+    const refining = input?.mode === 'refine', source = refining ? this.source(input.source) : null;
+    const module = source?.value.module ?? input?.module;
+    invariant(input && ['module', 'read', 'scan', 'refine'].includes(input.mode) && typeof module === 'string' &&
+      /^[\x21-\x7e]{1,127}$/.test(module) && !/[/\\]/.test(module), 'MEMORY_INPUT', 'Choose a module basename and inspection mode.');
+    const offset = source?.value.offset ?? input.offset ?? '0x0', length = source?.value.length ?? input.length ?? 0;
     invariant(hex.test(offset) && Number.isSafeInteger(length) && length >= 0 &&
-      (input.mode === 'module' ? offset === '0x0' && length === 0 : length > 0 && length <= (input.mode === 'scan' ? 16 * 1024 * 1024 : 65536)),
+      (input.mode === 'module' ? offset === '0x0' && length === 0 : length > 0 && length <= (input.mode === 'scan' || refining ? 16 * 1024 * 1024 : 65536)),
       'MEMORY_BOUNDS', 'Module reads are limited to 64 KiB and scan ranges to 16 MiB.');
     invariant(BigInt(offset) + BigInt(length) <= 0xffffffffffffffffn, 'MEMORY_BOUNDS', 'Inspection range overflows the native address width.');
     let pattern = null, alignment = 1;
@@ -52,12 +62,19 @@ export class MemoryService {
       scanPattern(input.pattern);pattern = input.pattern.toLowerCase();alignment = input.alignment ?? 1;
       invariant([1, 2, 4, 8].includes(alignment), 'SCAN_ALIGNMENT', 'Choose alignment 1, 2, 4 or 8.');
     }
+    if (refining) {
+      validateComparison(input.comparison, input.dataType, source.value.width);alignment = source.value.alignment;
+      if (input.comparison === 'equal' || input.comparison === 'different') {
+        invariant(scanPattern(input.pattern).length === source.value.width, 'SCAN_PATTERN', 'The refinement pattern must match the original scan width.');pattern = input.pattern.toLowerCase();
+      } else invariant(input.pattern == null, 'SCAN_PATTERN', 'This comparison uses the previous scan bytes, not a supplied pattern.');
+    }
     const probe = this.native.systemProbe();
     invariant(!probe.busy && probe.kstuff?.injectionReady === true && /^[a-f0-9]{64}$/.test(game.metadataHash) &&
       /^\d+:\d+$/.test(probe.boot || '') && game.generation.startsWith(probe.boot + '/' + game.pid + '/'),
       'MEMORY_READINESS', 'Wait for verified kernel services and game metadata.');
-    const accepted = { mode: input.mode, module: input.module, offset: '0x' + BigInt(offset).toString(16), length, pattern, alignment,
+    const accepted = { mode: input.mode, module, offset: '0x' + BigInt(offset).toString(16), length, pattern, alignment,
       pid: game.pid, generation: game.generation, titleId: game.titleId, version: game.version, metadataHash: game.metadataHash, boot: probe.boot };
+    if (refining) Object.assign(accepted, { source: input.source, comparison: input.comparison, dataType: input.dataType ?? null });
     if (input.developerSession !== undefined) Object.assign(accepted, { developerSession: input.developerSession, developerGrant: input.developerGrant });
     if (input.generation) invariant(canonical(accepted) === canonical(input), 'GAME_CHANGED', 'The queued inspection belongs to another game context.');
     return accepted;
@@ -97,13 +114,50 @@ export class MemoryService {
     const process = probe.processes.find(p => p.pid === input.pid);
     return probe.boot !== input.boot || !process || (!!process.generation && process.generation !== input.generation);
   }
+  async refine(input, context) {
+    const source = this.source(input.source), previous = source.value, width = previous.width;
+    const pattern = input.pattern ? scanPattern(input.pattern) : null, matches = [], samples = [];
+    const current = () => {
+      try { this.permitted(input);invariant(this.source(input.source) === source, 'SCAN_SOURCE_EXPIRED', 'The source scan ended during refinement. Partial results were discarded.'); }
+      catch (error) { error.noSideEffects = true;throw error; }
+    };
+    let bytesRead = 0, index = 0;
+    for (const window of candidateWindows(previous.matches, width)) {
+      current();
+      const part = await this.read(input, window.offset, window.length, context, index++);
+      if (part.base !== previous.base || part.size !== previous.size) throw clean('MODULE_CHANGED', 'The source module changed. Start a new scan.');
+      for (let i = window.first; i < window.last; i++) {
+        const offset = Number(BigInt(previous.matches[i]) - window.offset), after = part.bytes.subarray(offset, offset + width);
+        const before = source.baseline.subarray(i * width, (i + 1) * width);
+        if (compareCandidate(before, after, input.comparison, pattern, input.dataType)) { matches.push(previous.matches[i]);samples.push(Buffer.from(after)); }
+      }
+      bytesRead += window.length;
+      await context.progress({ completed: window.last, total: previous.matches.length, phase: 'Refining ' + input.module });
+      if (context.signal.aborted) return { cancelled: true, message: 'Refinement cancelled after a confirmed game resume.' };
+      if (window.last < previous.matches.length) await this.delay(50);
+    }
+    current();
+    const value = { mode: 'refine', module: input.module, base: previous.base, size: previous.size, offset: previous.offset, length: previous.length,
+      bytesRead, width, pattern: input.pattern, alignment: previous.alignment, matches, truncated: previous.truncated, atomicSnapshot: false,
+      source: input.source, comparison: input.comparison, dataType: input.dataType, candidatesChecked: previous.matches.length };
+    this.results.set(context.id, { game: clone(this.runtime.game), value, baseline: Buffer.concat(samples), expires: this.runtime.now() + 300000 });this.prune();
+    return { completed: true, phase: 'inspected', generation: input.generation, pid: input.pid, bytesRead, truncated: previous.truncated, result: context.id,
+      message: 'Refined retained candidates only. Bytes remain in session RAM for five minutes; reads are not one atomic snapshot.' };
+  }
   handler() {
     const self = this, { runtime, native } = this;
     return { validate: input => self.validate(input), resources: input => ['native-payload-dispatch', 'game-memory:' + input.generation],
       timeout: 600000, cancellable: true,
       async run(input, context) {
         try { await self.validate(input); } catch (e) { e.noSideEffects = true;throw e; }
-        const pattern = input.mode === 'scan' ? scanPattern(input.pattern) : null, matches = [];
+        if (input.mode === 'refine') {
+          try { return await self.refine(input, context); }
+          catch (error) {
+            if (context.signal.aborted && error.noSideEffects) return { cancelled: true, message: 'Refinement cancelled with no native read left running.' };
+            throw error;
+          }
+        }
+        const pattern = input.mode === 'scan' ? scanPattern(input.pattern) : null, matches = [], samples = [];
         let done = 0, carry = Buffer.alloc(0), base, size, value, truncated = false, index = 0;
         do {
           const count = Math.min(65536, input.length - done), offset = BigInt(input.offset) + BigInt(done);
@@ -123,6 +177,7 @@ export class MemoryService {
               if (where % BigInt(input.alignment) || !pattern.every((v, p) => v === null || bytes[at + p] === v)) continue;
               if (matches.length === 8192) { truncated = true;break; }
               matches.push('0x' + where.toString(16));
+              samples.push(Buffer.from(bytes.subarray(at, at + pattern.length)));
             }
             carry = bytes.subarray(Math.max(0, bytes.length - pattern.length + 1));
           }
@@ -136,8 +191,8 @@ export class MemoryService {
         invariant(same(input, runtime.game), 'GAME_CHANGED', 'The game changed before delivering memory results.');
         self.permitted(input);
         value ??= { mode: 'scan', module: input.module, base, size, offset: input.offset, length: input.length,
-          bytesRead: done, pattern: input.pattern, alignment: input.alignment, matches, truncated, atomicSnapshot: false };
-        self.results.set(context.id, { game: clone(runtime.game), value, expires: runtime.now() + 300000 });self.prune();
+          bytesRead: done, width: pattern.length, pattern: input.pattern, alignment: input.alignment, matches, truncated, atomicSnapshot: false };
+        self.results.set(context.id, { game: clone(runtime.game), value, ...(pattern ? { baseline: Buffer.concat(samples) } : {}), expires: runtime.now() + 300000 });self.prune();
         return { completed: true, phase: 'inspected', generation: input.generation, pid: input.pid, bytesRead: done, truncated, result: context.id,
           message: 'Memory result available in this session for five minutes. Scan chunks are read at different times.' };
       },

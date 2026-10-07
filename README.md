@@ -69,6 +69,15 @@ access window in bounded session RAM; raw memory is not written into job history
 Cancel stops between confirmed reads. Unconfirmed resume retains the operation
 for reconciliation instead of permitting a competing memory operation.
 
+`memory_refine` narrows a completed scan by comparing its retained candidates
+with their last observed bytes: changed/unchanged, equal/different from a new
+hex pattern, or increased/decreased with an explicit little-endian numeric type.
+Signed/unsigned integers through 64 bits and 32/64-bit floats are supported;
+nonfinite float candidates do not match numeric comparisons. Each pass creates
+a new five-minute RAM result and does not alter the previous baseline. A
+truncated source stays marked truncated. No candidate bytes enter job history,
+and refinement never broadens the scan beyond its retained candidates.
+
 The separate **Allow MCP cheat writes** switch authorizes imported, exact-version
 cheat transactions. It resets when TacHen starts. The MCP client cannot enable
 this switch itself. Revocation is checked again before queued execution and
@@ -81,7 +90,7 @@ using JSON responses and negotiated 2025-06-18 or 2025-03-26 sessions. GET retur
 bearer authorization, session identity and protocol version are checked. Local
 HTTP tests and the embedded QuickJS check pass; console syscalls and third-party
 client interoperability still need hardware acceptance. Heap-region enumeration,
-unknown-value/differential refinement and broader debugging are not implemented.
+initial unknown-value sampling and broader debugging are not implemented.
 
 The phone's Plugins tab now registers verified etaHEN `.plugin` containers, starts
 their embedded ELF as a named plugin process, and supports optional system or exact

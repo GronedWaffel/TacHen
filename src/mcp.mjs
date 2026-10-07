@@ -15,6 +15,9 @@ const tools = [
     inputSchema: { ...object({ mode: { enum: ['module', 'read', 'scan'] }, module: string, offset: string,
       length: { type: 'integer', minimum: 0, maximum: 16777216 }, pattern: string, alignment: { enum: [1, 2, 4, 8] }, requestKey: string }), required: ['mode', 'module', 'requestKey'] }, read: false },
   { name: 'memory_result', description: 'Get a completed inspection result from session RAM (five-minute expiry).', inputSchema: { ...object({ id: string }), required: ['id'] }, read: true },
+  { name: 'memory_refine', description: 'Narrow retained scan candidates using changed/unchanged bytes, a same-width hex/wildcard pattern, or an explicit little-endian numeric comparison. Requires an unexpired result from the same game and module. Does not search outside retained candidates or write memory.',
+    inputSchema: { ...object({ source: string, comparison: { enum: ['changed', 'unchanged', 'equal', 'different', 'increased', 'decreased'] }, pattern: string,
+      dataType: { enum: ['u8', 'i8', 'u16', 'i16', 'u32', 'i32', 'u64', 'i64', 'f32', 'f64'] }, requestKey: string }), required: ['source', 'comparison', 'requestKey'] }, read: false },
   { name: 'operation_status', description: 'Read an operation status without exposing private job arguments.', inputSchema: { ...object({ id: string }), required: ['id'] }, read: true },
   { name: 'operation_cancel', description: 'Request cancellation of a memory scan between safely completed reads.', inputSchema: { ...object({ id: string }), required: ['id'] }, read: false },
   { name: 'operation_reconcile', description: 'Check the original memory or cheat receipt. Never automatically replays native work.', inputSchema: { ...object({ id: string }), required: ['id'] }, read: false }
@@ -53,6 +56,10 @@ export class DeveloperMcp {
       }
       case 'memory_inspect': {
         const { requestKey, ...input } = args;const job = await r.jobs.enqueue('memory.inspect', { ...input, developerSession: r.session, developerGrant: this.grant }, requestKey);
+        return { id: job.id, status: job.status };
+      }
+      case 'memory_refine': {
+        const { requestKey, ...input } = args;const job = await r.jobs.enqueue('memory.inspect', { ...input, mode: 'refine', developerSession: r.session, developerGrant: this.grant }, requestKey);
         return { id: job.id, status: job.status };
       }
       case 'memory_result': return r.memory.result(args.id);

@@ -1711,3 +1711,47 @@ Runtime **9,023,192 bytes**, SHA-256 `d93b504725c1076b26f87ca23d41142ae52bdbaf9a
 Launcher **9,184,320 bytes**, SHA-256 `6d6b9d30c60939dc4ba99a61fd6cbd0dbb9cb44053d44463f703e5c82b0f1373`.
 Update package **9,023,448 bytes**, SHA-256 `ab6e0cd94994be07821d0e2bd7d3ae4620485e5e46c9009a4c9c77d1f7093ad2`.
 Source fingerprint `6207e092273d6aeb78baaaa120c563df2da9cb7c5d5676fc40743c240c29c653`.
+
+
+## Checkpoint 33 — MCP candidate refinement
+
+Known-pattern scans retain observed bytes for each of at most 8,192 matches in
+private session RAM. The bounded eight-result cache and five-minute access expiry
+remain. Candidate bytes are not returned through snapshots or saved in durable
+job records. An explicit `memory_refine` tool queues the normal `memory.inspect`
+job with an exact source-result identity and the existing developer grant.
+
+Comparisons include changed/unchanged raw bytes, equal/different same-width
+hex/wildcard patterns and explicit little-endian increased/decreased numeric
+comparisons. Supported numeric widths are signed/unsigned 8/16/32/64-bit and
+32/64-bit floating point. Integer comparison preserves full 64-bit precision;
+nonfinite floating values do not match numeric comparisons. Successful passes
+create independent new baselines, leaving the source result unchanged.
+
+Sorted candidates are grouped into read windows of at most 64 KiB, checking each
+full candidate even across a previous chunk boundary. Reads use the existing
+verified stopped-game/native-receipt path. The worker rejects changed module
+base/extent or game identity, expired sources and ended access grants. It holds
+unconfirmed native resume and permits cancellation only after a confirmed read
+settles. No partial result is published. Empty candidate sets need no new native
+read. Truncated input remains explicitly truncated after every refinement.
+The tool does not enumerate heap regions, start unknown-value scans, write memory
+or change the developer write gate. Those broader scanning requirements remain.
+
+All **332 local tests** pass (`.local/checkpoint33-tests.txt`), including batching,
+wildcard-byte baselines, successive passes, signed/64-bit comparison, numeric
+width rejection, partial coverage, source/module/game changes, revocation,
+expiry, cancellation and unconfirmed resume. A real local HTTP MCP session
+checks tool dispatch, deduplication, result access and revocation without a write
+grant. QuickJS executes refinement and 64-bit comparison; the native build and
+current embedded-image checks pass. The native reader itself is unchanged.
+
+No console was contacted, tested or rebooted. No artifacts were deployed or
+released. Full implementation continues; remaining hardware validation stays
+last as requested. Earlier outstanding feature/UI/firmware integration work is
+not waived by this checkpoint.
+
+Runtime **9,039,576 bytes**, SHA-256 `b5d4f85ae1bbb0bb1aafbab9a60f8ff6f3ff3ff30ec44cda5ba6103427cf8f78`.
+Launcher **9,200,704 bytes**, SHA-256 `f35bd00d35f8c491a755f1a9b7162d769092dfa624c1213c9c8c9e4225723728`.
+Update package **9,039,832 bytes**, SHA-256 `f6fe6e8b1f717330d4d8857c76ad01b9b7b3ed2398f385273ef03049603d77b2`.
+Source fingerprint `c77e99e250cbf8e2b4d56f5c60fd644f701bf3d3a38bf36d4d00110942eae5e9`.

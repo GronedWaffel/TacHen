@@ -41,6 +41,7 @@ async function fixture(t) {
   const rpc = (body, overrides = {}) => fetch(origin + '/mcp', { method: 'POST', headers: { Authorization: 'Bearer ' + token,
     'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(session ? { 'Mcp-Session-Id': session, 'Mcp-Protocol-Version': '2025-06-18' } : {}), ...overrides }, body: JSON.stringify(body) });
   const connect = async () => {
+    session = undefined;
     await enable();({ result: { token } } = await phone('developer.connect'));
     const response = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo: { name: 'Test client', version: '1' }, capabilities: {} } });
     assert.equal(response.status, 200);assert.equal((await response.json()).result.protocolVersion, '2025-06-18');
@@ -62,6 +63,22 @@ test('real MCP HTTP lifecycle lists tools and completes a native-read contract w
   assert.equal((await f.call('memory_result', { id: read.value.id })).value.bytes, '0000000000000000');
   await f.call('memory_inspect', { mode: 'read', module: 'eboot.bin', offset: '0x10', length: 8, requestKey: 'read-request-1' });assert.deepEqual(f.calls, ['read']);
   assert.equal(JSON.stringify(f.runtime.snapshot()).includes(f.token()), false);assert.equal(JSON.stringify(f.runtime.store.snapshot()).includes(f.token()), false);
+});
+
+test('MCP refinement narrows existing candidates without requiring or expanding the write grant', async t => {
+  const f = await fixture(t);await f.connect();
+  const scan = await f.call('memory_inspect', { mode: 'scan', module: 'eboot.bin', length: 16, pattern: '0000', alignment: 2, requestKey: 'refine-source-scan' });
+  assert.equal(scan.error, false);await until(() => f.runtime.jobs.snapshot().find(j => j.id === scan.value.id)?.status === 'completed');
+  const args = { source: scan.value.id, comparison: 'unchanged', requestKey: 'refine-first-pass' };
+  const pass = await f.call('memory_refine', args);assert.equal(pass.error, false);
+  await until(() => f.runtime.jobs.snapshot().find(j => j.id === pass.value.id)?.status === 'completed');
+  const result = await f.call('memory_result', { id: pass.value.id });assert.equal(result.error, false);
+  assert.equal(result.value.mode, 'refine');assert.equal(result.value.matches.length, 8);assert.equal(result.value.candidatesChecked, 8);
+  assert.equal(f.runtime.snapshot().settings.developer.memoryWrites, false);assert.deepEqual(f.calls, ['read', 'read']);
+  assert.equal((await f.call('memory_refine', args)).value.id, pass.value.id);assert.equal(f.calls.length, 2);
+  await f.phone('developer.disconnect');await f.connect();
+  const expired = await f.call('memory_refine', { ...args, requestKey: 'refine-after-revoke' });
+  assert.equal(expired.error, true);assert.equal(expired.value.code, 'SCAN_SOURCE_EXPIRED');assert.equal(f.calls.length, 2);
 });
 test('MCP rejects missing auth, cross-site origins, protocol mismatches and expired or revoked grants', async t => {
   const f = await fixture(t);assert.equal((await f.rpc({})).status, 401);assert.equal((await f.phone('developer.connect')).status, 409);

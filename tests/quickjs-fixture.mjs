@@ -25,6 +25,7 @@ import { SessionHistory } from '../src/history.mjs';
 import { StartupRecovery } from '../src/startup-recovery.mjs';
 import { makeUpdatePackage, inspectUpdate } from '../src/update-format.mjs';
 import { importCheatSource } from '../src/cheat-xml.mjs';
+import { compareCandidate } from '../src/scan-refinement.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -110,7 +111,7 @@ globalThis.testPassed = false;
   const cheatInput = await cheatHandler.validate({ sha256: cheatPack.sha256, cheatId: '0', enabled: true });
   const cheatLoaded = await cheatHandler.run(cheatInput, { id: '4'.repeat(32), signal: { aborted: false } });
   assert(cheatLoaded.phase === 'applied' && await cheatHandler.verify(cheatLoaded, cheatInput), 'QuickJS cheat receipt failed');
-  let inspectionReceipt, inspectionHandler, counter = 100;
+  let inspectionReceipt, inspectionHandler, counter = 100, inspectionBytes = [1, 2, 3, 4];
   await store.transaction(state => { state.settings.developer.enabled = true; });
   const inspectionRuntime = { ...cheatRuntime, now: Date.now, session: 'fixture-session', id: () => (++counter).toString(16).padStart(32, '0'),
     jobs: { handlers: new Map(), register(kind, handler) { inspectionHandler = handler;this.handlers.set(kind, handler); } } };
@@ -119,12 +120,20 @@ globalThis.testPassed = false;
     inspectStart(request, pid, generation, _title, _metadata, _module, wire) {
       const bytes = Buffer.from(wire);assert(bytes.readUInt32LE(12) === 0x544d5231, 'QuickJS inspection packet failed');
       inspectionReceipt = { request, pid, generation, planHash: checksum(bytes), stage: 3, resumed: true, restored: true, writes: 0,
-        base: '0x400000', size: '0x100000', bytes: new Uint8Array([1, 2, 3, 4]).buffer };
+        base: '0x400000', size: '0x100000', bytes: new Uint8Array(inspectionBytes.slice(0, bytes.readUInt32LE(8))).buffer };
     }, inspectPoll: () => inspectionReceipt
   });
   const input = await inspectionHandler.validate({ mode: 'read', module: 'eboot.bin', offset: '0x10', length: 4 });
   const inspected = await inspectionHandler.run(input, { id: '5'.repeat(32), signal: { aborted: false }, checkpoint: async () => {}, progress: async () => {} });
   assert(await inspectionHandler.verify(inspected, input) && memory.result(inspected.result).bytes === '01020304', 'QuickJS inspection result failed');
+  const scanInput = await inspectionHandler.validate({ mode: 'scan', module: 'eboot.bin', offset: '0x10', length: 4, pattern: '01??' });
+  const scanResult = await inspectionHandler.run(scanInput, { id: '6'.repeat(32), signal: { aborted: false }, checkpoint: async () => {}, progress: async () => {} });
+  inspectionBytes[1] = 9;
+  const refinement = await inspectionHandler.validate({ mode: 'refine', source: scanResult.result, comparison: 'changed' });
+  const refined = await inspectionHandler.run(refinement, { id: '7'.repeat(32), signal: { aborted: false }, checkpoint: async () => {}, progress: async () => {} });
+  assert(memory.result(refined.result).matches.join() === '0x10', 'QuickJS differential refinement failed');
+  const largeBefore = Buffer.alloc(8), largeAfter = Buffer.alloc(8);largeBefore.writeBigUInt64LE(0xfffffffffffffff0n);largeAfter.writeBigUInt64LE(0xfffffffffffffff1n);
+  assert(compareCandidate(largeBefore, largeAfter, 'increased', null, 'u64'), 'QuickJS 64-bit refinement precision failed');
   const mcp = installMcp(inspectionRuntime), access = mcp.issue();mcp.authenticate('Bearer ' + access.token);
   const init = await mcp.message({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo: { name: 'QuickJS fixture' } } });
   await mcp.message({ jsonrpc: '2.0', method: 'notifications/initialized' }, init.session);

@@ -77,3 +77,86 @@ test('scan cancellation waits for a confirmed resume and leaves no result or nex
   await until(() => f.runtime.jobs.snapshot().find(j => j.id === job.id)?.status === 'cancelled');await cancel;
   assert.equal(f.calls.length, 1);assert.equal(f.runtime.memory.results.size, 0);
 });
+
+async function scan(f, input) {
+  const job = await f.enqueue({ mode: 'scan', length: 0x20000, pattern: 'aa??bb', ...input });
+  assert.equal((await f.settled(job.id)).status, 'completed');return job.id;
+}
+async function refine(f, source, comparison, args = {}) {
+  const job = await f.enqueue({ mode: 'refine', source, comparison, ...args });
+  assert.equal((await f.settled(job.id)).status, 'completed');return { id: job.id, ...f.runtime.memory.result(job.id) };
+}
+
+test('refinement retains observed wildcard bytes, batches candidates and advances its baseline without saving bytes', async t => {
+  const f = await fixture(t);f.bytes.set([0xaa, 1, 0xbb], 100);f.bytes.set([0xaa, 2, 0xbb], 200);f.bytes.set([0xaa, 3, 0xbb], 70000);
+  const source = await scan(f), count = f.calls.length;f.bytes[101] = 4;f.bytes[70001] = 5;
+  const result = await refine(f, source, 'changed');assert.deepEqual(result.matches, ['0x64', '0x11170']);
+  assert.equal(result.candidatesChecked, 3);assert.equal(result.atomicSnapshot, false);assert.equal(f.calls.length - count, 2);
+  assert.deepEqual(f.calls.slice(count).map(call => [call.offset, call.length]), [[100, 103], [70000, 3]]);
+  const second = await refine(f, result.id, 'unchanged');assert.deepEqual(second.matches, result.matches);
+  f.bytes[101] = 6;
+  const third = await refine(f, second.id, 'equal', { pattern: 'aa06??' });assert.deepEqual(third.matches, ['0x64']);
+  const empty = await refine(f, third.id, 'different', { pattern: 'aa06bb' });assert.deepEqual(empty.matches, []);
+  const beforeEmpty = f.calls.length;assert.deepEqual((await refine(f, empty.id, 'changed')).matches, []);assert.equal(f.calls.length, beforeEmpty);
+  const disk = JSON.stringify(f.runtime.store.snapshot());assert.equal(disk.includes('aa04bb'), false);assert.equal(disk.includes('aa05bb'), false);
+  assert.equal(Object.hasOwn(f.runtime.memory.result(source), 'baseline'), false);
+});
+
+test('numeric refinement uses explicit width and little-endian values while preserving truncated coverage', async t => {
+  const f = await fixture(t);f.bytes.writeInt32LE(-10, 100);f.bytes.writeInt32LE(-10, 200);
+  const source = await scan(f, { pattern: 'f6ffffff', alignment: 4 });f.bytes.writeInt32LE(-9, 100);f.bytes.writeInt32LE(-11, 200);
+  assert.deepEqual((await refine(f, source, 'increased', { dataType: 'i32' })).matches, ['0x64']);
+  assert.deepEqual((await refine(f, source, 'decreased', { dataType: 'i32' })).matches, ['0xc8']);
+  const count = f.calls.length;
+  await assert.rejects(f.enqueue({ mode: 'refine', source, comparison: 'increased', dataType: 'u64' }), { code: 'SCAN_VALUE_TYPE' });
+  await assert.rejects(f.enqueue({ mode: 'refine', source, comparison: 'equal', pattern: 'ffff' }), { code: 'SCAN_PATTERN' });
+  assert.equal(f.calls.length, count);
+  const dense = await scan(f, { pattern: '00' });assert.equal(f.runtime.memory.result(dense).truncated, true);
+  f.bytes[10] = 2;f.bytes[10000] = 2;
+  const narrowed = await refine(f, dense, 'changed');assert.deepEqual(narrowed.matches, ['0xa']);assert.equal(narrowed.truncated, true);
+});
+
+test('refinement refuses missing, expired or replaced-game baselines and changed module mappings', async t => {
+  const f = await fixture(t);f.bytes.set([0xaa, 1, 0xbb], 100);let source = await scan(f);
+  await assert.rejects(f.enqueue({ mode: 'refine', source: '0'.repeat(32), comparison: 'changed' }), { code: 'SCAN_SOURCE_EXPIRED' });
+  const generation = f.runtime.game.generation;f.runtime.game.generation += 'other';
+  await assert.rejects(f.enqueue({ mode: 'refine', source, comparison: 'changed' }), { code: 'GAME_CHANGED' });f.runtime.game.generation = generation;
+  f.tick(300001);await assert.rejects(f.enqueue({ mode: 'refine', source, comparison: 'changed' }), { code: 'SCAN_SOURCE_EXPIRED' });
+  source = await scan(f);const start = f.native.inspectStart;
+  f.native.inspectStart = (...args) => { start(...args);f.receipts.get(args[0]).base = '0x500000'; };
+  const job = await f.enqueue({ mode: 'refine', source, comparison: 'changed' });
+  const result = await f.settled(job.id);assert.equal(result.status, 'failed');assert.equal(result.error.code, 'MODULE_CHANGED');
+  assert.equal(f.runtime.memory.results.has(job.id), false);
+});
+
+test('revocation and source expiry stop refinement between resumed reads without delivering partial matches', async t => {
+  for (const revoke of [true, false]) {
+    const f = await fixture(t);f.runtime.mcp.issue();f.bytes.set([0xaa, 1, 0xbb], 100);f.bytes.set([0xaa, 2, 0xbb], 70000);
+    const source = await scan(f), start = f.native.inspectStart, count = f.calls.length;
+    f.native.inspectStart = (...args) => { start(...args);if (revoke) f.runtime.mcp.revoke();else f.tick(300001); };
+    const job = await f.enqueue({ mode: 'refine', source, comparison: 'unchanged', developerSession: f.runtime.session, developerGrant: f.runtime.mcp.grant });
+    const result = await f.settled(job.id);assert.equal(result.status, 'failed');assert.equal(f.calls.length, count + 1);assert.equal(f.runtime.memory.results.has(job.id), false);
+  }
+});
+
+test('unconfirmed refinement resume retains the game lock and never replays the read', async t => {
+  const f = await fixture(t);f.bytes.set([0xaa, 1, 0xbb], 100);const source = await scan(f), start = f.native.inspectStart;
+  f.native.inspectStart = (...args) => { start(...args);f.receipts.get(args[0]).resumed = false; };
+  const job = await f.enqueue({ mode: 'refine', source, comparison: 'changed' });assert.equal((await f.settled(job.id)).status, 'interrupted');
+  const count = f.calls.length;await assert.rejects(f.runtime.jobs.reconcile(job.id), { code: 'OUTCOME_UNKNOWN' });
+  assert.equal(f.calls.length, count);assert.equal(f.runtime.memory.results.has(job.id), false);
+});
+
+test('refinement cancellation and queued expiry make no additional native read or partial result', async t => {
+  const f = await fixture(t);f.bytes.set([0xaa, 1, 0xbb], 100);f.bytes.set([0xaa, 2, 0xbb], 70000);
+  const source = await scan(f), start = f.native.inspectStart;f.runtime.jobs.pumping = true;
+  const job = await f.enqueue({ mode: 'refine', source, comparison: 'unchanged' });let cancellation;
+  f.native.inspectStart = (...args) => { start(...args);cancellation = f.runtime.jobs.cancel(job.id); };
+  const before = f.calls.length;f.runtime.jobs.pumping = false;f.runtime.jobs.kick();
+  await until(() => f.runtime.jobs.snapshot().find(j => j.id === job.id)?.status === 'cancelled');await cancellation;
+  assert.equal(f.calls.length, before + 1);assert.equal(f.runtime.memory.results.has(job.id), false);
+  f.native.inspectStart = start;f.runtime.jobs.pumping = true;
+  const queued = await f.enqueue({ mode: 'refine', source, comparison: 'changed' });f.tick(300001);
+  f.runtime.jobs.pumping = false;f.runtime.jobs.kick();
+  assert.equal((await f.settled(queued.id)).status, 'failed');assert.equal(f.calls.length, before + 1);
+});
