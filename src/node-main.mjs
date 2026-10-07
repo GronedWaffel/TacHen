@@ -7,6 +7,7 @@ import { FileStorage } from './storage.mjs';
 import { TacRuntime } from './runtime.mjs';
 import { serve } from './server.mjs';
 import { PayloadInbox } from './inbox.mjs';
+import { installPackageInbox } from './package-inbox.mjs';
 import { startFtp } from './ftp.mjs';
 import { ftpInboxReceiver } from './ftp-inbox.mjs';
 
@@ -19,6 +20,7 @@ const platform = {
   async install(runtime) {
     runtime.inbox = await new PayloadInbox(path.join(root, '.local/inbox'), { id }).init();
     runtime.inboxItems = await runtime.inbox.list();
+    await installPackageInbox(runtime, path.join(root, '.local/packages'));
     runtime.capability('inbox', true, 'File upload and structural verification. Execution requires the native loader.');
     runtime.graph.register({ id: 'ftp', start: async () => {
       runtime.ftp = await startFtp({ root: path.join(root, '.local/share'), host: '127.0.0.1', address: '127.0.0.1', id,

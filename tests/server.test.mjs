@@ -5,9 +5,10 @@ import http from 'node:http';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import { PayloadInbox } from '../src/inbox.mjs';
+import { installPackageInbox } from '../src/package-inbox.mjs';
 import { serve } from '../src/server.mjs';
 import { TacRuntime } from '../src/runtime.mjs';
-import { store, ids } from './helpers.mjs';
+import { store, ids, until } from './helpers.mjs';
 
 async function fixture(t) {
   const id = ids(), runtime = await new TacRuntime(await store(), {
@@ -75,4 +76,28 @@ test('phone API uploads and verifies the built ELF in bounded chunks without exe
     body: JSON.stringify({ command: 'inbox.verify', args: { id: result.id } }) });
   assert.equal(verified.status, 200); assert.equal((await verified.json()).result.status, 'verified');
   assert.equal(f.runtime.snapshot().jobs.length, 0);
+});
+
+test('phone package upload requires its session, supports resume and queues verification separately', async t => {
+  const f = await fixture(t), session = await f.connect(), root = await fs.mkdtemp(path.join(os.tmpdir(), 'tachen-api-pkg-'));
+  t.after(async () => { assert.ok(root.startsWith(path.resolve(os.tmpdir()) + path.sep)); await fs.rm(root, { recursive: true, force: true }); });
+  await installPackageInbox(f.runtime, root);
+  const headers = { Origin: f.origin, Cookie: session.cookie, 'X-TacHen-CSRF': session.csrf };
+  async function command(command, args) {
+    const response = await fetch(f.origin + '/api/command', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ command, args }) });
+    assert.equal(response.status, 200); return (await response.json()).result;
+  }
+  const bytes = Buffer.alloc(8192); bytes.writeUInt32BE(0x7f434e54); bytes.write('UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP', 0x40);
+  bytes.writeUInt32BE(0x1a, 0x74); bytes.writeBigUInt64BE(BigInt(bytes.length), 0x430);
+  const entry = await command('package.begin', { name: 'phone.pkg', bytes: bytes.length });
+  const route = at => f.origin + `/api/package-uploads/${entry.id}?offset=${at}`;
+  assert.equal((await fetch(route(0), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes })).status, 401);
+  for (let at = 0; at < bytes.length; at += 4096) {
+    const response = await fetch(route(at), { method: 'POST', headers: { ...headers, 'Content-Type': 'application/octet-stream' }, body: bytes.subarray(at, at + 4096) });
+    assert.equal(response.status, 200); assert.equal((await command('package.status', { id: entry.id })).offset, at + 4096);
+  }
+  const job = await command('job.enqueue', { kind: 'package.verify', input: { id: entry.id }, key: 'phone-verify' });
+  await until(() => f.runtime.jobs.snapshot().find(item => item.id === job.id)?.status === 'completed');
+  assert.equal((await command('package.status', { id: entry.id })).package.titleId, 'CUSA00001');
+  assert.equal(f.runtime.capabilities.get('packages').available, false);
 });

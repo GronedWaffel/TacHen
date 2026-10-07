@@ -80,14 +80,17 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
       if (req.method === 'POST') {
         invariant(req.headers.origin === origin && req.headers['x-tachen-csrf'] === session.csrf,
           'REQUEST_REJECTED', 'This request is not from the connected TacHen page.', { status: 403 });
-        const upload = /^\/api\/uploads\/([a-f0-9]{32})\?offset=(\d+)$/.exec(req.url);
+        const upload = /^\/api\/(uploads|package-uploads)\/([a-f0-9]{32})\?offset=(\d+)$/.exec(req.url);
         if (upload) {
-          invariant(runtime.inbox, 'FEATURE_UNAVAILABLE', 'Payload inbox is not installed.');
+          const inbox = upload[1] === 'uploads' ? runtime.inbox : runtime.packageInbox;
+          invariant(inbox, 'FEATURE_UNAVAILABLE', 'This file inbox is not installed.');
           invariant(req.headers['content-type'] === 'application/octet-stream', 'BINARY_REQUIRED', 'Expected binary payload bytes.', { status: 400 });
           const chunks = []; let count = 0;
           for await (const chunk of req) { count += chunk.length; invariant(count <= 1024 * 1024, 'BODY_LIMIT', 'Upload chunks are limited to 1 MiB.', { status: 413 }); chunks.push(chunk); }
-          const result = await runtime.inbox.append(upload[1], Number(upload[2]), Buffer.concat(chunks));
-          runtime.inboxItems = await runtime.inbox.list(); return send(res, 200, result);
+          const result = await inbox.append(upload[2], Number(upload[3]), Buffer.concat(chunks));
+          if (upload[1] === 'uploads') runtime.inboxItems = await inbox.list();
+          else runtime.packageItems = await inbox.list();
+          return send(res, 200, result);
         }
         if (req.url === '/api/disconnect') {
           sessions.delete(token); return send(res, 200, { disconnected: true }, { 'Set-Cookie': 'tachen=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });

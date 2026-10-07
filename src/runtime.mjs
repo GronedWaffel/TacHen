@@ -54,7 +54,8 @@ export class TacRuntime {
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
-      inbox: clone(this.inboxItems), library: this.libraryState ? { count: this.libraryState.games.length,
+      inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
+      library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
       jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
       history: state.history.filter(entry => entry.session === this.session),
@@ -89,6 +90,16 @@ export class TacRuntime {
       case 'storage.destinations':
         invariant(this.storageJobs, 'FEATURE_UNAVAILABLE', 'Storage operations require ShadowMount.');
         return this.storageJobs.destinations();
+      case 'package.begin': {
+        invariant(this.packageInbox, 'FEATURE_UNAVAILABLE', 'Package staging is not installed.');
+        const result = await this.packageInbox.begin(args); this.packageItems = await this.packageInbox.list(); return result;
+      }
+      case 'package.status':
+        invariant(this.packageInbox, 'FEATURE_UNAVAILABLE', 'Package staging is not installed.');
+        return this.packageInbox.describe(args.id);
+      case 'package.list':
+        invariant(this.packageInbox, 'FEATURE_UNAVAILABLE', 'Package staging is not installed.');
+        return this.packageItems = await this.packageInbox.list();
       case 'inbox.begin': {
         invariant(this.inbox, 'FEATURE_UNAVAILABLE', 'Payload inbox is not installed.');
         const result = await this.inbox.begin(args); this.inboxItems = await this.inbox.list(); return result;

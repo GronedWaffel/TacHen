@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 let csrf, state, connected = true, timer, busy = false;
 let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
+let packageUploading = false, packageStop = false, packageResume = null;
 const $ = selector => document.querySelector(selector);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
 async function api(route, body) {
@@ -49,6 +50,25 @@ function draw() {
   $('#capabilities').replaceChildren(...available.map(item => { const card = el('article', 'cap'); card.append(el('span', 'indicator', 'AVAILABLE'), el('h3', '', item.name), el('p', '', item.reason || 'Connected to the shared TacHen runtime.')); return card; }));
   $('#component-list').replaceChildren(...state.capabilities.map(item => row(item.name, item.reason, item.available ? 'Available' : 'Not integrated', item.available)));
   $('#payload-file').disabled = !capability('inbox')?.available;
+  $('#package-file').disabled = packageUploading || !Array.isArray(state.packages);
+  $('#package-hash').disabled = packageUploading;
+  $('#package-stop').disabled = !packageUploading;
+  $('#package-install-status').textContent = capability('packages')?.available
+    ? 'Verified packages can be queued for background installation.'
+    : 'This development build stages and verifies packages. Native installation is still being integrated.';
+  $('#package-items').replaceChildren(...(state.packages?.length ? state.packages.map(item => {
+    const node = row(item.name, `${formatBytes(item.offset)} / ${formatBytes(item.bytes)}`, item.status, item.status === 'verified');
+    const active = state.jobs.some(job => job.kind === 'package.verify' && job.resources.includes('package-file:' + item.id) && !['completed', 'cancelled', 'failed'].includes(job.status));
+    if (item.status === 'uploading' && item.offset < item.bytes) {
+      const resume = el('button', '', 'Resume upload'); resume.disabled = packageUploading;
+      resume.onclick = () => { packageResume = item; $('#package-progress').textContent = `Choose the exact original file for ${item.name} to resume.`; $('#package-file').click(); }; node.append(resume);
+    }
+    if (item.status === 'uploading' && item.offset === item.bytes) {
+      const verify = el('button', '', active ? 'Verification in Activity' : 'Verify package'); verify.disabled = active;
+      verify.onclick = () => command('job.enqueue', { kind: 'package.verify', input: { id: item.id }, key: requestKey() }); node.append(verify);
+    }
+    return node;
+  }) : [el('p', 'empty', 'Package uploads will appear here.') ]));
   $('#library-refresh').disabled = libraryBusy || !capability('shadowmount')?.available;
   $('#library-find').disabled = libraryBusy || !state.library?.available;
   $('#library-previous').disabled = libraryBusy || libraryPage.offset === 0;
@@ -65,15 +85,18 @@ function draw() {
   }) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
-    const node = row(job.kind, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
+    const title = { 'package.verify': 'Verify package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
+      'payload.dispatch': 'Load payload', 'deck.start': 'Start command deck' }[job.kind] || job.kind;
+    const node = row(title, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
       job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed');
+    node.classList.add('job-row');
     const actions = el('div', 'actions');
     if (job.progress?.total > 0) {
       const progress = el('progress'); progress.max = job.progress.total; progress.value = job.progress.completed;
       progress.setAttribute('aria-label', 'Operation progress'); node.append(progress,
         el('small', '', `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
     }
-    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || job.kind === 'library.storage' && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
+    for (const [label, action, show] of [['Cancel', 'cancel', ['queued', 'held'].includes(job.status) || ['library.storage', 'package.verify'].includes(job.kind) && job.status === 'running'], ['Resume', 'resume', job.status === 'held'], ['Check result', 'reconcile', job.status === 'interrupted']]) {
       if (!show) continue; const button = el('button', '', label); button.onclick = () => command('job.' + action, { id: job.id }); actions.append(button);
     }
     if (actions.children.length) node.append(actions); return node;
@@ -110,7 +133,8 @@ async function loadLibrary(rescan = false, offset = 0) {
 }
 function formatBytes(value) {
   if (!Number.isFinite(value)) return 'Unknown size';
-  return value >= 1073741824 ? `${(value / 1073741824).toFixed(1)} GiB` : `${(value / 1048576).toFixed(1)} MiB`;
+  return value >= 1073741824 ? `${(value / 1073741824).toFixed(1)} GiB` : value >= 1048576 ? `${(value / 1048576).toFixed(1)} MiB`
+    : value >= 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${value} bytes`;
 }
 async function storageDialog(game) {
   const dialog = el('dialog', 'storage-dialog'), heading = el('h2', '', 'Manage game files');
@@ -188,6 +212,34 @@ $('#payload-file').onchange = async event => {
     $('#upload-progress').textContent = `${file.name} uploaded and verified. It has not been executed.`; await refresh();
   } catch (error) { $('#upload-progress').textContent = error.message; }
   finally { busy = false; event.target.value = ''; }
+};
+$('#package-stop').onclick = () => { packageStop = true; $('#package-progress').textContent = 'Stopping after the current chunk…'; };
+$('#package-file').oncancel = () => { packageResume = null; };
+$('#package-file').onchange = async event => {
+  const file = event.target.files[0]; if (!file || packageUploading) return;
+  const resume = packageResume; packageResume = null; packageUploading = true; packageStop = false; draw();
+  let entry;
+  try {
+    if (resume) {
+      if (file.name !== resume.name || file.size !== resume.bytes) throw Error('Choose the exact original package: its name and size must match.');
+      ({ result: entry } = await api('/api/command', { command: 'package.status', args: { id: resume.id } }));
+      if (entry.status !== 'uploading') throw Error('This file is no longer awaiting upload. Refresh its status.');
+    } else {
+      const hash = $('#package-hash').value.trim().toLowerCase();
+      if (hash && !/^[a-f0-9]{64}$/.test(hash)) throw Error('Expected SHA-256 must contain exactly 64 hexadecimal characters.');
+      ({ result: entry } = await api('/api/command', { command: 'package.begin', args: { name: file.name, bytes: file.size, ...(hash ? { sha256: hash } : {}) } }));
+    }
+    for (let offset = entry.offset; offset < file.size;) {
+      if (packageStop) throw Error('Upload stopped. Completed chunks were retained; use Resume upload to continue.');
+      const response = await fetch(`/api/package-uploads/${entry.id}?offset=${offset}`, { method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-TacHen-CSRF': csrf }, body: file.slice(offset, offset + 1024 * 1024) });
+      const result = await response.json(); if (!response.ok) throw Error(result.error?.message || 'Package upload failed.');
+      offset = result.offset; $('#package-progress').textContent = `${file.name}: ${Math.floor(offset / file.size * 100)}% · ${formatBytes(offset)} / ${formatBytes(file.size)}`;
+    }
+    await api('/api/command', { command: 'job.enqueue', args: { kind: 'package.verify', input: { id: entry.id }, key: requestKey() } });
+    $('#package-progress').textContent = 'Upload complete. Verification is running in Activity; you may close this page.';
+  } catch (error) { $('#package-progress').textContent = error.message; }
+  finally { packageUploading = false; event.target.value = ''; await refresh(); }
 };
 $('#disconnect').onclick = async () => {
   try { await api('/api/disconnect', {}); connected = false; clearTimeout(timer); $('#connection').textContent = 'Disconnected'; notice('Disconnected. Reload this page to reconnect.'); }

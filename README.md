@@ -74,6 +74,14 @@ binds the source, destination volume and service instance. Lost or mismatched
 receipts never trigger automatic duplicate transfers. Local contract tests pass;
 actual console storage behavior remains untested.
 
+The Packages tab can stage complete PS4/PS5 PKGs separately from payloads, up to
+1 TiB subject to real free space. Uploads use bounded resumable chunks; checksum
+verification runs as a cancellable background job and can check an expected
+SHA-256. The payload and package inboxes share capacity reservations. **Native
+PKG installation is not wired yet**: a verified upload is explicitly not an
+installation. The existing Neighborhood install ABI is verified on 13.60 only;
+its older-firmware status layouts need separate evidence before enabling them.
+
 FTP uploads into `/payloads` are copied into the verified inbox after the transfer
 has committed. Other FTP files are ordinary transfers. Invalid payloads remain in
 the FTP share and generate an actionable entry in Activity. Uploads do not autorun

@@ -6,10 +6,18 @@ import { invariant } from './errors.mjs';
 import { inspectPayload, MAX_PAYLOAD } from './payload-format.mjs';
 
 export class PayloadInbox {
-  constructor(root, { id }) { this.root = root; this.id = id; this.locks = new Map(); }
+  constructor(root, { id, policy = null, reservationGroup = null }) {
+    this.root = root; this.id = id; this.locks = new Map();
+    this.reservations = reservationGroup || { inboxes: new Set(), tail: Promise.resolve() };
+    this.policy = policy || { minimum: 64, maximum: MAX_PAYLOAD,
+      names: /^[^/\\\x00-\x1f]{1,180}\.(elf|plugin|prx|sprx)$/i,
+      nameMessage: 'Choose an ELF or supported plugin.', sizeMessage: 'Payload size must be between 64 bytes and 128 MiB.',
+      inspect: async (_file, prefix, status) => inspectPayload(prefix, status.name, { totalBytes: status.bytes }) };
+  }
   async init() {
     await fs.mkdir(this.root, { recursive: true });
     invariant(!(await fs.lstat(this.root)).isSymbolicLink(), 'INBOX_PATH', 'The inbox cannot be a symbolic link.');
+    this.reservations.inboxes.add(this);
     return this;
   }
   file(id, suffix) {
@@ -22,27 +30,42 @@ export class PayloadInbox {
     operation.finally(() => { if (this.locks.get(id) === operation) this.locks.delete(id); }).catch(() => {});
     return operation;
   }
+  async syncDirectory() {
+    if (process.platform === 'win32') return;
+    const directory = await fs.open(this.root, 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  }
   async begin({ name, bytes, sha256 }) {
-    return this.exclusive('reservation', async () => {
-    invariant(typeof name === 'string' && /^[^/\\\x00-\x1f]{1,180}\.(elf|plugin|prx|sprx)$/i.test(name), 'PAYLOAD_NAME', 'Choose an ELF or supported plugin.');
-    invariant(Number.isSafeInteger(bytes) && bytes >= 64 && bytes <= MAX_PAYLOAD, 'PAYLOAD_SIZE', 'Payload size must be between 64 bytes and 128 MiB.');
+    const operation = this.reservations.tail.catch(() => {}).then(async () => {
+    invariant(typeof name === 'string' && this.policy.names.test(name), 'PAYLOAD_NAME', this.policy.nameMessage);
+    invariant(Number.isSafeInteger(bytes) && bytes >= this.policy.minimum && bytes <= this.policy.maximum, 'PAYLOAD_SIZE', this.policy.sizeMessage);
     invariant(sha256 == null || /^[a-f0-9]{64}$/.test(sha256), 'PAYLOAD_HASH', 'Invalid expected SHA-256.');
     const existing = (await fs.readdir(this.root)).filter(name => name.endsWith('.json'));
     invariant(existing.length < 256, 'INBOX_FULL', 'The inbox already contains 256 files.');
     const capacity = await fs.statfs(this.root), free = Number(capacity.bsize) * Number(capacity.bavail);
-    const reserved = (await this.list()).filter(entry => entry.status === 'uploading').reduce((sum, entry) => sum + Math.max(0, entry.bytes - entry.offset), 0);
-    invariant(free >= reserved + bytes + 16 * 1024 * 1024, 'NO_SPACE', 'Insufficient free space for this payload, existing uploads and the safety reserve.');
+    let reserved = 0;
+    for (const inbox of this.reservations.inboxes) {
+      const entries = await inbox.list();
+      invariant(!entries.some(entry => entry.status === 'unreadable'), 'RESERVATION_UNKNOWN', 'An unreadable upload must be reviewed before reserving more space.');
+      reserved += entries.filter(entry => entry.status === 'uploading').reduce((sum, entry) => sum + Math.max(0, entry.bytes - entry.offset), 0);
+    }
+    invariant(Number.isSafeInteger(free) && free >= reserved + bytes + 16 * 1024 * 1024, 'NO_SPACE', 'Insufficient free space for this file, existing uploads and the safety reserve.');
     const id = this.id(), meta = { id, name, bytes, expectedSha256: sha256 ?? null };
-    const part = await fs.open(this.file(id, '.part'), 'wx', 0o600); await part.close();
-    await fs.writeFile(this.file(id, '.json'), JSON.stringify(meta), { flag: 'wx', mode: 0o600 });
+    const part = await fs.open(this.file(id, '.part'), 'wx', 0o600);
+    try { await part.sync(); } finally { await part.close(); }
+    const metadata = await fs.open(this.file(id, '.json'), 'wx', 0o600);
+    try { await metadata.writeFile(JSON.stringify(meta)); await metadata.sync(); } finally { await metadata.close(); }
+    await this.syncDirectory();
     return { ...meta, offset: 0, status: 'uploading' };
     });
+    this.reservations.tail = operation.catch(() => {}); return operation;
   }
   async meta(id) {
     const file = this.file(id, '.json'), stat = await fs.lstat(file);
     invariant(stat.isFile() && !stat.isSymbolicLink() && stat.size < 2048, 'UPLOAD_METADATA', 'Invalid upload metadata.');
     const meta = JSON.parse(await fs.readFile(file, 'utf8'));
-    invariant(meta.id === id && Number.isSafeInteger(meta.bytes) && meta.bytes >= 64 && meta.bytes <= MAX_PAYLOAD,
+    invariant(meta.id === id && Number.isSafeInteger(meta.bytes) && meta.bytes >= this.policy.minimum && meta.bytes <= this.policy.maximum &&
+      typeof meta.name === 'string' && this.policy.names.test(meta.name) && (meta.expectedSha256 === null || /^[a-f0-9]{64}$/.test(meta.expectedSha256)),
       'UPLOAD_METADATA', 'Invalid upload metadata.');
     return meta;
   }
@@ -51,7 +74,8 @@ export class PayloadInbox {
     for (const suffix of ['.payload', '.part']) {
       try {
         const stat = await fs.lstat(this.file(id, suffix));
-        invariant(stat.isFile() && !stat.isSymbolicLink(), 'UPLOAD_FILE', 'The upload is not a regular file.');
+        invariant(stat.isFile() && !stat.isSymbolicLink() && stat.size <= meta.bytes, 'UPLOAD_FILE', 'The upload has an invalid type or size.');
+        invariant(suffix !== '.payload' || stat.size === meta.bytes, 'UPLOAD_FILE', 'A verified file changed size.');
         return { ...meta, offset: stat.size, status: suffix === '.payload' ? 'verified' : 'uploading' };
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
@@ -69,34 +93,41 @@ export class PayloadInbox {
         let written = 0;
         while (written < data.length) {
           const result = await file.write(data, written, data.length - written, offset + written);
-          invariant(result.bytesWritten > 0, 'SHORT_WRITE', 'Payload write made no progress.'); written += result.bytesWritten;
+          invariant(result.bytesWritten > 0, 'SHORT_WRITE', 'File write made no progress.'); written += result.bytesWritten;
         }
         await file.sync();
       } finally { await file.close(); }
       return { id, offset: offset + data.length, status: 'uploading' };
     });
   }
-  async verify(id) {
+  async verify(id, { signal, progress = async () => {} } = {}) {
     return this.exclusive(id, async () => {
       const status = await this.status(id);
-      invariant(status.offset === status.bytes, 'UPLOAD_INCOMPLETE', 'Finish uploading the payload first.');
+      invariant(status.offset === status.bytes, 'UPLOAD_INCOMPLETE', 'Finish uploading the file first.');
       const file = await fs.open(this.file(id, status.status === 'verified' ? '.payload' : '.part'), 'r');
       const hash = createHash('sha256'), prefix = Buffer.alloc(Math.min(status.bytes, 16384));
       let info;
       try {
         const first = await file.read(prefix, 0, prefix.length, 0);
-        invariant(first.bytesRead === prefix.length, 'SHORT_READ', 'Could not inspect the complete payload header.');
-        info = inspectPayload(prefix, status.name, { totalBytes: status.bytes });
+        invariant(first.bytesRead === prefix.length, 'SHORT_READ', 'Could not inspect the complete file header.');
+        const before = await file.stat();
+        info = await this.policy.inspect(file, prefix, status);
         const chunk = Buffer.alloc(1024 * 1024);
+        let yieldAt = Date.now();
         for (let position = 0; position < status.bytes;) {
+          invariant(!signal?.aborted, 'UPLOAD_CANCELLED', 'File verification was cancelled; uploaded bytes were retained.');
           const { bytesRead } = await file.read(chunk, 0, Math.min(chunk.length, status.bytes - position), position);
-          invariant(bytesRead > 0, 'SHORT_READ', 'Payload verification ended early.'); hash.update(chunk.subarray(0, bytesRead)); position += bytesRead;
+          invariant(bytesRead > 0, 'SHORT_READ', 'File verification ended early.'); hash.update(chunk.subarray(0, bytesRead)); position += bytesRead;
+          await progress({ completed: position, total: status.bytes, phase: 'Verifying file checksum' });
+          if (Date.now() - yieldAt >= 25) { await new Promise(resolve => setTimeout(resolve, 0)); yieldAt = Date.now(); }
         }
-        invariant((await file.stat()).size === status.bytes, 'PAYLOAD_CHANGED', 'Payload size changed during verification.');
+        const after = await file.stat();
+        invariant(after.size === status.bytes && after.mtimeMs === before.mtimeMs, 'PAYLOAD_CHANGED', 'The file changed during verification.');
       } finally { await file.close(); }
       const sha256 = hash.digest('hex');
-      invariant(!status.expectedSha256 || sha256 === status.expectedSha256, 'PAYLOAD_HASH_MISMATCH', 'Payload checksum differs from the expected file.');
-      if (status.status !== 'verified') await fs.rename(this.file(id, '.part'), this.file(id, '.payload'));
+      invariant(!status.expectedSha256 || sha256 === status.expectedSha256, 'PAYLOAD_HASH_MISMATCH', 'File checksum differs from the expected value.');
+      invariant(!signal?.aborted, 'UPLOAD_CANCELLED', 'File verification was cancelled; uploaded bytes were retained.');
+      if (status.status !== 'verified') { await fs.rename(this.file(id, '.part'), this.file(id, '.payload')); await this.syncDirectory(); }
       // Always rehash before dispatch; this inbox entry is not an execution receipt.
       return { ...info, id, sha256, status: 'verified' };
     });

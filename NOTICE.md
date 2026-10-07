@@ -33,6 +33,13 @@ checksummed durable receipts and queue integration in `platform/native` and `src
 The SHA-256 implementation is Brad Conte's implementation as vendored by ftpsrv,
 with the existing port's unsigned-shift correction and original author notice.
 
+Package CNT/FIH field interpretation in `src/package-format.mjs` is adapted from
+GronedWaffel's GPL PS Neighborhood `src/packages.mjs` (source input SHA-256
+`0e55bda6d53a33c5651bce1d0deb1c08556452ef844c6b98c0c9d18feb781622`).
+That inspector credits flatz's `ps4_remote_pkg_installer/pkg.h` for the PS4 header
+layout. TacHen adds its own bounded reader, shared reservations, background
+verification and phone workflow; these do not establish signature or license validity.
+
 The loader's treatment of runtime imports was checked against the SDK v0.43
 [payload dynamic linker](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/rtld_payload.c):
 the payload CRT resolves library/symbol imports. TacHen validates referenced data

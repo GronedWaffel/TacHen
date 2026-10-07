@@ -270,3 +270,42 @@ Next integrations remain background PKG delivery/installation, native plugin,
 cheat and save adapters, in-game deck/input arbitration, FPS/resource telemetry,
 developer MCP, loadouts and staged update recovery. Final deck design and full
 feature acceptance are still outstanding. The overall goal remains active.
+
+## Sixth implementation checkpoint: large package transfer and verification
+
+2026-10-07: Added a dedicated private package inbox and phone Packages tab. This
+advances the requested background installer; **it does not yet implement native
+package submission**. No PS5 connection, service call or console test occurred.
+
+- Package uploads accept complete `.pkg` files from 8 KiB to 1 TiB, constrained by
+  actual free space. Package and payload reservations serialize through one shared
+  accounting group so they cannot independently reserve the same remaining space.
+  Metadata/initial files are synced, each received chunk is synced, and console
+  rename publication also syncs the containing directory.
+- The inspector handles PS4 CNT and PS5 CNT/finalized-image headers with bounded
+  reads and 64-bit offsets. Tests include a synthetic finalized-image header at
+  an offset above 4 GiB and a 180 GiB declared size in the actual QuickJS engine;
+  no huge test file was allocated. Bounds/identities are checked before promotion.
+- Verification streams SHA-256 using a bounded buffer, yields periodically to
+  the coordinator, reports byte progress and preserves uploaded bytes on cancel.
+  Optional expected hashes detect disagreement. Header validity and a local hash
+  are not proof of package signatures, compatibility or console installation.
+- Phone uploads can stop and resume from the committed offset after reselecting
+  the exact original file. Name/size matching is only a convenience check; without
+  an expected full-file hash it does not prove that a reselected file has identical
+  content. The console installer must still validate the final package.
+- The real browser upload path was exercised against the loopback development
+  server using a synthetic 8 KiB header fixture. It reached a completed verification
+  job and explicitly reported that installation had not started. Activity was
+  adjusted to keep progress/readable text stacked on a 390-pixel phone viewport,
+  with no horizontal overflow. Native console APIs were absent from this test.
+
+Installer investigation: Neighborhood's `receiver-ps5/install-abi.h` records the
+13.60 status structure as 712 bytes with its error at offset 0xa0. Older public
+etaHEN definitions place that error at 0x3c. Neighborhood therefore deliberately
+gates native submission to 13.60. Reusing either definition across all TacHen
+targets without ABI evidence would recreate the prior out-of-bounds failure.
+Next work is a serialized native installer with durable receipts, progress and
+source lifetime, plus explicit ABI checks/adaptation for the other target firmware.
+The complete package requirement and all other previously open integrations remain
+in scope; no replacement-HEN or hardware-completion claim is made.
