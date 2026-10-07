@@ -31,7 +31,7 @@ export function validateProfiles(profiles) {
   return result;
 }
 export class Profiles {
-  constructor(store) { this.store = store; }
+  constructor(store, { changed = () => {} } = {}) { this.store = store;this.changed = changed; }
   key(titleId, version) { return titleId + '@' + version; }
   async save(input, revision) {
     invariant(Number.isSafeInteger(revision), 'REVISION_REQUIRED', 'Refresh the loadout before saving.');
@@ -39,13 +39,15 @@ export class Profiles {
     return this.store.transaction(state => {
       const key = this.key(profile.titleId, profile.version);
       invariant(Object.hasOwn(state.profiles, key) || Object.keys(state.profiles).length < 256, 'PROFILE_LIMIT', 'The loadout library is full.');
-      state.profiles[key] = profile;
+      const before = state.profiles[key] ?? null;state.profiles[key] = profile;
+      this.changed(state, key, before, profile);
     }, revision);
   }
   async remove(titleId, version, revision) {
     invariant(Number.isSafeInteger(revision), 'REVISION_REQUIRED', 'Refresh the loadout before removing it.');
     const key = this.key(titleId, version);
-    return this.store.transaction(state => { invariant(Object.hasOwn(state.profiles, key), 'PROFILE_MISSING', 'Loadout not found.');delete state.profiles[key]; }, revision);
+    return this.store.transaction(state => { invariant(Object.hasOwn(state.profiles, key), 'PROFILE_MISSING', 'Loadout not found.');
+      const before = state.profiles[key];delete state.profiles[key];this.changed(state, key, before, null); }, revision);
   }
   list() { return Object.values(this.store.snapshot().profiles); }
   plan(game, catalog) {

@@ -20,6 +20,7 @@ import { installGameInputRelay } from '../src/game-input-relay.mjs';
 import { installLoadouts } from '../src/loadouts.mjs';
 import { installSaves } from '../src/saves.mjs';
 import { TacRuntime } from '../src/runtime.mjs';
+import { SessionHistory } from '../src/history.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -69,6 +70,8 @@ globalThis.testPassed = false;
   const pluginRuntime = { store, sequence: 0, graph: { safe: false }, capability() {},
     inbox: { verify: async () => ({ id: pluginUpload, name: 'test.plugin', format: 'plugin', sha256: pluginHash, pluginId: 'TACP00001', pluginVersion: '1.00' }) },
     jobs: { register(kind, handler) { if (kind === 'plugin.start') pluginHandler = handler; else if (kind === 'game.module.start') moduleHandler = handler; }, snapshot: () => [] } };
+  let historyId = 1000;Object.assign(pluginRuntime, { id: () => (++historyId).toString(16).padStart(32, '0'), now: () => 100, session: '9'.repeat(32) });
+  pluginRuntime.changes = new SessionHistory(pluginRuntime);
   const plugins = installPlugins(pluginRuntime, { systemProbe: () => ({ boot: '100:0', kstuff: { injectionReady: true }, processes: [] }),
     pluginStart(request, upload, sha256) { pluginReceipt = { request, sha256, stage: 3, plugin: true, pluginId: 'TACP00001',
       pluginVersion: '1.00', pid: 88, generation: '100:0/88/101:0' }; }, loaderPoll: () => pluginReceipt,
@@ -160,7 +163,14 @@ globalThis.testPassed = false;
   const loadoutJob = await loadoutRuntime.jobs.enqueue('loadout.apply', {}, 'quickjs-loadout');
   for (let i = 0; i < 500 && loadoutRuntime.jobs.snapshot().some(j => ['queued', 'running'].includes(j.status)); i++) await Promise.resolve();
   assert(loadoutRuntime.jobs.snapshot().find(j => j.id === loadoutJob.id)?.result?.fullyApplied && loadoutRuntime.overlaySettings().ip, 'QuickJS loadout application failed');
-  loadoutRuntime.game = null;assert(!loadoutRuntime.overlaySettings().ip, 'QuickJS loadout overlay leaked to dashboard');await loadoutRuntime.close();
+  loadoutRuntime.game = null;assert(!loadoutRuntime.overlaySettings().ip, 'QuickJS loadout overlay leaked to dashboard');
+  await loadoutRuntime.settings({ overlay: { fps: false }, developer: { enabled: false } }, store.snapshot().revision);
+  await loadoutRuntime.settings({ appearance: { reducedMotion: true } }, store.snapshot().revision);
+  const historyPlan = loadoutRuntime.changes.preview(store.snapshot().history.at(-1));
+  assert(historyPlan.available && historyPlan.proof.length === 64, 'QuickJS change review failed');
+  await loadoutRuntime.execute('history.undo', historyPlan);
+  assert(!loadoutRuntime.snapshot().settings.appearance.reducedMotion && !loadoutRuntime.changes.preview({ id: historyPlan.id }).available,
+    'QuickJS preference undo failed');await loadoutRuntime.close();
   let saveReceipt;
   const saveRuntime = await new TacRuntime(store, { identity: async () => ({ mode: 'development' }), install(runtime) {
     installSaves(runtime, { systemProbe: () => ({ kstuff: { state: 'installed', injectionReady: true } }),

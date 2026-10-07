@@ -4,8 +4,8 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const ACTIVE = new Set(['running', 'cancelling', 'uncertain']);
 
 export class JobQueue {
-  constructor(store, { id, now = Date.now, concurrency = 2, changed = () => {}, timeout = 120000 } = {}) {
-    this.store = store; this.id = id; this.now = now; this.concurrency = concurrency;
+  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, timeout = 120000 } = {}) {
+    this.store = store; this.id = id; this.now = now; this.session = session; this.concurrency = concurrency;
     this.changed = changed; this.timeout = timeout; this.handlers = new Map(); this.running = new Map();
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
   }
@@ -53,9 +53,10 @@ export class JobQueue {
         return clone(previous);
       }
       invariant(state.jobs.length < 1024, 'QUEUE_FULL', 'Job history is full; archive completed operations first.');
+      handler.guard?.(args, state);
       const resources = handler.resources(args);
       invariant(Array.isArray(resources) && resources.every(x => typeof x === 'string' && x.length <= 160), 'JOB_RESOURCE', 'Invalid operation resources.');
-      const job = { id: this.id(), key, kind, args, signature, requestSignature, resources: [...new Set(resources)],
+      const job = { id: this.id(), session: this.session, key, kind, args, signature, requestSignature, resources: [...new Set(resources)],
         status: 'queued', progress: null, result: null, error: null, createdAt: this.now(), updatedAt: this.now() };
       state.jobs.push(job); return clone(job);
     });
@@ -187,7 +188,7 @@ export class JobQueue {
     const job = this.snapshot().find(job => job.id === id);
     invariant(job?.status === 'held', 'JOB_NOT_HELD', 'Only held work can be resumed.');
     invariant(this.handlers.has(job.kind), 'ADAPTER_MISSING', 'The operation adapter is not installed.');
-    await this.handlers.get(job.kind).validate(clone(job.args));
+    await this.handlers.get(job.kind).validate(clone(job.args), { jobId: job.id });
     await this.patch(id, { status: 'queued', error: null }); this.kick();
   }
   async reconcile(id) {

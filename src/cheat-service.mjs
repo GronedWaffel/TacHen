@@ -58,7 +58,7 @@ export class CheatService {
         runtime.mcp.expires > runtime.now() && runtime.store.snapshot().settings.developer.enabled && runtime.store.snapshot().settings.developer.memoryWrites,
         'MEMORY_WRITES_DISABLED', 'The MCP memory-write authorization ended. No new patch was started.');
     }
-    async function validate(input) {
+    async function validate(input, { jobId = null } = {}) {
       invariant(input && /^[a-f0-9]{64}$/.test(input.sha256) && typeof input.cheatId === 'string' && typeof input.enabled === 'boolean',
         'CHEAT_INPUT', 'Choose an imported cheat and its desired state.');
       invariant(!runtime.graph.safe, 'SAFE_STARTUP', 'Memory modifications are held during safe startup.');
@@ -73,19 +73,23 @@ export class CheatService {
       const accepted = { sha256: input.sha256, cheatId: input.cheatId, enabled: input.enabled, module: pack.process, planHash: packetHash(packet),
         boot: probe.boot, pid: game.pid, generation: game.generation, titleId: game.titleId, version: game.version, metadataHash: game.metadataHash };
       if (input.developerSession !== undefined) Object.assign(accepted, { developerSession: input.developerSession, developerGrant: input.developerGrant });
+      if (input.undoOf !== undefined) accepted.undoOf = clone(input.undoOf);
+      runtime.changes.guardJobUndo(accepted, 'cheat.set', { jobId });
       if (input.generation) invariant(canonical(accepted) === canonical(input), 'CHEAT_CONTEXT_CHANGED', 'The queued cheat belongs to a different game context.');
       return accepted;
     }
-    return { validate, resources: input => ['native-payload-dispatch', 'game-memory:' + input.generation], timeout: 30000, cancellable: false,
+    return { validate, guard: (input, state) => runtime.changes.guardJobUndo(input, 'cheat.set', { state }),
+      resources: input => ['native-payload-dispatch', 'game-memory:' + input.generation], timeout: 30000, cancellable: false,
       async run(input, context) {
         let packet;
-        try { await validate(input); packet = cheatPacket(await self.packs.read(input.sha256), input.cheatId, input.enabled);
+        try { await validate(input, { jobId: context.id }); packet = cheatPacket(await self.packs.read(input.sha256), input.cheatId, input.enabled);
           invariant(packetHash(packet) === input.planHash, 'CHEAT_CHANGED', 'Stored cheat bytes changed.');
         } catch (error) { error.noSideEffects = true; throw error; }
         for (;;) {
           if (context.signal.aborted || !same(input, runtime.game)) throw clean('CHEAT_CONTEXT_CHANGED', 'The game changed before cheat dispatch.');
           if (runtime.graph.safe) throw clean('SAFE_STARTUP', 'Memory modifications are held during safe startup.');
-          try { developerGate(input); } catch (error) { error.noSideEffects = true;throw error; }
+          try { developerGate(input);runtime.changes.guardJobUndo(input, 'cheat.set', { jobId: context.id }); }
+          catch (error) { error.noSideEffects = true;throw error; }
           try {
             native.cheatStart(context.id, input.pid, input.generation, input.titleId, input.metadataHash, input.module,
               packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength)); break;

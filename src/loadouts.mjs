@@ -10,7 +10,10 @@ const succeeded = job => job.status === 'completed' && ({ 'plugin.start': 'plugi
 const waiting = new Set(['FEATURE_UNAVAILABLE', 'MODULE_READINESS', 'PLUGIN_READINESS', 'CHEAT_READINESS']);
 export class Loadouts {
   constructor(runtime, native, { delay = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-    this.runtime = runtime;this.native = native;this.delay = delay;this.library = new Profiles(runtime.store);
+    this.runtime = runtime;this.native = native;this.delay = delay;
+    this.library = new Profiles(runtime.store, { changed: (state, target, before, after) => runtime.changes.record(state, {
+      change: 'profile', target, before, after, message: after ? 'Game loadout saved' : 'Game loadout removed',
+      detail: 'Saved choices changed. Applied plugins and cheats are tracked as separate operations.' }) });
     this.active = null;this.observation = null;this.attempts = new Set();this.pending = null;this.timer = null;this.stopped = true;
     runtime.jobs.register('loadout.apply', this.handler());
   }

@@ -1113,3 +1113,59 @@ contacted, no payload was sent, and no public deployment/release occurred.
 The full goal remains active: original presentation, remaining cheat formats,
 history/undo, adaptive notices, update/recovery flows, support diagnostics,
 older-firmware installer ABIs and full hardware acceptance remain outstanding.
+
+## Checkpoint twenty-three — shared session history and supported undo
+
+The runtime now records actual preference differences, verified plugin
+registration, autostart changes and saved-loadout edits alongside current-session
+job results. Both Activity interfaces present the same bounded history and review
+the proposed reversal before confirmation. Configuration changes are capped at
+256 records / 512 KiB; the combined view shows at most 256 entries. Unchanged
+state, game identity and recovery mode reuse a cached presentation. No extra
+native probes or timers run merely to display history.
+
+Preference undo restores only the affected fields, preserving unrelated later
+choices. Same-field edits, including a value changed away and back, must be
+reversed in order. Persistence, capability validation, reversal marking and the
+new history entry share a transaction. Failed commits do not run overlay/reset
+side effects. Developer permission changes cannot be undone to restore grants.
+Plugin autostart and saved loadouts can be restored, with explicit notice that
+this may arm future launches but does not unload already applied code.
+
+Successful cheat transactions can enqueue the inverse checked patch against the
+original boot, process generation, title, version and metadata. Successful mount
+changes can restore the prior state against the same ShadowMount instance and
+source identity with the game closed. The queue checks reversal references and
+conflicts atomically at acceptance, again at validation, and before dispatch.
+Concurrent requests adopt one durable reversal. Later conflicting operations,
+replaced processes/services, invalid proofs and unconfirmed outcomes cannot
+silently retarget or replay it. A caller cannot manufacture a mount's prior state;
+completed no-op mounts do not block a genuinely earlier reversible change.
+ShadowMount's remote state checks are point-in-time observations, not an atomic
+transaction against independently acting external clients.
+
+There is deliberately no generic plugin unload, package uninstall, save deletion
+or storage rollback behind Undo. Those rows explain the actual limitation.
+Reversals themselves are recorded but are not a redo stack. Earlier runtime
+sessions remain in operation storage as applicable but are not offered for undo.
+Controller Circle navigation returns through confirmation, review, history and
+Activity. Expired entries produce a back action instead of breaking the deck.
+
+All **250 local tests** passed, including fifteen new configuration/native-job/
+controller checks. Coverage includes concurrent requests, stale reviews, ABA
+edits, failed persistence, replaced game/service identity, later queued conflicts,
+unknown native receipts, forged references/prior state, no-op mounts and history
+expiration. The native boundaries in these tests are fixtures, not PS5 execution.
+The actual embedded QuickJS fixture performs reviewed preference undo. All
+artifacts cross-built, and the four-ELF process-link audit passed. A loopback-only
+browser fixture verified preference change → review → undo → completion and a
+390-pixel phone layout; its temporary server and browser were closed afterward.
+
+Runtime **8,906,288 bytes**, SHA-256
+`021d5b589b25d51e58069e8aad31b169fb56510d0b1c6926e9709f7ca9c3dfe3`.
+
+No console was contacted or payload sent, and no public deployment/release
+occurred. Full hardware acceptance remains deferred. Original visual presentation,
+remaining cheat formats, adaptive notices, update/recovery flows, support
+diagnostics, older-firmware installer ABIs and other items in the full goal remain
+active; this checkpoint does not claim TacHen is complete.

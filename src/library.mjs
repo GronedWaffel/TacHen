@@ -54,22 +54,29 @@ export function installLibrary(runtime, { request = localRequest, timeout = 1500
     })();
     return refreshing;
   }
-  async function target(input) {
+  async function target(input, { jobId = null } = {}) {
     invariant(input && TITLE.test(input.titleId) && typeof input.mounted === 'boolean', 'LIBRARY_INPUT', 'Choose a game and a mount state.');
     const current = await scan(), item = current.games.find(item => item.titleId === input.titleId);
     invariant(item?.canMount && item.sourceAvailable, 'LIBRARY_SOURCE', 'This game source is unavailable or is an installed package.');
     if (input.path) invariant(input.path === item.path && input.contentId === item.contentId, 'LIBRARY_CHANGED', 'The game source changed after this request.');
     if (input.service) invariant(sameService(input.service, current.service), 'SERVICE_CHANGED', 'ShadowMount restarted after this request.');
-    return { titleId: item.titleId, path: item.path, contentId: item.contentId, mounted: input.mounted,
+    if (typeof input.priorMounted === 'boolean') invariant(input.priorMounted === item.mounted,
+      'HISTORY_CONFLICT', 'The current mount no longer matches the reviewed change.');
+    const accepted = { titleId: item.titleId, path: item.path, contentId: item.contentId, mounted: input.mounted,
       priorMounted: typeof input.priorMounted === 'boolean' ? input.priorMounted : item.mounted, service: current.service };
+    if (input.undoOf !== undefined) accepted.undoOf = clone(input.undoOf);
+    runtime.changes.guardJobUndo(accepted, 'library.mount', { jobId });return accepted;
   }
   runtime.jobs.register('library.mount', {
-    validate: target, resources: () => ['shadowmount-library'], timeout: timeout + 15000, cancellable: false,
+    validate: target, guard: (input, state) => runtime.changes.guardJobUndo(input, 'library.mount', { state }),
+    resources: () => ['shadowmount-library'], timeout: timeout + 15000, cancellable: false,
     async run(input, context) {
-      try { await target(input); }
+      try { await target(input, { jobId: context.id }); }
       catch (error) { error.noSideEffects = true; throw error; }
       if (input.priorMounted === input.mounted) return observe(input);
       await context.progress({ completed: 0, total: 1, phase: input.mounted ? 'Mounting game source' : 'Unmounting game source' });
+      try { runtime.changes.guardJobUndo(input, 'library.mount', { jobId: context.id }); }
+      catch (error) { error.noSideEffects = true;throw error; }
       // Upstream's exact pinned implementation checks active games/sleep and
       // returns EBUSY before changing a live game's mount. No override is sent.
       const result = await call(input.mounted ? 'games/mount' : 'games/unmount', { title_id: input.titleId }, 65536);

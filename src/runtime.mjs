@@ -4,6 +4,7 @@ import { mergeSettings } from './settings.mjs';
 import { requireFirmware } from './firmware.mjs';
 import { ServiceGraph } from './services.mjs';
 import { JobQueue } from './jobs.mjs';
+import { SessionHistory } from './history.mjs';
 
 export const FEATURES = Object.freeze([
   ['deck', 'Command deck'], ['game-overlay', 'In-game command deck'], ['phone', 'Phone control'],
@@ -20,7 +21,8 @@ export class TacRuntime {
     this.sequence = 0; this.session = id(); this.game = null; this.started = false;
     this.inboxItems = [];
     this.graph = new ServiceGraph({ changed: () => this.sequence++ });
-    this.jobs = new JobQueue(store, { id, now, changed: () => this.sequence++ });
+    this.jobs = new JobQueue(store, { id, now, session: this.session, changed: () => this.sequence++ });
+    this.changes = new SessionHistory(this);
     this.capabilities = new Map(FEATURES.map(([id, name]) => [id,
       { id, name, available: false, reason: 'Native integration is not installed in this build.' }]));
   }
@@ -66,31 +68,47 @@ export class TacRuntime {
       library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
       jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
-      history: state.history.filter(entry => entry.session === this.session),
+      history: this.changes.snapshot(state),
       queue: { halted: this.jobs.halted, error: this.jobs.fault } };
   }
   async settings(patch, revision) {
     invariant(Number.isSafeInteger(revision), 'REVISION_REQUIRED', 'Settings require the displayed state revision.', { status: 400 });
-    // A setting is not a claim that the associated renderer or service exists.
-    const requested = mergeSettings(this.store.snapshot().settings, patch);
+    await this.store.transaction(state => this.applyPreferences(state, patch), revision);
+    this.preferencesApplied(patch);return this.snapshot();
+  }
+  applyPreferences(state, patch, reversalOf = null) {
+    const before = state.settings, requested = mergeSettings(before, patch);
     const guarded = [['fps', requested.overlay.fps], ['resources', requested.overlay.ram || requested.overlay.cpu],
       ['ip-overlay', requested.overlay.ip], ['mcp', requested.developer.enabled], ['payloads', requested.services.inboxAutoRun]];
     for (const [feature, enabled] of guarded) if (enabled) invariant(this.capabilities.get(feature).available,
       'FEATURE_UNAVAILABLE', this.capabilities.get(feature).reason);
-    await this.store.transaction(state => {
-      state.settings = mergeSettings(state.settings, patch);
-      state.history.push({ id: this.id(), session: this.session, at: this.now(), type: 'settings',
-        message: 'Preferences changed', fields: Object.keys(patch), undo: false });
-      state.history = state.history.slice(-256);
-    }, revision);
+    state.settings = requested;
+    this.changes.settingsChanged(state, before, requested, reversalOf);
+  }
+  preferencesApplied(patch) {
     if (!this.store.snapshot().settings.developer.enabled) this.mcp?.revoke();
     if (patch.overlay) { this.loadouts?.overrideOverlay(patch.overlay);this.telemetry?.reset(); }
-    this.sequence++; return this.snapshot();
+    this.sequence++;
+  }
+  async restorePreferences(id, proof) {
+    let patch = null;
+    await this.store.transaction(state => {
+      const entry = state.history.find(item => item.id === id);
+      invariant(entry?.change === 'settings', 'HISTORY_MISSING', 'This preference change is no longer in history.');
+      if (entry.undone) return;
+      this.changes.configGuard(entry, proof, state);
+      patch = clone(entry.before);entry.undone = { at: this.now() };
+      this.applyPreferences(state, patch, id);
+    });
+    if (patch) this.preferencesApplied(patch);
+    return { reversed: true, id, message: 'Previous preferences restored.' };
   }
   async execute(command, args) {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'history.preview': return this.changes.preview(args);
+      case 'history.undo': return this.changes.undo(args);
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':

@@ -45,6 +45,47 @@ test('native patch packet and receipt bind both directions to exact game; duplic
   const off = await f.enqueue(false);assert.equal((await f.settled(off.id)).status, 'completed');
   assert.equal(Buffer.from(f.calls[1].packet).subarray(32).toString('hex'), '90900102');
 });
+test('history undo dispatches the inverse native packet once across simultaneous devices', async t => {
+  const f = await fixture(t), source = await f.enqueue(true);await f.settled(source.id);
+  const plan = f.runtime.changes.preview(source);assert.equal(plan.available, true);
+  const results = await Promise.all([f.runtime.changes.undo(plan), f.runtime.changes.undo(plan)]);
+  assert.equal(results[0].jobId, results[1].jobId);assert.equal((await f.settled(results[0].jobId)).status, 'completed');
+  assert.equal(f.calls.length, 2);assert.equal(Buffer.from(f.calls[1].packet).subarray(32).toString('hex'), '90900102');
+  assert.equal((await f.runtime.changes.undo(plan)).jobId, results[0].jobId);assert.equal(f.calls.length, 2);
+  assert.equal(f.runtime.changes.preview(source).available, false);
+});
+
+test('native undo follows reverse order, rejects a replaced game and holds an unconfirmed reversal', async t => {
+  const f = await fixture(t), first = await f.enqueue(true);await f.settled(first.id);
+  const second = await f.enqueue(false);await f.settled(second.id);
+  assert.equal(f.runtime.changes.preview(first).available, false);
+  const undone = await f.runtime.changes.undo(f.runtime.changes.preview(second));await f.settled(undone.jobId);
+  assert.equal(f.runtime.changes.preview(first).available, true);
+  const originalGame = { ...f.runtime.game };f.runtime.game.generation += '-replacement';
+  assert.equal(f.runtime.changes.preview(first).available, false);f.runtime.game = originalGame;
+  const start = f.native.cheatStart;
+  f.native.cheatStart = (...args) => { start(...args);f.receipts.get(args[0]).resumed = false; };
+  const held = await f.runtime.changes.undo(f.runtime.changes.preview(first));assert.equal((await f.settled(held.jobId)).status, 'interrupted');
+  const count = f.calls.length;assert.equal((await f.runtime.changes.undo(f.runtime.changes.preview(first))).jobId, held.jobId);assert.equal(f.calls.length, count);
+});
+
+test('queued reversal detects newer conflicting work at dispatch and never writes', async t => {
+  const f = await fixture(t), source = await f.enqueue(true);await f.settled(source.id);
+  f.runtime.jobs.concurrency = 0;
+  const undone = await f.runtime.changes.undo(f.runtime.changes.preview(source));
+  const later = await f.enqueue(false);f.runtime.jobs.concurrency = 2;f.runtime.jobs.kick();
+  const result = await f.settled(undone.jobId);assert.equal(result.status, 'failed');assert.equal(result.error.code, 'HISTORY_CONFLICT');
+  await f.settled(later.id);assert.equal(f.calls.length, 2);assert.equal(f.calls[1].request, later.id);
+});
+
+test('a forged undo reference cannot redirect a native operation', async t => {
+  const f = await fixture(t), source = await f.enqueue(true);await f.settled(source.id);
+  const plan = f.runtime.changes.preview(source), undoOf = { id: source.id, proof: plan.proof };
+  await assert.rejects(f.runtime.jobs.enqueue('cheat.set', { ...f.input(true), undoOf }, f.runtime.id()), { code: 'HISTORY_TARGET' });
+  await assert.rejects(f.runtime.jobs.enqueue('cheat.set', { ...f.input(false), undoOf: { ...undoOf, proof: '0'.repeat(64) } }, f.runtime.id()), { code: 'HISTORY_CHANGED' });
+  assert.equal(f.calls.length, 1);
+});
+
 test('wrong versions, safe startup and changed queued generation cannot reach native writes', async t => {
   const f = await fixture(t);f.runtime.game.version = '01.001.000';await assert.rejects(f.enqueue(true), { code: 'CHEAT_MISMATCH' });
   f.runtime.game = { ...game };f.runtime.graph.safe = true;await assert.rejects(f.enqueue(true), { code: 'SAFE_STARTUP' });

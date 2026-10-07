@@ -32,6 +32,8 @@ export class Plugins {
       invariant(!state.plugins.some(other => other.sha256 === item.sha256 || other.pluginId === item.pluginId),
         'PLUGIN_CONFLICT', 'This file or plugin identity is already registered.');
       state.plugins.push(item);
+      this.runtime.changes.record(state, { change: 'plugin-register', target: item.sha256, after: item,
+        message: 'Plugin registered', detail: 'Registration adds a verified file to the catalog; it does not load the code.' });
     }, input.revision);
     this.runtime.sequence++; return this.list();
   }
@@ -39,7 +41,10 @@ export class Plugins {
     invariant(typeof autostart === 'boolean' && Number.isSafeInteger(revision), 'PLUGIN_CONFIG', 'Choose an autostart setting from the current list.');
     await this.runtime.store.transaction(state => {
       const item = state.plugins.find(item => item.sha256 === sha256);
-      invariant(item, 'PLUGIN_MISSING', 'Plugin is no longer registered.'); item.autostart = autostart;
+      invariant(item, 'PLUGIN_MISSING', 'Plugin is no longer registered.');
+      const before = item.autostart;item.autostart = autostart;
+      this.runtime.changes.record(state, { change: 'plugin-config', target: sha256, before, after: autostart,
+        message: 'Plugin autostart changed', detail: 'Autostart affects future launches; loaded code stays resident.' });
     }, revision);
     this.runtime.sequence++; return this.list();
   }

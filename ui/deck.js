@@ -328,13 +328,37 @@ function draw() {
     }
     if (actions.children.length) node.append(actions); return node;
   }) : [el('p', 'empty', 'No background operations yet.') ]));
-  $('#history').replaceChildren(...(state.history.length ? [...state.history].reverse().map(item => row(item.message, item.detail || item.fields?.join(', '), new Date(item.at).toLocaleTimeString())) : [el('p', 'empty', 'Changes made during this session will appear here.') ]));
+  $('#history').replaceChildren(...(state.history.length ? [...state.history].reverse().map(item => {
+    const node = row(item.message, item.detail, new Date(item.at).toLocaleTimeString());node.classList.add('job-row');
+    if (item.undo.available) {
+      const actions = el('div', 'actions'), button = el('button', '', 'Review undo');
+      button.onclick = () => historyDialog(item.id);actions.append(button);node.append(actions);
+    } else node.append(el('small', '', item.undo.reason));return node;
+  }) : [el('p', 'empty', 'Changes made during this session will appear here.') ]));
   $('#accent').value = state.settings.appearance.accent; $('#reduced-motion').checked = state.settings.appearance.reducedMotion;
   for (const input of document.querySelectorAll('[data-overlay]')) {
     const key = input.dataset.overlay; input.checked = state.settings.overlay[key];
     const needed = { fps: 'fps', ram: 'resources', cpu: 'resources', ip: 'ip-overlay' }[key];
     input.disabled = needed ? !capability(needed)?.available : false;
   }
+}
+async function historyDialog(id) {
+  try {
+    const { result: plan } = await api('/api/command', { command: 'history.preview', args: { id } });
+    const dialog = el('dialog', 'storage-dialog'), status = el('p', 'fine', plan.available ? plan.detail : plan.reason);
+    const list = el('ul'), actions = el('div', 'actions'), undo = el('button', '', plan.label), cancel = el('button', '', 'Close');
+    for (const change of plan.changes) list.append(el('li', '', change));
+    undo.disabled = !plan.available;cancel.onclick = () => dialog.close();
+    undo.onclick = async () => {
+      undo.disabled = true;
+      try {
+        const { result } = await api('/api/command', { command: 'history.undo', args: { id, proof: plan.proof } });
+        status.textContent = result.message;await refresh();
+      } catch (error) { status.textContent = error.message + ' Close and review the change again.'; }
+    };
+    actions.append(undo, cancel);dialog.append(el('h2', '', plan.message), status, list, actions);
+    dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
+  } catch (error) { notice(error.message); }
 }
 function pluginDialog(item) {
   const module = /\.(prx|sprx)$/i.test(item.name);

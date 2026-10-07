@@ -56,6 +56,21 @@ export class ConsoleDeck {
     if (this.confirmation) {
       row('Confirm: ' + this.confirmation.label, this.confirmation.detail, '$confirm');
       row('Cancel', 'Return without making changes', '$cancel');
+    } else if (this.historyView) {
+      if (this.historyView.id && !state.history.some(entry => entry.id === this.historyView.id)) {
+        row('Change no longer available', 'The session history has advanced. Return to the list.');
+        row('Back to history', '', '$history-back');
+      } else if (this.historyView.id) {
+        const plan = runtime.changes.preview({ id: this.historyView.id });
+        row(plan.message, plan.available ? plan.detail : plan.reason);
+        for (const change of plan.changes) row(change, '');
+        row(plan.label, plan.detail, plan.available ? 'history.undo' : null, { id: plan.id, proof: plan.proof }, { confirm: true });
+        row('Back to history', '', '$history-back');
+      } else {
+        for (const entry of [...state.history].reverse()) row(entry.message, entry.undo.available ? 'Review undo' : entry.undo.reason,
+          entry.undo.proof ? '$history-open' : null, { id: entry.id });
+        if (!state.history.length) row('No session changes', 'Changes and operation results will appear here');
+      }
     } else if (this.loadoutPreview) {
       const plan = this.loadoutPreview;
       row(plan.profile.name, `${plan.profile.titleId} · ${plan.profile.version}`);
@@ -113,6 +128,7 @@ export class ConsoleDeck {
             contentId: game.contentId, mounted: !game.mounted } }, { confirm: true });
       }
     } else if (this.page === 3) {
+      row('Session history', 'Review changes and supported undo', '$history');
       for (const job of [...state.jobs].reverse()) row(job.kind, `${job.result?.phase === 'loadout-stopped' ? 'Stopped; review steps' : job.status}: ${job.error?.message || job.result?.message || job.progress?.phase || ''}`);
       if (!items.length) row('Nothing is running', 'Transfers and payload jobs appear here');
     } else if (this.page === 4) {
@@ -145,7 +161,7 @@ export class ConsoleDeck {
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
     const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
-      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.saveView ? 'Saved games' : pages[this.page]}`,
+      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),
       footer: 'L1 / R1 sections    X select    Circle back    L3 + R3 close', rows: selected };
     const signature = JSON.stringify(data);
@@ -173,10 +189,11 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null;this.historyView = null; this.notice = ''; return this.frame();
       }
       if (input.kind === 'back') {
-        if (this.confirmation && (this.loadoutPreview || this.saveView)) this.confirmation = null;
+        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView)) this.confirmation = null;
+        else if (this.historyView) { if (this.historyView.id) this.historyView = {};else this.historyView = null; }
         else if (this.saveView) { if (this.saveView.selected) this.saveView.selected = null;else this.saveView = null; }
         else { this.confirmation = null;if (this.loadoutPreview) this.loadoutPreview = null;else if (this.page === 5 && this.cheatPack) this.cheatPack = null;else this.page = 0; }
         this.offset = 0;this.notice = '';return this.frame();
@@ -186,6 +203,9 @@ export class ConsoleDeck {
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$history') { this.historyView = {};this.offset = 0; }
+      else if (selected.command === '$history-open') { this.historyView = selected.args;this.offset = 0; }
+      else if (selected.command === '$history-back') { this.historyView = {};this.offset = 0; }
       else if (selected.command === '$saves') { this.saveView = { offset: 0, selected: null };this.offset = 0; }
       else if (selected.command === '$save-open') { this.saveView.selected = selected.args;this.offset = 0; }
       else if (selected.command === '$save-page') { this.saveView.offset = selected.args.offset;this.offset = 0; }

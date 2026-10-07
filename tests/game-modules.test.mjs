@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installPlugins } from '../src/plugins.mjs';
 import { JobQueue } from '../src/jobs.mjs';
+import { SessionHistory } from '../src/history.mjs';
 import { store, ids, until, deferred } from './helpers.mjs';
 const hash = 'a'.repeat(64), upload = 'b'.repeat(32), boot = '100:0';
 const game = { pid: 77, generation: boot + '/77/110:0', titleId: 'PPSA00001', version: '01.000.000', platform: 'ps5', metadataHash: 'c'.repeat(64) };
@@ -9,6 +10,7 @@ const info = { id: upload, sha256: hash, name: 'test.sprx', format: 'sprx', plat
 async function setup(options = {}) {
   const saved = await store(), id = ids(), runtime = { store: saved, id, graph: { safe: false }, sequence: 0, game: null,
     capability() {}, inbox: { verify: async () => ({ ...info }) }, jobs: new JobQueue(saved, { id }) };
+  runtime.now = Date.now;runtime.session = id();runtime.changes = new SessionHistory(runtime);
   let receipt = null, calls = 0; const probe = { boot, processes: [], kstuff: { injectionReady: true } };
   const native = { systemProbe: () => probe, gameModulePoll: () => receipt,
     gameModuleStart(request, file, sha256, pid, generation, titleId, metadata, extension) {

@@ -52,6 +52,39 @@ test('mount and unmount complete only after independent observation and bind the
   assert.equal(calls.filter(item => item.route.endsWith('/mount')).length, 1);
   assert.equal(calls.filter(item => item.route.endsWith('/unmount')).length, 1);
 });
+test('history mount undo verifies the original service and source, then observes the inverse state', async t => {
+  const { runtime, state, calls } = await fixture(t);
+  const source = await runtime.jobs.enqueue('library.mount', { titleId: state.game.title_id, mounted: true }, 'history-mount');
+  await until(() => runtime.jobs.snapshot()[0].status === 'completed');
+  const noop = await runtime.jobs.enqueue('library.mount', { titleId: state.game.title_id, mounted: true }, 'history-mount-noop');
+  await until(() => runtime.jobs.snapshot().find(j => j.id === noop.id).status === 'completed');
+  const plan = runtime.changes.preview(source);assert.equal(plan.available, true);
+  runtime.game = { titleId: state.game.title_id };await assert.rejects(runtime.changes.undo(plan), { code: 'HISTORY_CONFLICT' });runtime.game = null;
+  const old = state.evidence.generation;state.evidence.generation = 'replacement';
+  await assert.rejects(runtime.changes.undo(plan), { code: 'SERVICE_CHANGED' });state.evidence.generation = old;
+  const results = await Promise.all([runtime.changes.undo(plan), runtime.changes.undo(plan)]);
+  assert.equal(results[0].jobId, results[1].jobId);
+  await until(() => runtime.jobs.snapshot().find(j => j.id === results[0].jobId).status === 'completed');
+  assert.equal(state.game.mounted, false);assert.equal(calls.filter(c => c.route.endsWith('/unmount')).length, 1);
+});
+
+test('queued mount undo rejects an externally changed mount without writing', async t => {
+  const { runtime, state, calls } = await fixture(t);
+  const source = await runtime.jobs.enqueue('library.mount', { titleId: state.game.title_id, mounted: true }, 'history-mount');
+  await until(() => runtime.jobs.snapshot()[0].status === 'completed');runtime.jobs.concurrency = 0;
+  const reversed = await runtime.changes.undo(runtime.changes.preview(source));state.game.mounted = false;
+  runtime.jobs.concurrency = 2;runtime.jobs.kick();await until(() => runtime.jobs.snapshot().find(j => j.id === reversed.jobId).status === 'failed');
+  assert.equal(calls.filter(c => c.route.endsWith('/unmount')).length, 0);
+});
+
+test('caller cannot invent a prior mount state to manufacture an undoable change', async t => {
+  const { runtime, state, calls } = await fixture(t);state.game.mounted = true;
+  await assert.rejects(runtime.jobs.enqueue('library.mount', { titleId: state.game.title_id, mounted: true, priorMounted: false }, 'forged-prior'), { code: 'HISTORY_CONFLICT' });
+  const noop = await runtime.jobs.enqueue('library.mount', { titleId: state.game.title_id, mounted: true }, 'observed-noop');
+  await until(() => runtime.jobs.snapshot()[0].status === 'completed');assert.equal(runtime.changes.preview(noop).available, false);
+  assert.equal(calls.filter(c => c.route.endsWith('/mount')).length, 0);
+});
+
 test('installed packages and unavailable sources cannot enter mount queue', async t => {
   const { runtime, state } = await fixture(t); state.game.installed_pkg = true;
   await assert.rejects(runtime.jobs.enqueue('library.mount', { titleId: 'PPSA00001', mounted: true }, 'package-mount'), { code: 'LIBRARY_SOURCE' });

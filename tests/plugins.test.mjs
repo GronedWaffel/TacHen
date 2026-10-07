@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installPlugins } from '../src/plugins.mjs';
 import { JobQueue } from '../src/jobs.mjs';
+import { SessionHistory } from '../src/history.mjs';
 import { validatePlugins } from '../src/plugin-schema.mjs';
 import { store, ids, until, deferred } from './helpers.mjs';
 const hash = 'a'.repeat(64), upload = 'b'.repeat(32), boot = '100:0';
@@ -9,6 +10,7 @@ const info = { id: upload, name: 'watcher.plugin', format: 'plugin', sha256: has
 async function setup(options = {}) {
   const saved = await store(), id = ids(), runtime = { store: saved, id, graph: { safe: false }, sequence: 0, game: null,
     capability() {}, inbox: { verify: async () => ({ ...info }) }, jobs: new JobQueue(saved, { id }) };
+  runtime.now = Date.now;runtime.session = id();runtime.changes = new SessionHistory(runtime);
   let calls = 0, receipt = null;
   const probe = { boot, processes: [], kstuff: { injectionReady: true } };
   const native = { systemProbe: () => probe, loaderPoll: () => receipt,

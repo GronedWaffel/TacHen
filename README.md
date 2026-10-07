@@ -37,7 +37,7 @@ processes, missing metadata and native contention hold game actions; they never
 silently select cached library versions. Lifecycle consumers receive an abort
 signal when the verified instance becomes unavailable. This foundation is
 implemented and cross-built. Native PRX loading and JSON cheat transactions now
-use this context. Overlays still need their execution adapters; all three paths
+use this context. Native overlay adapters are also implemented; all three paths
 require deferred console acceptance.
 
 The phone and controller Cheats page imports exact-title/version JSON packs,
@@ -180,7 +180,7 @@ actual embedded JavaScript engine on Windows. `ZIG` and `PS5_PAYLOAD_SDK` can
 override the local Zig 0.14.1 and PS5 payload SDK v0.43 paths in build scripts.
 The artifact link regression also requires Python 3 with Capstone 5; `PYTHON`
 can select that interpreter. `python scripts/audit-process-links.py` checks all
-three built ELFs for calls or relocations into the SDK's obsolete PID cache.
+four built ELFs for calls or relocations into the SDK's obsolete PID cache.
 Build the artifacts before running that check. It runs entirely on the host.
 
 Original work lives in `src/`, `ui/` and `tests/`. Reused low-level foundations
@@ -245,3 +245,14 @@ This path is cross-built and locally tested; the PFS calls, filesystem behavior
 and real exported saves still need console acceptance. It does not restore or
 resign saves. Unknown mount/publication states retain private staging for
 inspection and currently require support reconciliation.
+
+Activity now shares session history between phone and controller. Review a change
+before restoring its previous preferences, plugin-autostart choice or saved
+loadout. Undo preserves unrelated later choices and refuses conflicting edits;
+it never re-enables developer permissions. Verified cheat and game-mount changes
+can queue an inverse operation for the original game/service instance. Current
+bytes and source identity are checked again, and an uncertain reversal retains
+its existing operation rather than being replayed. Loaded plugins, installed
+packages and exported files have explicit explanations instead of a pretend
+generic undo. This path has local integration coverage; live reversal behavior
+still needs console acceptance.
