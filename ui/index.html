@@ -13,6 +13,10 @@
       <div class="intro"><div><p class="eyebrow">YOUR CONSOLE. YOUR CONTROL.</p><h1 id="context-title">Command deck</h1>
         <p id="context-detail">Opening a direct connection to TacHen.</p></div><div class="address"><span>LOCAL CONNECTION</span><strong id="address">—</strong></div></div>
       <div id="notice" class="notice" role="status" hidden></div>
+      <aside id="adaptive-notice" class="adaptive-notice" hidden aria-label="Session update">
+        <div role="status" aria-live="polite"><strong id="adaptive-title"></strong><p id="adaptive-detail"></p></div>
+        <div class="actions"><button id="adaptive-review">Review activity</button><button id="adaptive-dismiss" class="quiet">Dismiss</button></div>
+      </aside>
       <nav aria-label="Deck sections">
         <button class="tab active" data-view="overview" aria-current="page">Overview</button>
         <button class="tab" data-view="activity">Activity <span id="job-count">0</span></button>

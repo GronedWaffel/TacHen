@@ -4,6 +4,7 @@ let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
 let packageUploading = false, packageStop = false, packageResume = null;
 let cheatPack = null;
 let savePage = { entries: [], volumes: [], total: 0, offset: 0, updatedAt: null }, saveBusy = false;
+let adaptiveId = null, adaptiveSequence = null, adaptiveDeadline = 0, adaptiveTimer;
 const $ = selector => document.querySelector(selector);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
 async function api(route, body) {
@@ -14,6 +15,23 @@ async function api(route, body) {
   return value;
 }
 function notice(text) { $('#notice').hidden = !text; $('#notice').textContent = text || ''; }
+function drawAdaptive() {
+  const current = state.notices?.current, now = Date.now(), box = $('#adaptive-notice');
+  clearTimeout(adaptiveTimer);
+  if (!connected || !current || !state.notices.enabled) { box.hidden = true;adaptiveId = null;adaptiveSequence = null;return; }
+  const deadline = now + Math.min(9000, current.remainingMs);
+  adaptiveDeadline = adaptiveId === current.id ? Math.min(adaptiveDeadline, deadline) : deadline;
+  if (adaptiveSequence !== state.notices.sequence || adaptiveId !== current.id) {
+    $('#adaptive-title').textContent = current.title + (current.count > 1 ? ` (${current.count})` : '');
+    $('#adaptive-detail').textContent = current.detail;box.dataset.level = current.level;
+    adaptiveId = current.id;adaptiveSequence = state.notices.sequence;
+    $('#adaptive-review').textContent = current.view === 'components' ? 'Review components' : 'Review activity';
+    $('#adaptive-review').onclick = () => document.querySelector(`[data-view="${current.view === 'components' ? 'components' : 'activity'}"]`).click();
+    $('#adaptive-dismiss').onclick = () => command('notice.dismiss', { id: current.id });
+  }
+  box.hidden = now >= adaptiveDeadline;
+  if (!box.hidden) adaptiveTimer = setTimeout(() => { box.hidden = true; }, adaptiveDeadline - now);
+}
 async function command(command, args) {
   if (busy) return; busy = true;
   try { await api('/api/command', { command, args }); await refresh(); notice(''); }
@@ -206,6 +224,7 @@ async function loadoutReview(profile) {
   } catch (error) { status.textContent = error.message; }
 }
 function draw() {
+  drawAdaptive();
   drawCheats();
   drawLoadouts();
   drawSaves();
@@ -539,7 +558,7 @@ $('#package-file').onchange = async event => {
   finally { packageUploading = false; event.target.value = ''; await refresh(); }
 };
 $('#disconnect').onclick = async () => {
-  try { await api('/api/disconnect', {}); connected = false; clearTimeout(timer); $('#mcp-token').value = '';$('#mcp-connection').hidden = true;$('#connection').textContent = 'Disconnected'; notice('Disconnected. Reload this page to reconnect.'); }
+  try { await api('/api/disconnect', {}); connected = false; clearTimeout(timer);drawAdaptive(); $('#mcp-token').value = '';$('#mcp-connection').hidden = true;$('#connection').textContent = 'Disconnected'; notice('Disconnected. Reload this page to reconnect.'); }
   catch (error) { notice(error.message); }
 };
 async function refresh() {

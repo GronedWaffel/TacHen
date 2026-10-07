@@ -20,9 +20,13 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=3||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=4||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
+ if(!f.notice.sequence||f.notice.kind>2||f.notice.remainingMs>9000||f.notice.count>999||
+    !text_valid(f.notice.title,sizeof f.notice.title)||!text_valid(f.notice.detail,sizeof f.notice.detail)||
+    (!f.notice.kind&&(f.notice.remainingMs||f.notice.count||f.notice.title[0]||f.notice.detail[0]))||
+    (f.notice.kind&&(!f.notice.remainingMs||!f.notice.count||!f.notice.title[0])))return 0;
  for(unsigned i=0;i<f.count;i++){
   const TacDeckRow* row=&f.rows[i];
   for(unsigned j=0;j<32;j++)if(!((row->token[j]>='0'&&row->token[j]<='9')||(row->token[j]>='a'&&row->token[j]<='f')))return 0;
@@ -42,6 +46,13 @@ int tac_deck_receive(TacDeck* d,const void* bytes,size_t length,uint64_t now){
  if(d->valid&&f.sequence==d->frame.sequence&&memcmp(&f,&d->frame,offsetof(TacDeckFrame,metricsSequence)))return 0;
  if(d->valid&&((int32_t)(f.metricsSequence-d->frame.metricsSequence)<0||
     (f.metricsSequence==d->frame.metricsSequence&&memcmp(f.metrics,d->frame.metrics,sizeof f.metrics))))return 0;
+ if(d->frame.notice.sequence){
+  if((int32_t)(f.notice.sequence-d->frame.notice.sequence)<0)return 0;
+  if(f.notice.sequence==d->frame.notice.sequence&&memcmp(&f.notice.kind,&d->frame.notice.kind,sizeof(f.notice)-offsetof(TacDeckNotice,kind)))return 0;
+ }
+ uint64_t expires=now+f.notice.remainingMs;if(expires<now)return 0;
+ if(f.notice.sequence!=d->frame.notice.sequence)d->noticeDeadline=expires;
+ else if(expires<d->noticeDeadline)d->noticeDeadline=expires;
  if(!d->valid||f.page!=d->frame.page||strcmp(f.title,d->frame.title))d->selected=0;
  if(d->selected>=f.count)d->selected=f.count?f.count-1:0;
  d->frame=f;d->received=now;d->valid=1;return 1;
@@ -50,6 +61,10 @@ void tac_deck_tick(TacDeck* d,uint64_t now){
  if(d->valid&&(now<d->received||now-d->received>TAC_DECK_STALE_MS||!(d->frame.flags&1))){
   if(d->open)d->drain[d->owner]=1;d->open=0;d->valid=0;
  }
+}
+uint32_t tac_deck_notice_remaining(const TacDeck* d,uint64_t now){
+ if(!d->valid||!(d->frame.flags&1)||!d->frame.notice.kind||now<d->received||now-d->received>TAC_DECK_STALE_MS||now>=d->noticeDeadline)return 0;
+ uint64_t remaining=d->noticeDeadline-now;return (uint32_t)(remaining>9000?9000:remaining);
 }
 void tac_deck_present(TacDeck* d,uint32_t sequence,int open,unsigned selected){
  if(!d->valid||sequence!=d->frame.sequence)return;

@@ -6,8 +6,8 @@ typedef struct {
  TacMono mono;void* domain;void* label;void* widget;void* font;void* color;
  void* findScene;void* getRoot;void* append;void* remove;void* labelCtor;void* fontCtor;void* colorCtor;
  void* text;void* name;void* x;void* y;void* width;void* height;void* textColor;void* labelFont;
- uint32_t root,labels[21],fonts[3],colors[3];uint64_t checkedAt;uint32_t sequence,metricsSequence;
- uint8_t selected,open,ipVisible,initialized,failed;
+ uint32_t root,labels[23],fonts[3],colors[3];uint64_t checkedAt;uint32_t sequence,metricsSequence,noticeSequence;
+ uint8_t selected,open,ipVisible,initialized,failed,noticeVisible;
 } TacDeckView;
 // Resolve all required metadata before publishing hooks. Fail closed on an
 // unfamiliar managed ABI rather than treating firmware offsets as UI metadata.

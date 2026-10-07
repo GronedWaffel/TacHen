@@ -256,3 +256,13 @@ its existing operation rather than being replayed. Loaded plugins, installed
 packages and exported files have explicit explanations instead of a pretend
 generic undo. This path has local integration coverage; live reversal behavior
 still needs console acceptance.
+
+Adaptive notices now share verified completions and actionable failures between
+the phone and native overlay. Related bursts are grouped, success messages are
+shorter and more spaced out during games, and routine scans/preparation stay
+quiet. Turning notices off clears the presentation without replaying old events
+when re-enabled. Dismissal is shared; detailed results remain in Activity or
+Components. The native notice has an independent sequence and local deadline,
+so it neither changes controller action tokens nor persists indefinitely when
+the coordinator stops responding. The implementation is locally tested and
+cross-built; console appearance and interactions still require acceptance.

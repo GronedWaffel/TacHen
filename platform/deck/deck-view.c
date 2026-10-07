@@ -115,20 +115,20 @@ static int styles(TacDeckView* v){
  }return ok;
 }
 static void release_labels(TacDeckView* v){
- int ok=1;for(unsigned i=0;i<21;i++)if(v->labels[i]){set_text(v,v->labels[i],"",&ok);call(v,v->remove,target(v,v->labels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->labels[i]);v->labels[i]=0;}
+ int ok=1;for(unsigned i=0;i<23;i++)if(v->labels[i]){set_text(v,v->labels[i],"",&ok);call(v,v->remove,target(v,v->labels[i]),NULL,&ok);v->mono.mono_gchandle_free(v->labels[i]);v->labels[i]=0;}
  if(v->root)v->mono.mono_gchandle_free(v->root);v->root=0;
 }
 static int labels(TacDeckView* v,uint32_t root){
  v->root=root;if(!v->root)return 0;int ok=1;
- for(unsigned i=0;i<21&&ok;i++){
+ for(unsigned i=0;i<23&&ok;i++){
   v->labels[i]=object(v,v->label);void* label=target(v,v->labels[i]);if(!label)return 0;
   call(v,v->labelCtor,label,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenDeck_%u",i);
   set(v,v->name,label,v->mono.mono_string_new(v->domain,name),&ok);
   unsigned row=i>=3?(i-3)/2:0;
-  float x=i==19?1480.0f:100.0f,y=i==0?75:i==1?132:i==2?920:i==19?1020:i==20?975:205+row*82+(i%2==0?34:0);
+  float x=i==19?1480.0f:100.0f,y=i==0||i==21?75:i==1||i==22?132:i==2?920:i==19?1020:i==20?975:205+row*82+(i%2==0?34:0);
   set(v,v->x,label,&x,&ok);set(v,v->y,label,&y,&ok);uint8_t yes=1;
   set(v,v->width,label,&yes,&ok);set(v,v->height,label,&yes,&ok);
-  unsigned font=i==0?0:(i>=3&&i<19&&i%2==1)?1:2;
+  unsigned font=i==0?0:i==21||(i>=3&&i<19&&i%2==1)?1:2;
   set(v,v->labelFont,label,v->mono.mono_object_unbox(target(v,v->fonts[font])),&ok);
   set(v,v->textColor,label,v->mono.mono_object_unbox(target(v,v->colors[font==0?0:font])),&ok);
   set_text(v,v->labels[i],"",&ok);void* args[]={label};call(v,v->append,target(v,v->root),args,&ok);
@@ -143,11 +143,14 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
   if(!ok)return 0;if(!root){release_labels(v);return 0;}
   if(root!=target(v,v->root)){
    uint32_t pinned=v->mono.mono_gchandle_new(root,1);if(!pinned)return 0;
-   release_labels(v);if(!labels(v,pinned)){release_labels(v);v->failed=1;return 0;}v->sequence=0;v->metricsSequence=0;
+   release_labels(v);if(!labels(v,pinned)){release_labels(v);v->failed=1;return 0;}v->sequence=0;v->metricsSequence=0;v->noticeSequence=0;
   }
  }
  int menuChanged=v->sequence!=f->sequence||v->selected!=selected||v->open!=open||v->ipVisible!=!!(f->flags&2);
- if(!menuChanged&&v->metricsSequence==f->metricsSequence)return 1;
+ int noticeVisible=!open&&(f->flags&1)&&f->notice.kind&&f->notice.remainingMs;
+ int noticeChanged=v->noticeSequence!=f->notice.sequence||v->noticeVisible!=!!noticeVisible;
+ if(!menuChanged&&v->metricsSequence==f->metricsSequence&&!noticeChanged)return 1;
+ if(noticeChanged){set_text(v,v->labels[21],noticeVisible?f->notice.title:"",&ok);set_text(v,v->labels[22],noticeVisible?f->notice.detail:"",&ok);}
  if(v->metricsSequence!=f->metricsSequence) set_text(v,v->labels[20],(f->flags&1)?f->metrics:"",&ok);
  if(menuChanged){
  set_text(v,v->labels[0],open?f->title:"",&ok);set_text(v,v->labels[1],open?f->subtitle:"",&ok);set_text(v,v->labels[2],open?f->footer:"",&ok);
@@ -160,5 +163,6 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
  set_text(v,v->labels[19],(f->flags&2)?f->ip:"",&ok);
  }
  if(!ok){release_labels(v);v->failed=1;return 0;}
- v->sequence=f->sequence;v->metricsSequence=f->metricsSequence;v->selected=selected;v->open=open;v->ipVisible=!!(f->flags&2);return 1;
+ v->sequence=f->sequence;v->metricsSequence=f->metricsSequence;v->noticeSequence=f->notice.sequence;v->noticeVisible=!!noticeVisible;
+ v->selected=selected;v->open=open;v->ipVisible=!!(f->flags&2);return 1;
 }

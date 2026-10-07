@@ -1169,3 +1169,65 @@ occurred. Full hardware acceptance remains deferred. Original visual presentatio
 remaining cheat formats, adaptive notices, update/recovery flows, support
 diagnostics, older-firmware installer ABIs and other items in the full goal remain
 active; this checkpoint does not claim TacHen is complete.
+
+## Checkpoint twenty-four — adaptive session notices
+
+The runtime now observes existing durable-job and service-state publications for
+verified results and actionable failures. It adds no polling timer or native
+probe. Success notices use 5.5 seconds on the dashboard or 3.5 seconds in a game,
+with longer gaps during play; attention notices use 9 seconds and can replace a
+success notice. Related bursts group into one item without renewing its lifetime.
+Pending notices are bounded and expire after 30 seconds. Routine save-list,
+game-input and FPS preparation successes and developer memory reads stay quiet.
+Timeout-to-interrupted transitions are one incident. Dispatched payload/plugin
+code is described as dispatched, not as feature initialization. Partial loadouts
+and unconfirmed patches whose game ended require review rather than a success
+claim. Service dependency failures, recovery startup and a halted job queue are
+also represented. An expired current item is cleared before new events are
+grouped, fixing loss of a new incident after an unobserved idle gap.
+
+The phone shows a bounded, wrapping card with Activity/Components navigation and
+shared dismissal. It owns a local expiry timeout which repeated state responses
+cannot extend. Explicit disconnect clears the card. Both phone and controller
+Preferences expose the adaptive toggle; turning it off clears visible/pending
+items while still observing state transitions, so enabling it does not replay
+old events. Controller Activity includes dismissal. No notice starts, retries,
+cancels or reconciles underlying work.
+
+The private deck wire is now version 4, 6424 bytes, appending a 304-byte notice
+after the existing independent input fields. Its own sequence does not alter
+controller menu tokens. The C decoder validates the bounded notice and rejects
+unsequenced text changes or stale sequences. The consumer pins a monotonic local
+deadline on receipt and never renews it from repeated frames, including after a
+stale connection. The render thread consumes two additional managed labels, hides
+them while the command deck is open, and clears them on local expiry or stale
+coordinator readiness. All old input/telemetry offsets remain unchanged. Actual
+ShellUI rendering and overlay placement still need hardware acceptance.
+
+All **259 local tests** passed, including nine new notice tests and extended
+actual-C wire/expiry checks. These cover grouping, duplicate phases, in-game rate
+limits, disable/re-enable, dispatch semantics, service/queue faults, expired-idle
+incidents, clock rollback and menu identity preservation. The embedded QuickJS
+fixture verifies a completion notice after a real fixture loadout job. The build
+and four-ELF process-link audit passed.
+
+A loopback-only browser fixture verified the 390-pixel layout. Its native export
+confirmation stalled the test tab's input transport; a fresh tab rendered the
+notice, but pointer/keyboard button effects could not be reliably verified in
+that session. The saved visual uses a deliberately frozen coordinator clock to
+make the short-lived card inspectable; it is not console or timing evidence.
+The browser's local expiry still hid the card while the fixture clock remained
+frozen. Viewport override was reset and the fresh tab closed; closing the original
+stalled temporary tab timed out. Both temporary server processes were stopped.
+Browser navigation/dismissal interaction remains a follow-up acceptance item.
+
+Runtime **8,906,288 bytes**, SHA-256
+`61418e59ea2db130531a5bbec167118763ff1c68804ce5e48475d89dd94b4e65`.
+Internal deck **130,880 bytes**, SHA-256
+`e058edaba79519f093973d7e9484752612205b29f3ab317bb44cdd09fc8ea76a`.
+
+No PS5 was contacted, no payload was sent, and nothing was deployed or published.
+The full goal remains active, including original presentation, remaining cheat
+formats, update/recovery flows, support diagnostics, older-firmware installer
+ABIs and deferred hardware acceptance. This is an implementation checkpoint,
+not a claim that the complete HEN is finished.

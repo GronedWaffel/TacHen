@@ -5,6 +5,7 @@ import { requireFirmware } from './firmware.mjs';
 import { ServiceGraph } from './services.mjs';
 import { JobQueue } from './jobs.mjs';
 import { SessionHistory } from './history.mjs';
+import { AdaptiveNotices } from './notices.mjs';
 
 export const FEATURES = Object.freeze([
   ['deck', 'Command deck'], ['game-overlay', 'In-game command deck'], ['phone', 'Phone control'],
@@ -20,9 +21,11 @@ export class TacRuntime {
     this.store = store; this.platform = platform; this.id = id; this.now = now;
     this.sequence = 0; this.session = id(); this.game = null; this.started = false;
     this.inboxItems = [];
-    this.graph = new ServiceGraph({ changed: () => this.sequence++ });
-    this.jobs = new JobQueue(store, { id, now, session: this.session, changed: () => this.sequence++ });
+    const changed = () => { this.sequence++;this.notices?.observe(); };
+    this.graph = new ServiceGraph({ changed });
+    this.jobs = new JobQueue(store, { id, now, session: this.session, changed });
     this.changes = new SessionHistory(this);
+    this.notices = new AdaptiveNotices(this);
     this.capabilities = new Map(FEATURES.map(([id, name]) => [id,
       { id, name, available: false, reason: 'Native integration is not installed in this build.' }]));
   }
@@ -49,17 +52,19 @@ export class TacRuntime {
     await this.store.transaction(state => { state.startup.pending = false; });
     // A served webpage does not prove the native console renderer is running.
     this.capability('phone', true);
+    this.notices.observe();
     return this;
   }
   overlaySettings() { return { ...this.store.snapshot().settings.overlay, ...this.loadouts?.overlay() }; }
   snapshot() {
-    const state = this.store.snapshot();
+    const state = this.store.snapshot(), services = this.graph.snapshot();
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       telemetry: this.telemetry ? this.telemetry.snapshot() : null,
       gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
-      settings: { ...state.settings, overlay: this.overlaySettings() }, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
+      settings: { ...state.settings, overlay: this.overlaySettings() }, services, capabilities: [...this.capabilities.values()].map(clone),
+      notices: this.notices.snapshot(state, services),
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
@@ -109,6 +114,7 @@ export class TacRuntime {
       case 'settings.update': return this.settings(args.patch, args.revision);
       case 'history.preview': return this.changes.preview(args);
       case 'history.undo': return this.changes.undo(args);
+      case 'notice.dismiss': return this.notices.dismiss(args);
       case 'save.list':
         invariant(this.saves, 'FEATURE_UNAVAILABLE', 'Save helper is not installed.');return this.saves.list(args);
       case 'loadout.save':

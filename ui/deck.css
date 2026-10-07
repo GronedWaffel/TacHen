@@ -28,3 +28,8 @@ input[type=file]{width:100%;max-width:340px;height:auto;min-width:0;font-size:12
 #save-items .row, #save-exports .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 #save-items .row>div, #save-exports .row>div { min-width: 0; overflow-wrap: anywhere; }
 #save-items .row>button, #save-exports .row>.fine { grid-column: 1/-1; justify-self: start; max-width: 100%; overflow-wrap: anywhere; }
+.adaptive-notice { position: fixed; z-index: 5; right: 24px; bottom: 24px; width: min(420px, calc(100vw - 48px)); padding: 20px;
+  border: 1px solid var(--accent, #9ff4bf); border-radius: 18px; background: #11191d; box-shadow: 0 10px 40px #0008; }
+.adaptive-notice p { margin: 8px 0 14px; overflow-wrap: anywhere; }
+.adaptive-notice[data-level="attention"] { border-color: #e7ba76; }
+.adaptive-notice[hidden] { display: none; }

@@ -4,7 +4,7 @@
 import { invariant } from './errors.mjs';
 import { telemetryText } from './telemetry.mjs';
 
-export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 3, bytes: 6120, rows: 8, rowBytes: 292 });
+export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 4, bytes: 6424, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
@@ -37,6 +37,14 @@ export function encodeDeck(frame) {
     out.writeBigUInt64LE(BigInt(Math.ceil(input.captureAt || 0)), 3040);
     input.events.forEach((e, i) => { const at = 3048 + i * 24;out.writeUInt32LE(e.buttons, at);out.writeInt32LE(e.handle, at + 4);
       out.writeUInt32LE(e.connection, at + 8);out.writeUInt32LE(e.sequence, at + 12);out.writeBigUInt64LE(BigInt(Math.floor(e.time)), at + 16); });
+  }
+  const notice = frame.notices?.current;
+  out.writeUInt32LE(frame.notices?.sequence || 1, 6120);
+  if (notice && notice.remainingMs > 0) {
+    out.writeUInt32LE(Math.min(9000, Math.ceil(notice.remainingMs)), 6124);
+    out.writeUInt32LE(notice.level === 'attention' ? 2 : 1, 6128);out.writeUInt32LE(notice.count, 6132);
+    text(out, 6136, 96, notice.title + (notice.count > 1 ? ` (${notice.count})` : ''));
+    text(out, 6232, 192, notice.detail);
   }
   return out;
 }
@@ -129,6 +137,7 @@ export class ConsoleDeck {
       }
     } else if (this.page === 3) {
       row('Session history', 'Review changes and supported undo', '$history');
+      row('Dismiss active notice', 'Hide the current popup on all screens', '$notice-dismiss');
       for (const job of [...state.jobs].reverse()) row(job.kind, `${job.result?.phase === 'loadout-stopped' ? 'Stopped; review steps' : job.status}: ${job.error?.message || job.result?.message || job.progress?.phase || ''}`);
       if (!items.length) row('Nothing is running', 'Transfers and payload jobs appear here');
     } else if (this.page === 4) {
@@ -139,6 +148,8 @@ export class ConsoleDeck {
           { revision: state.revision, patch: { overlay: { [key]: !state.settings.overlay[key] } } }, { on: state.settings.overlay[key] });
       row('Reduced motion', state.settings.appearance.reducedMotion ? 'On' : 'Off', 'settings.update',
         { revision: state.revision, patch: { appearance: { reducedMotion: !state.settings.appearance.reducedMotion } } }, { on: state.settings.appearance.reducedMotion });
+      row('Adaptive notices', state.settings.overlay.adaptive ? 'Brief session updates are on' : 'Off; results remain in Activity', 'settings.update',
+        { revision: state.revision, patch: { overlay: { adaptive: !state.settings.overlay.adaptive } } }, { on: state.settings.overlay.adaptive });
     } else if (this.cheatPack) {
       const pack = this.cheatPack, matches = state.game?.titleId === pack.titleId && state.game?.version === pack.version;
       row(pack.name, `${pack.titleId} · ${pack.version}`);
@@ -172,7 +183,7 @@ export class ConsoleDeck {
     const metrics = telemetryText(state);
     if (metrics !== this.metrics) { this.metrics = metrics;this.metricsSequence = (this.metricsSequence + 1) >>> 0 || 1; }
     // Telemetry never changes action tokens or the selected menu's sequence.
-    return { ...this.current, metrics, metricsSequence: this.metricsSequence, input: runtime.gameInputRelay?.frame() };
+    return { ...this.current, metrics, metricsSequence: this.metricsSequence, notices: state.notices, input: runtime.gameInputRelay?.frame() };
   }
   action(input) {
     invariant(input && /^[a-f0-9]{32}$/.test(input.request || ''), 'DECK_REQUEST', 'Invalid controller request.', { status: 400 });
@@ -203,6 +214,10 @@ export class ConsoleDeck {
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if (selected.command === '$notice-dismiss') {
+        const active = this.runtime.snapshot().notices.current;
+        if (active) await this.runtime.execute('notice.dismiss', { id: active.id });
+      }
       else if (selected.command === '$history') { this.historyView = {};this.offset = 0; }
       else if (selected.command === '$history-open') { this.historyView = selected.args;this.offset = 0; }
       else if (selected.command === '$history-back') { this.historyView = {};this.offset = 0; }

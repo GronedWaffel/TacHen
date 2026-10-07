@@ -46,6 +46,17 @@ int main(int argc,char** argv){
  frame.metricsSequence++;CHECK(tac_deck_receive(&d,&frame,sizeof frame,4006));
  frame.metricsSequence-=2;CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4007));
  frame=d.frame;memset(frame.metrics,'x',sizeof frame.metrics);CHECK(!tac_deck_decode(&frame,sizeof frame,&frame));
+ frame=d.frame;frame.notice.sequence++;frame.notice.kind=2;frame.notice.count=1;frame.notice.remainingMs=9000;
+ strcpy(frame.notice.title,"Work needs attention");strcpy(frame.notice.detail,"Review Activity");uint32_t menuSequence=d.frame.sequence;
+ CHECK(tac_deck_receive(&d,&frame,sizeof frame,4100));CHECK(d.frame.sequence==menuSequence);CHECK(d.noticeDeadline==13100);
+ CHECK(tac_deck_receive(&d,&frame,sizeof frame,4200));CHECK(d.noticeDeadline==13100); // Same message cannot renew its lifetime.
+ frame.notice.detail[0]='X';CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4201));frame=d.frame;
+ frame.notice.remainingMs=9001;CHECK(!tac_deck_decode(&frame,sizeof frame,&invalid));frame=d.frame;
+ frame.notice.sequence--;CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4202));frame=d.frame;
+ frame.notice.remainingMs=1;CHECK(tac_deck_receive(&d,&frame,sizeof frame,4300));CHECK(tac_deck_notice_remaining(&d,4300)==1);
+ CHECK(!tac_deck_notice_remaining(&d,4302));frame.notice.remainingMs=9000;
+ CHECK(tac_deck_receive(&d,&frame,sizeof frame,4303));CHECK(!tac_deck_notice_remaining(&d,4303));
+ tac_deck_tick(&d,8000);CHECK(!d.valid);CHECK(tac_deck_receive(&d,&frame,sizeof frame,8001));CHECK(!tac_deck_notice_remaining(&d,8001));
  tac_deck_init(&d);CHECK(tac_deck_receive(&d,bytes,length,1000));TacDeckRoute route={0};
  TacDeckInput input={.epoch=3,.active=1,.owner=-1};
  feed(&d,&route,&input,1000,6,17);feed(&d,&route,&input,1200,6,17);feed(&d,&route,&input,1360,6,17);

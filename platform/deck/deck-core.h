@@ -12,13 +12,15 @@ typedef struct {
  uint64_t deadline,captureAt;TacDeckPad events[128];
 } TacDeckInput;
 typedef struct {uint32_t epoch,serial,open;int32_t owner;uint32_t connection,ready;uint64_t renderedAt;} TacDeckFeedback;
+typedef struct {uint32_t sequence,remainingMs,kind,count;char title[96],detail[192];} TacDeckNotice;
 typedef struct {
  uint32_t magic; uint16_t version,flags; uint32_t sequence; uint16_t page,count;
  char title[64],subtitle[160],footer[160],ip[64]; TacDeckRow rows[TAC_DECK_ROWS];
  uint32_t metricsSequence; char metrics[192];
- uint32_t reserved;TacDeckInput input;
+ uint32_t reserved;TacDeckInput input;TacDeckNotice notice;
 } TacDeckFrame;
-_Static_assert(sizeof(TacDeckFrame)==6120,"Deck wire size");
+_Static_assert(sizeof(TacDeckFrame)==6424,"Deck wire size");
+_Static_assert(offsetof(TacDeckFrame,notice)==6120,"Independent notice offset");
 _Static_assert(offsetof(TacDeckFrame,input)==3000,"Independent game input offset");
 _Static_assert(offsetof(TacDeckFrame,metricsSequence)==2800,"Independent telemetry sequence offset");
 _Static_assert(offsetof(TacDeckFrame,rows)==464,"Deck row offset");
@@ -27,7 +29,7 @@ enum { TAC_DECK_SELECT=1,TAC_DECK_NEXT=2,TAC_DECK_PREVIOUS=3,TAC_DECK_BACK=4 };
 enum { TAC_LEFT=1,TAC_UP=2,TAC_RIGHT=4,TAC_DOWN=8,TAC_CIRCLE=64,TAC_CROSS=128,
  TAC_L1=1024,TAC_R1=2048,TAC_L3=16384,TAC_R3=32768 };
 typedef struct {
- TacDeckFrame frame; uint64_t received,chordAt[8],repeatAt; uint32_t previous[8],serial;
+ TacDeckFrame frame; uint64_t received,chordAt[8],repeatAt,noticeDeadline; uint32_t previous[8],serial;
  uint8_t chordActive[8],chordLatched[8],drain[8],open,valid,selected,owner,pending;
  uint32_t repeatDirection,presentedSequence;uint8_t presentedOpen,presentedSelected;TacDeckEvent event;
 } TacDeck;
@@ -35,6 +37,7 @@ int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* frame);
 void tac_deck_init(TacDeck* deck);
 int tac_deck_receive(TacDeck* deck,const void* bytes,size_t length,uint64_t now);
 void tac_deck_tick(TacDeck* deck,uint64_t now);
+uint32_t tac_deck_notice_remaining(const TacDeck* deck,uint64_t now);
 void tac_deck_present(TacDeck* deck,uint32_t sequence,int open,unsigned selected);
 // Return 1 when the renderer owns this sample; caller clears all controller
 // fields, including analog values and button edges, before returning it.
