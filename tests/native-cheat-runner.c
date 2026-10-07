@@ -3,12 +3,12 @@
 #include "cheat-transaction.h"
 #include <string.h>
 typedef struct {unsigned char memory[512];int attached,attachFail,resumeFail,identityFail,rangeFail,readFail,writeFail,rollbackFail,journalFail,unhealthy,expired;
-  unsigned writes,reads,journals,detachCalls;} Fixture;
+  unsigned writes,reads,journals,detachCalls,moduleSize;} Fixture;
 static int attach(void *p){Fixture *f=p;f->attached=1;return f->attachFail?-1:0;}
 static int detach(void *p){Fixture *f=p;f->detachCalls++;if(f->resumeFail)return -1;f->attached=0;return 0;}
 static int identity(void *p){return !((Fixture*)p)->identityFail;}
 static int deadline(void *p){Fixture *f=p;return !f->expired||f->writes<(unsigned)f->expired;}
-static int module(void *p,uint64_t *base,uint64_t *size){(void)p;*base=0x400000;*size=512;return 0;}
+static int module(void *p,uint64_t *base,uint64_t *size){Fixture *f=p;*base=0x400000;*size=f->moduleSize?f->moduleSize:512;return 0;}
 static int range(void *p,uint64_t at,size_t n){Fixture *f=p;(void)at;(void)n;return f->rangeFail?-1:0;}
 static int readbytes(void *p,uint64_t at,void *bytes,size_t n){Fixture *f=p;CHECK(f->attached);CHECK(at>=0x400000&&at+n<=0x400200);
   if(++f->reads==(unsigned)f->readFail)return -1;memcpy(bytes,f->memory+at-0x400000,n);return 0;}
@@ -50,5 +50,20 @@ int main(int argc,char **argv){
   reset(&f);f.unhealthy=1;r=run(&f,wire);CHECK(r.status==TAC_CHEAT_UNCERTAIN&&!r.restored&&r.resumed);
   reset(&f);f.readFail=3;r=run(&f,wire);CHECK(r.status==TAC_CHEAT_REJECTED&&r.restored&&f.memory[16]==1&&f.writes==2);
   packet(wire);u64(wire+36,512);reset(&f);r=run(&f,wire);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes);
+  // Version 1 remains relative-only; version 2 introduces an explicit flag.
+  packet(wire);u32(wire+4,2);u32(wire+28,2);CHECK(tac_cheat_plan(wire,56,&plan));
+  u32(wire+28,1);u64(wire+16,0x800000000000);CHECK(tac_cheat_plan(wire,56,&plan));
+  u64(wire+16,0xffff);CHECK(tac_cheat_plan(wire,56,&plan));
+  u64(wire+16,0x7fffffffffff);CHECK(tac_cheat_plan(wire,56,&plan));
+  // Mixed-mode records resolve and sort before preflight. No ASLR guessing.
+  packet(wire);u32(wire+4,2);u32(wire+28,1);u64(wire+16,0x400010);
+  reset(&f);r=run(&f,wire);CHECK(r.status==TAC_CHEAT_APPLIED&&r.resumed&&f.memory[16]==0x90&&f.memory[32]==0x91);
+  reset(&f);f.writeFail=2;r=run(&f,wire);CHECK(r.status==TAC_CHEAT_REJECTED&&r.restored&&r.resumed&&f.memory[16]==1&&f.memory[32]==3);
+  reset(&f);f.rangeFail=1;r=run(&f,wire);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes&&!f.journals);
+  // Aliased absolute/relative addresses must fail before any memory read/write.
+  u64(wire+16,0x400020);reset(&f);r=run(&f,wire);CHECK(r.status==TAC_CHEAT_REJECTED&&!f.writes&&!f.reads&&!f.journals&&r.resumed);
+  // Absolute patches can target another mapped user region outside the module.
+  u64(wire+16,0x400100);reset(&f);f.moduleSize=128;f.memory[256]=1;f.memory[257]=2;
+  r=run(&f,wire);CHECK(r.status==TAC_CHEAT_APPLIED&&r.resumed&&f.memory[256]==0x90&&f.memory[32]==0x91);
   puts("Native cheat transaction preflight, partial rollback, deadlines and resume checks passed");return 0;
 }

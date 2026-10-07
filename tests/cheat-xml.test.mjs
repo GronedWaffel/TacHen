@@ -25,10 +25,15 @@ test('SHN supports comments, CDATA, numeric entities and complete legacy block p
   assert.throws(() => importCheatXml(plain + '\x04\x04\x03\x04', identity), { code: 'CHEAT_XML' });
 });
 
-test('XML cannot override exact title/version or silently enable unsupported addressing', () => {
+test('XML preserves exact identity and explicit absolute flags without enabling unknown addressing', () => {
   assert.throws(() => importCheatXml(source(), { ...identity, version: '01.01' }), { code: 'CHEAT_IDENTITY' });
   assert.throws(() => importCheatXml(source(), { ...identity, titleId: 'CUSA00002' }), { code: 'CHEAT_IDENTITY' });
-  for (const value of ['true', 'false', '1', '0']) assert.throws(() => importCheatXml(source(patch.replace('</Cheatline>', `<Absolute>${value}</Absolute></Cheatline>`)), identity), { code: 'CHEAT_ADDRESS_MODE' });
+  for (const value of ['True', 'true', '1', 'False', 'false', '0']) {
+    const pack = importCheatXml(source(patch.replace('<Offset>10', '<Offset>400010').replace('</Cheatline>', `<Absolute>${value}</Absolute></Cheatline>`)), identity);
+    assert.equal(Boolean(pack.cheats[0].memory[0].absolute), ['True', 'true', '1'].includes(value));
+    assert.equal(cheatPacket(pack, '0', true).readUInt32LE(4), ['True', 'true', '1'].includes(value) ? 2 : 1);
+  }
+  assert.throws(() => importCheatXml(source(patch.replace('</Cheatline>', '<Absolute>maybe</Absolute></Cheatline>')), identity), { code: 'CHEAT_ADDRESS_MODE' });
   const section = importCheatXml(source(patch.replace('<Section>0', '<Section>1')), identity);
   assert.throws(() => cheatPacket(section, '0', true), { code: 'CHEAT_SECTION_UNSUPPORTED' });
 });

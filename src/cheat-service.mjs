@@ -23,7 +23,7 @@ export class CheatService {
       matches: !!game && game.titleId === pack.titleId && game.version === pack.version,
       cheats: pack.cheats.map(cheat => {
         const latest = jobs.filter(job => job.kind === 'cheat.set' && job.args.sha256 === sha256 && job.args.cheatId === cheat.id && job.args.generation === game?.generation).at(-1);
-        return { id: cheat.id, name: cheat.name, description: cheat.description, supported: cheat.memory.every(p => p.section === 0),
+        return { id: cheat.id, name: cheat.name, description: cheat.description, supported: cheat.memory.every(p => p.absolute || p.section === 0),
           lastApplied: latest?.status === 'completed' && latest.result?.phase === 'applied' ? latest.args.enabled : null,
           operation: latest ? { id: latest.id, status: latest.status, message: latest.error?.message || latest.result?.message } : null };
       }) };

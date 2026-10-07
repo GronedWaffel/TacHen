@@ -1900,3 +1900,56 @@ Runtime **9,105,112 bytes**, SHA-256 `e8c7142ddf47f7242a37851748d6412194d5739046
 Launcher **9,266,240 bytes**, SHA-256 `00ba911eb149f40637b16bfedb9b75ba1db5c0af93bbb1c0dac90d25704d86e4`.
 Update package **9,105,368 bytes**, SHA-256 `60c8e81bd5fdd86b67ff38c3ed91a9fdde4dade08e3e922df5223532a1290e2b`.
 Source fingerprint `8f3b6d60484f080c789f988b5c829942dd4a4fa5a6fc8c882e5d76c37ed21702`.
+
+
+## Checkpoint 37 — explicit absolute cheat addressing
+
+The native cheat transaction now handles explicit absolute user virtual addresses
+in JSON, SHN and decoded MC4, alongside module-relative section-zero patches.
+Pinned etaHEN source establishes the addressing semantics. A pinned GoldHEN
+repository archive contains 45 SHN files with Absolute fields; three local format
+samples import and produce version-2 packets (2, 3 and 3 cheats respectively,
+with two absolute-containing packets each). Those game patches remain ignored
+local research files and are not distributed or executed. Source and sample
+hashes are recorded in vendor/cheat-format-provenance.json; committed fixtures
+are original synthetic documents.
+
+JSON requires a real boolean; XML True/False and 1/0 are parsed explicitly.
+False/absent flags retain the prior normalized representation and version-1
+packet bytes, preserving existing durable identities. Version 2 carries an
+explicit absolute flag. Unknown flags/versions, kernel/noncanonical/low user
+addresses, wrapping ranges and same-mode overlaps are rejected. The verified
+stopped game still resolves the named module. Relative patches must fit that
+module; absolute patches may address other mapped user regions, subject to the
+existing mapping/permission/current-instruction checks. Resolved mixed-mode
+aliases are sorted and rejected before native memory reads or writes. All
+expected bytes are checked before the first write; partial writes still roll
+back and uncertain resume still holds the operation. No ASLR address guessing,
+allocation or code-cave relocation is performed.
+
+Phone/controller inspection, loadout execution and history reversal use the same
+versioned packet and identity-bound native job path. Absolute history reversal
+preserves address mode and reverses expected/desired bytes. The portable reference
+transaction requires an explicit absolute-range validation adapter; it cannot
+silently reinterpret an absolute offset as relative.
+
+All **354 local tests** pass (`.local/checkpoint37-tests.txt`). Coverage includes
+canonical persistence, byte-compatible relative packets, both absolute packet
+directions, XML/MC4 flags, unsafe-address/overlap rejection, native resolution
+outside the module, mixed-mode alias refusal before reads, rollback, shared job
+execution and history reversal. QuickJS runs actual parsing/packet creation.
+The production ELF build and embedded-asset verification pass
+(`.local/checkpoint37-build.txt`); the process-link audit finds zero legacy
+lookup/cache references in all five audited artifacts. None of these results
+establishes console or real-game acceptance.
+
+Remaining relative nonzero-section semantics, code-cave relocation, binary cheat
+formats, native deck panels, older-firmware installer adapters and the rest of
+outstanding full-goal work remain open. No console was contacted. Console
+acceptance stays last, including absolute patches with ASLR/expected-byte
+mismatches and game lifecycle changes. No release or deployment occurred.
+
+Runtime **9,121,496 bytes**, SHA-256 `f4cb1c79e722b7fc8997a32fca8494569875dd4b87b3b4c10b11bc146b8069e0`.
+Launcher **9,282,624 bytes**, SHA-256 `7b1aa5034d976a5e5622cf92d284d01980866c8f47dce0ba645ff964fb10a0fb`.
+Update package **9,121,752 bytes**, SHA-256 `43709d9abd76278767f04fbe0ac664de670b0d0de580fd8d892892dab24fa685`.
+Source fingerprint `bde5de9655a6c78418f2b8ca63825fde382f1e11a6d40dbe04f2b5843135b8a5`.

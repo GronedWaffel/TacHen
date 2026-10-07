@@ -26,6 +26,7 @@ import { SessionHistory } from '../src/history.mjs';
 import { StartupRecovery } from '../src/startup-recovery.mjs';
 import { makeUpdatePackage, inspectUpdate } from '../src/update-format.mjs';
 import { importCheatSource } from '../src/cheat-xml.mjs';
+import { cheatPacket } from '../src/cheats.mjs';
 import { compareCandidate } from '../src/scan-refinement.mjs';
 import { JobArchive } from '../src/job-archive.mjs';
 import { importCheatFile } from '../src/cheat-import.mjs';
@@ -59,6 +60,9 @@ globalThis.testPassed = false;
   assert(checksum('TacHen').length === 64, 'QuickJS checksum failed');
   const xmlCheat = importCheatSource('<Trainer Game="Fixture &amp; data" Moder="Fixture author" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>10</Offset><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
   assert(xmlCheat.name === 'Fixture & data' && xmlCheat.cheats[0].memory[0].on === '9090', 'QuickJS SHN parser failed');
+  const absoluteCheat = importCheatSource('<Trainer Game="Address fixture" Process="eboot.bin" Cusa="CUSA00001" Version="01.00"><Cheat Text="Patch"><Cheatline><Offset>400010</Offset><Absolute>True</Absolute><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>', { titleId: 'CUSA00001', version: '01.00' });
+  const absolutePacket = cheatPacket(absoluteCheat, '0', true);
+  assert(absolutePacket.readUInt32LE(4) === 2 && absolutePacket.readUInt32LE(28) === 1 && absolutePacket.readBigUInt64LE(16) === 0x400010n, 'QuickJS absolute-address packet failed');
   const mc4Cheat = await importCheatFile(mc4Fixture.source, { titleId: 'CUSA00001', version: '01.20' });
   assert(mc4Cheat.name === 'TacHen MC4 fixture' && mc4Cheat.cheats[0].memory[0].on === '9090', 'QuickJS lazy AES/MC4 import failed');
   const frame = encodeDeck({ sequence: 7, page: 1, ready: true, title: 'TacHen', subtitle: 'Controller', footer: 'Back', ip: '127.0.0.1',

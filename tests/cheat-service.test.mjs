@@ -58,6 +58,18 @@ test('native patch packet and receipt bind both directions to exact game; duplic
   const off = await f.enqueue(false);assert.equal((await f.settled(off.id)).status, 'completed');
   assert.equal(Buffer.from(f.calls[1].packet).subarray(32).toString('hex'), '90900102');
 });
+
+test('absolute SHN is supported by shared controls and history emits its exact inverse mode', async t => {
+  const f = await fixture(t);
+  const source = `<Trainer Game="Absolute fixture" Process="eboot.bin" Cusa="${game.titleId}" Version="${game.version}"><Cheat Text="Test"><Cheatline><Offset>600010</Offset><Absolute>True</Absolute><ValueOn>90-90</ValueOn><ValueOff>01-02</ValueOff></Cheatline></Cheat></Trainer>`;
+  const entry = await f.runtime.cheats.packs.import({ source, ...game });
+  assert.equal((await f.runtime.cheats.inspect(entry.sha256)).cheats[0].supported, true);
+  const job = await f.runtime.jobs.enqueue('cheat.set', { sha256: entry.sha256, cheatId: '0', enabled: true }, f.runtime.id());
+  await f.settled(job.id); const undone = await f.runtime.changes.undo(f.runtime.changes.preview(job)); await f.settled(undone.jobId);
+  assert.equal(f.calls.length, 2);
+  for (const call of f.calls) { const bytes = Buffer.from(call.packet); assert.equal(bytes.readUInt32LE(4), 2); assert.equal(bytes.readUInt32LE(28), 1); assert.equal(bytes.readBigUInt64LE(16), 0x600010n); }
+  assert.equal(Buffer.from(f.calls[1].packet).subarray(32).toString('hex'), '90900102');
+});
 test('history undo dispatches the inverse native packet once across simultaneous devices', async t => {
   const f = await fixture(t), source = await f.enqueue(true);await f.settled(source.id);
   const plan = f.runtime.changes.preview(source);assert.equal(plan.available, true);

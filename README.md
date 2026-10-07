@@ -53,9 +53,11 @@ preserves their credits and offers enable/restore operations. Native execution
 stops the verified game instance, checks every expected byte before the first
 write, verifies writes and rolls back partial failure before resuming. Durable
 intent is saved before stopping the game; uncertain results prevent replay.
-The current adapter supports module-relative section-zero patches. Other section
-layouts, absolute/code-cave patches and binary cheat formats remain work in
-progress. Local tests do not establish real-game compatibility.
+The current adapter supports module-relative section-zero and explicitly absolute
+user-address patches, including mixed-mode overlap checks after module resolution.
+Absolute addresses are used as supplied; ASLR correction is never guessed. Other
+relative section layouts, code-cave relocation and binary cheat formats remain
+work in progress. Local tests do not establish real-game compatibility.
 
 ## Developer MCP
 

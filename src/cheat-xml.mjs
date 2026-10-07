@@ -96,7 +96,9 @@ export function importCheatXml(source, identity, { legacyTrainer = false } = {})
       const on = field(line, 'ValueOn', true), off = field(line, 'ValueOff', true);
       // Do not remove arbitrary punctuation from patch bytes.
       if (![on, off].every(value => /^(?:[a-fA-F0-9]{2})+$/.test(value) || /^[a-fA-F0-9]{2}(?:-[a-fA-F0-9]{2})*$/.test(value))) bad('Invalid SHN patch bytes.');
-      return { offset: field(line, 'Offset', true), section: field(line, 'Section'), on: on.replaceAll('-', ''), off: off.replaceAll('-', ''), absolute: !!field(line, 'Absolute') };
+      const absolute = field(line, 'Absolute').toLowerCase();
+      invariant(['', 'true', 'false', '1', '0'].includes(absolute), 'CHEAT_ADDRESS_MODE', 'Absolute must be True or False.');
+      return { offset: field(line, 'Offset', true), section: field(line, 'Section'), on: on.replaceAll('-', ''), off: off.replaceAll('-', ''), absolute: absolute === 'true' || absolute === '1' };
     });
     return { name: node.attrs.Text, description: node.attrs.Description, memory };
   });

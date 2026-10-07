@@ -19,6 +19,9 @@ test('MC4 decrypted with portable AES matches independent Node encryption and bo
   const pack = await importCheatFile(source, identity);assert.deepEqual(pack, expected);
   for (const enabled of [true, false]) assert.deepEqual(cheatPacket(pack, '0', enabled), cheatPacket(expected, '0', enabled));
   assert.deepEqual(await importCheatFile('\ufeff\r\n' + source.match(/.{1,76}/g).join('\r\n') + '\n', identity), expected);
+  const absolute = await importCheatFile(encrypt(xml.replace('<Offset>10', '<Offset>400010').replace('</Cheatline>', '<Absolute>True</Absolute></Cheatline>')), identity);
+  assert.equal(cheatPacket(absolute, '0', true).readUInt32LE(4), 2);
+  assert.equal(cheatPacket(absolute, '0', false).readUInt32LE(28), 1);
 });
 
 test('MC4 accepts evidenced legacy escaped documents, toggles, encoding labels and short PS4 version spelling', async () => {
@@ -43,7 +46,7 @@ test('MC4 rejects malformed base64, blocks, padding, decoded text, expanded enti
   await assert.rejects(importCheatFile(encrypt(Buffer.from([0xff,0xfe,0x31])), identity), { code: 'CHEAT_MC4_TEXT' });
   await assert.rejects(importCheatFile(encrypt(Buffer.from([0xc0,0x80])), identity), { code: 'CHEAT_MC4_TEXT' });
   await assert.rejects(importCheatFile(encrypt('<!DOCTYPE Trainer SYSTEM "file:///secret">' + xml), identity), { code: 'CHEAT_XML' });
-  await assert.rejects(importCheatFile(encrypt(xml.replace('</Cheatline>', '<Absolute>true</Absolute></Cheatline>')), identity), { code: 'CHEAT_ADDRESS_MODE' });
+  await assert.rejects(importCheatFile(encrypt(xml.replace('</Cheatline>', '<Absolute>maybe</Absolute></Cheatline>')), identity), { code: 'CHEAT_ADDRESS_MODE' });
   await assert.rejects(importCheatFile(encrypt(xml.replace('CUSA00001', 'CUSA00002')), identity), { code: 'CHEAT_IDENTITY' });
   await assert.rejects(importCheatFile(encrypt('{}'), identity), { code: 'CHEAT_XML' });
 });

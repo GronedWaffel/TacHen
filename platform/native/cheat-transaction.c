@@ -7,20 +7,22 @@ static uint64_t u64(const unsigned char *p){uint64_t n;memcpy(&n,p,8);return n;}
 int tac_cheat_plan(const void *input,size_t length,TacCheatPlan *out){
   if(!out)return -1;memset(out,0,sizeof *out);
   if(!input||length<16||length>16+TAC_CHEAT_MAX_PATCHES*16+TAC_CHEAT_MAX_BYTES*2)return -1;
-  const unsigned char *p=input;unsigned count=u32(p+8);
-  if(u32(p)!=TAC_CHEAT_PLAN_MAGIC||u32(p+4)!=1||!count||count>TAC_CHEAT_MAX_PATCHES||u32(p+12)!=length)return -1;
+  const unsigned char *p=input;unsigned count=u32(p+8),version=u32(p+4);
+  if(u32(p)!=TAC_CHEAT_PLAN_MAGIC||(version!=1&&version!=2)||!count||count>TAC_CHEAT_MAX_PATCHES||u32(p+12)!=length)return -1;
   size_t at=16,total=0;
   for(unsigned i=0;i<count;i++){
     if(length-at<16)return -1;
-    uint64_t offset=u64(p+at);uint32_t n=u32(p+at+8),section=u32(p+at+12);at+=16;
-    if(section||!n||n>4096||length-at<(size_t)n*2||offset>UINT64_MAX-n||total>TAC_CHEAT_MAX_BYTES-n)return -1;
-    out->patches[i]=(TacCheatPatch){offset,0,n,p+at,p+at+n};total+=n;at+=(size_t)n*2;
+    uint64_t offset=u64(p+at);uint32_t n=u32(p+at+8),mode=u32(p+at+12);at+=16;
+    if(mode>(version==2?1U:0U)||!n||n>4096||length-at<(size_t)n*2||offset>UINT64_MAX-n||total>TAC_CHEAT_MAX_BYTES-n)return -1;
+    if(mode&&(offset<0x10000||offset>=UINT64_C(0x800000000000)||n>UINT64_C(0x800000000000)-offset))return -1;
+    out->patches[i]=(TacCheatPatch){offset,0,n,mode,p+at,p+at+n};total+=n;at+=(size_t)n*2;
   }
   if(at!=length)return -1;
-  // Deterministic address order makes overlap checks and rollback predictable.
+  // Only offsets in the same addressing mode can be compared before the module
+  // is resolved. Mixed-mode aliases are checked again after verified attach.
   for(unsigned i=1;i<count;i++){TacCheatPatch value=out->patches[i];unsigned j=i;
-    while(j&&out->patches[j-1].offset>value.offset){out->patches[j]=out->patches[j-1];j--;}out->patches[j]=value;}
-  for(unsigned i=1;i<count;i++)if(out->patches[i-1].offset+out->patches[i-1].size>out->patches[i].offset)return -1;
+    while(j&&(out->patches[j-1].absolute>value.absolute||(out->patches[j-1].absolute==value.absolute&&out->patches[j-1].offset>value.offset))){out->patches[j]=out->patches[j-1];j--;}out->patches[j]=value;}
+  for(unsigned i=1;i<count;i++)if(out->patches[i-1].absolute==out->patches[i].absolute&&out->patches[i-1].offset+out->patches[i-1].size>out->patches[i].offset)return -1;
   out->count=count;out->bytes=total;return 0;
 }
 TacCheatResult tac_cheat_apply(TacCheatPlan *plan,const TacCheatOps *o){
@@ -36,8 +38,20 @@ TacCheatResult tac_cheat_apply(TacCheatPlan *plan,const TacCheatOps *o){
     reason="The target module could not be uniquely resolved";goto finish;}
   for(unsigned i=0;i<plan->count;i++){
     TacCheatPatch *p=&plan->patches[i];
-    if(!p->before||!p->after||!p->size||p->size>sizeof check||p->offset>size||p->size>size-p->offset){reason="A cheat patch extends outside its loaded module";goto finish;}
-    p->address=base+p->offset;
+    if(!p->before||!p->after||!p->size||p->size>sizeof check||p->absolute>1){reason="Invalid patch record";goto finish;}
+    if(p->absolute){
+      if(p->offset<0x10000||p->offset>=UINT64_C(0x800000000000)||p->size>UINT64_C(0x800000000000)-p->offset){reason="Absolute patch is outside user process memory";goto finish;}
+      p->address=p->offset;
+    }else{
+      if(p->offset>size||p->size>size-p->offset){reason="A cheat patch extends outside its loaded module";goto finish;}
+      p->address=base+p->offset;
+    }
+  }
+  for(unsigned i=1;i<plan->count;i++){TacCheatPatch value=plan->patches[i];unsigned j=i;
+    while(j&&plan->patches[j-1].address>value.address){plan->patches[j]=plan->patches[j-1];j--;}plan->patches[j]=value;}
+  for(unsigned i=1;i<plan->count;i++)if(plan->patches[i-1].address+plan->patches[i-1].size>plan->patches[i].address){reason="Resolved cheat patches overlap; no bytes written";goto finish;}
+  for(unsigned i=0;i<plan->count;i++){
+    TacCheatPatch *p=&plan->patches[i];
     if(!o->deadline(o->context)){reason="Cheat preflight exceeded its stopped-game time budget";goto finish;}
     if(o->range(o->context,p->address,p->size)){reason="A patch crosses an unavailable mapping or a stopped thread's current instruction";goto finish;}
     if(o->read(o->context,p->address,check,p->size)||memcmp(check,p->before,p->size)){
