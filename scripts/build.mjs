@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { sourceFingerprint } from './source-fingerprint.mjs';
 import { makeUpdatePackage } from '../src/update-format.mjs';
+import { embeddingAssembly, verifyEmbeddedAsset } from './embedded-assets.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-neighbourhood/tools/ps5-sdk-0.43/ps5-payload-sdk'));
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
@@ -38,7 +39,6 @@ await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], 
   format: 'iife', target: 'es2022', outfile: 'build/runtime.js', alias, define: { TACHEN_BUILD: JSON.stringify(buildIdentity) } });
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
 await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned char tachen_bundle[]={' + [...bundle, 0].join(',') + '};\n');
-await fs.writeFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_assets_start\n.global tachen_assets_end\ntachen_assets_start:\n.incbin "build/components.bin"\ntachen_assets_end:\n.global tachen_deck_start\n.global tachen_deck_end\ntachen_deck_start:\n.incbin "build/tachen-deck.elf"\ntachen_deck_end:\n.section .note.GNU-stack,"",@progbits\n');
 const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
     'platform/native/update-core.c','platform/native/update-io.c','platform/native/update-bindings.c',
@@ -69,7 +69,6 @@ for (const source of ['platform/native/package-helper.c', 'platform/native/packa
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
   ...packageObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-package-helper.elf']);
-await fs.appendFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_package_start\n.global tachen_package_end\ntachen_package_start:\n.incbin "build/tachen-package-helper.elf"\ntachen_package_end:\n');
 const saveObjects = [];
 for (const source of ['platform/native/save-helper.c', 'platform/native/save-core.c', 'platform/native/save-flow.c', 'platform/native/save-io.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
   const object = 'build/save_' + source.replaceAll('/', '_') + '.o';
@@ -78,7 +77,6 @@ for (const source of ['platform/native/save-helper.c', 'platform/native/save-cor
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
   ...saveObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-save-helper.elf']);
-await fs.appendFile(path.join(root, 'build/assets.S'), '.section .rodata,"a",@progbits\n.global tachen_save_start\n.global tachen_save_end\ntachen_save_start:\n.incbin "build/tachen-save-helper.elf"\ntachen_save_end:\n');
 const deckObjects = [];
 for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
   'platform/deck/deck-view.c', 'platform/deck/deck-module.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
@@ -90,6 +88,13 @@ for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c',
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
   ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
+const embeddedAssets = [];
+for (const [symbol, file] of [['assets', 'components.bin'], ['deck', 'tachen-deck.elf'],
+  ['package', 'tachen-package-helper.elf'], ['save', 'tachen-save-helper.elf']]) {
+  embeddedAssets.push({ symbol: 'tachen_' + symbol, path: 'build/' + file,
+    bytes: await fs.readFile(path.join(root, 'build', file)) });
+}
+await fs.writeFile(path.join(root, 'build/assets.S'), embeddingAssembly(embeddedAssets));
 for (const source of sources) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
   run([...compile, ...(source.startsWith('platform/native/save-') || source.startsWith('platform/native/update-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
@@ -99,9 +104,10 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall',
   ...objects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
+const embeddedAssetChecks = embeddedAssets.map(asset => verifyEmbeddedAsset(elf, asset.symbol, asset.bytes));
 const updatePackage=makeUpdatePackage(elf,{source:buildIdentity.source,label:'TacHen development ' + buildIdentity.source.slice(0,12)});
 await fs.writeFile(path.join(root,'build/tachen-update.tachen'),updatePackage);
-await fs.writeFile(path.join(root,'build/fallback.S'),'.section .rodata,"a",@progbits\n.global tachen_fallback_start\n.global tachen_fallback_end\ntachen_fallback_start:\n.incbin "build/tachen-update.tachen"\ntachen_fallback_end:\n.section .note.GNU-stack,"",@progbits\n');
+await fs.writeFile(path.join(root, 'build/fallback.S'), embeddingAssembly([{ symbol: 'tachen_fallback', path: 'build/tachen-update.tachen', bytes: updatePackage }]));
 const launcherObjects=[];
 for(const source of ['platform/native/update-launcher.c','platform/native/update-core.c','platform/native/update-io.c','platform/native/elf-image.c','platform/native/elf-map.c','platform/native/process-fresh.c',
   'platform/native/trace-wait.c','platform/loader/elfldr.c','platform/loader/pt.c','platform/loader/sha256.c','platform/loader/syscall-shim.S','build/fallback.S']) {
@@ -110,6 +116,7 @@ for(const source of ['platform/native/update-launcher.c','platform/native/update
 run(['ld.lld','--no-dependent-libraries','--wrap=syscall','--wrap=__syscall','--wrap=ptrace','--wrap=kernel_get_proc','-pie','--hash-style=gnu','-z','max-page-size=0x4000','-T',sdk+'/ldscripts/elf_x86_64.x',
   ...launcherObjects,sdk+'/target/lib/crt1.o','-L',sdk+'/target/lib','--start-group',sdk+'/target/lib/libc.a','-ldl','--end-group','-lkernel_web','-lSceLibcInternal','-o','build/tachen.elf']);
 const launcher=await fs.readFile(path.join(root,'build/tachen.elf'));
+const fallbackCheck = verifyEmbeddedAsset(launcher, 'tachen_fallback', updatePackage);
 const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 const packageElf = await fs.readFile(path.join(root, 'build/tachen-package-helper.elf'));
 const saveElf = await fs.readFile(path.join(root, 'build/tachen-save-helper.elf'));
@@ -119,6 +126,7 @@ if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.rea
 await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
   version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   buildIdentity,
+  embeddedAssets: { runtime: embeddedAssetChecks, launcher: fallbackCheck },
   updatePackage:{file:'tachen-update.tachen',bytes:updatePackage.length,sha256:createHash('sha256').update(updatePackage).digest('hex'),format:1,stateSchema:1,signed:false},
   launcher:{file:'tachen.elf',bytes:launcher.length,sha256:createHash('sha256').update(launcher).digest('hex'),hardwareVerified:false},
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,

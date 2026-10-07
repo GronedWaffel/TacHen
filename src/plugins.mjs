@@ -48,9 +48,21 @@ export class Plugins {
     }, revision);
     this.runtime.sequence++; return this.list();
   }
-  list() {
-    return this.entries().map(item => ({ ...item, observation: clone(this.observations.get(item.sha256) || {
-      phase: 'uninspected', message: item.format === 'plugin' ? 'Process state has not been checked.' : 'Game module state has not been checked.' }) }));
+  list(state=this.runtime.store.snapshot()) {
+    const pendingFiles=new Set(state.jobs.filter(job=>['plugin.start','game.module.start'].includes(job.kind)&&!['completed','failed','cancelled'].includes(job.status)).map(job=>job.args.sha256));
+    const held=this.runtime.graph.safe||this.runtime.recovery?.pending;
+    return state.plugins.map(item => {
+      const module=item.format!=='plugin',observation=clone(this.observations.get(item.sha256)||{
+        phase:'uninspected',message:module?'Game module state has not been checked.':'Process state has not been checked.'});
+      const pending=pendingFiles.has(item.sha256);
+      const targetReady=!module||matches(item.target,this.runtime.game)&&item.platform===this.runtime.game.platform;
+      const reason=held?'Startup recovery is holding native operations.':pending?'An existing operation must finish or be reconciled first.':!targetReady?
+        item.autostart?'Autostart is armed. Waiting for the exact target game and version.':'Open the exact target game and version, or enable autostart to wait for it.':
+        !['stopped','armed','uninspected','failed','held','cancelled'].includes(observation.phase)?observation.message||'Review the existing plugin operation before starting another.':null;
+      return {...item,observation,controls:{canStart:!reason,startReason:reason,jobKind:module?'game.module.start':'plugin.start',
+        startLabel:module?'Load into game':'Start now',lifetime:module?'Resident until the target game closes. Disabling autostart does not unload it.':
+          'Disabling autostart does not stop the process or undo its patches.'}};
+    });
   }
   handler() {
     const self = this, runtime = this.runtime;

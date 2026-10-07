@@ -3,6 +3,7 @@
 // the phone. No privileged operation is implemented inside the renderer.
 import { invariant } from './errors.mjs';
 import { telemetryText } from './telemetry.mjs';
+import { pluginDeckRows } from './deck-plugins.mjs';
 
 export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 4, bytes: 6424, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
@@ -64,6 +65,8 @@ export class ConsoleDeck {
     if (this.confirmation) {
       row('Confirm: ' + this.confirmation.label, this.confirmation.detail, '$confirm');
       row('Cancel', 'Return without making changes', '$cancel');
+    } else if (this.pluginView) {
+      items.push(...pluginDeckRows(state,this.pluginView));
     } else if (this.startupReview) {
       const plan = this.startupReview;
       for (const service of plan.services) row(service.id, service.status === 'adopt' ? 'Reuse after readiness check' : service.status === 'start' ? 'Start after dependencies' : service.reason);
@@ -122,7 +125,12 @@ export class ConsoleDeck {
           service.status === 'stopped' && !state.safe ? 'service.start' : null, { id: service.id });
       if (state.safe) row('Recovery startup', 'Automatic native startup is paused. Review Activity before retrying.');
     } else if (this.page === 1) {
+      if(Array.isArray(state.plugins))row('Plugins','Register, start, and configure system or game plugins.','$plugins');
       for (const item of state.inbox.filter(x => x.status === 'verified')) {
+        if(Array.isArray(state.plugins)&&/\.(plugin|prx|sprx)$/i.test(item.name)){
+          const plugin=state.plugins.find(plugin=>plugin.upload===item.id);
+          row(item.name,plugin?'Open plugin controls':'Register this verified plugin',plugin?'$plugin-open':'$plugin-register',plugin?{sha256:plugin.sha256}:{upload:item.id});continue;
+        }
         const runnable = /\.elf$/i.test(item.name) && feature('payloads') && !runtime.componentHashes?.has(item.expectedSha256);
         row(item.name, runnable ? 'Run this verified payload' : 'Managed component or plugin; use its dedicated controls',
           runnable ? 'job.enqueue' : null, { kind: 'payload.dispatch', input: { id: item.id } }, { confirm: true });
@@ -189,7 +197,7 @@ export class ConsoleDeck {
     if (this.offset) selected.push({ label: 'Previous items', detail: '', enabled: true, command: '$previous' });
     if (this.offset + 6 < items.length) selected.push({ label: 'More items', detail: '', enabled: true, command: '$next' });
     const data = { ready: true, ipVisible: state.settings.overlay.ip, ip: state.identity.ip,
-      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
+      page: this.page, title: `TacHen / ${this.confirmation ? 'Confirm action' : this.pluginView ? 'Plugins' : this.historyView ? 'Session history' : this.saveView ? 'Saved games' : pages[this.page]}`,
       subtitle: this.notice || (state.safe ? 'Recovery startup' : 'Your console. Your controls.'),
       footer: 'L1 / R1 sections    X select    Circle back    L3 + R3 close', rows: selected };
     const signature = JSON.stringify(data);
@@ -217,10 +225,11 @@ export class ConsoleDeck {
       invariant(Number.isInteger(input.sequence) && input.sequence === frame.sequence, 'DECK_STALE', 'The deck changed. Select the action again.');
       if (input.kind === 'next' || input.kind === 'previous') {
         this.page = (this.page + (input.kind === 'next' ? 1 : pages.length - 1)) % pages.length;
-        this.offset = 0; this.confirmation = null; this.loadoutPreview = null; this.saveView = null;this.historyView = null;this.startupReview = null; this.notice = ''; return this.frame();
+        this.offset = 0; this.confirmation = null; this.pluginView=null;this.loadoutPreview = null; this.saveView = null;this.historyView = null;this.startupReview = null; this.notice = ''; return this.frame();
       }
       if (input.kind === 'back') {
-        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView || this.startupReview)) this.confirmation = null;
+        if (this.confirmation && (this.loadoutPreview || this.saveView || this.historyView || this.startupReview||this.pluginView)) this.confirmation = null;
+        else if(this.pluginView){const kind=this.pluginView.kind;this.pluginView=kind==='list'?null:{kind:kind==='register'?'inbox':'list'};}
         else if (this.startupReview) this.startupReview = null;
         else if (this.historyView) { if (this.historyView.id) this.historyView = {};else this.historyView = null; }
         else if (this.saveView) { if (this.saveView.selected) this.saveView.selected = null;else this.saveView = null; }
@@ -232,6 +241,11 @@ export class ConsoleDeck {
       const selected = frame.rows[input.row];
       invariant(selected.enabled, 'DECK_DISABLED', 'This action is not available.');
       if (selected.command === '$previous') this.offset -= 6;
+      else if(selected.command==='$plugins'){this.pluginView={kind:'list'};this.offset=0;}
+      else if(selected.command==='$plugin-inbox'){this.pluginView={kind:'inbox'};this.offset=0;}
+      else if(selected.command==='$plugin-register'){this.pluginView={kind:'register',...selected.args};this.offset=0;}
+      else if(selected.command==='$plugin-open'){this.pluginView={kind:'detail',...selected.args};this.offset=0;}
+      else if(selected.command==='$plugin-exit'){this.pluginView=null;this.offset=0;}
       else if (selected.command === '$notice-dismiss') {
         const active = this.runtime.snapshot().notices.current;
         if (active) await this.runtime.execute('notice.dismiss', { id: active.id });
@@ -271,7 +285,11 @@ export class ConsoleDeck {
         this.runtime.execute(row.command, row.args || {}).then(() => { this.notice = 'Library refreshed.'; }, error => { this.notice = error.message; });
         return;
       }
-      await this.runtime.execute(row.command, row.command === 'job.enqueue' ? { ...row.args, key } : row.args || {});
+      const result=await this.runtime.execute(row.command, row.command === 'job.enqueue' ? { ...row.args, key } : row.args || {});
+      if(row.command==='plugin.register'){
+        const registered=result.find(item=>item.upload===row.args.upload);
+        this.pluginView=registered?{kind:'detail',sha256:registered.sha256}:{kind:'list'};this.offset=0;
+      }
       this.notice = row.command === 'job.enqueue' ? 'Accepted. Follow progress in Activity.' : 'Updated.';
     } catch (error) { this.notice = error.message; throw error; }
   }

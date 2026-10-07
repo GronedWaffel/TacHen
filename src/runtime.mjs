@@ -93,7 +93,7 @@ export class TacRuntime {
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
-      plugins: this.plugins ? this.plugins.list() : null,
+      plugins: this.plugins ? this.plugins.list(state) : null,
       cheats: this.cheats ? this.cheats.list() : null,
       library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,

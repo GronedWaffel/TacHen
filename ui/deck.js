@@ -349,10 +349,10 @@ function draw() {
     const node = row(item.name, detail, item.observation.phase, ['process-active', 'module-started'].includes(item.observation.phase));
     node.classList.add('plugin-row');
     node.append(el('p', 'fine', item.observation.message));
-    const start = el('button', '', 'Start now'), automatic = el('button', '', item.autostart ? 'Disable autostart' : 'Enable autostart');
-    start.disabled = state.safe || !['stopped', 'armed', 'uninspected', 'failed', 'held', 'cancelled'].includes(item.observation.phase);
-    if (module && (state.game?.titleId !== item.target.titleId || state.game?.version !== item.target.version)) start.disabled = true;
-    start.onclick = () => command('job.enqueue', { kind: module ? 'game.module.start' : 'plugin.start', input: { sha256: item.sha256, source: 'manual' }, key: requestKey() });
+    const start = el('button', '', item.controls.startLabel), automatic = el('button', '', item.autostart ? 'Disable autostart' : 'Enable autostart');
+    start.disabled = !item.controls.canStart;start.title=item.controls.startReason||'';
+    if(item.controls.startReason&&item.controls.startReason!==item.observation.message)node.append(el('p','fine',item.controls.startReason));
+    start.onclick = () => command('job.enqueue', { kind: item.controls.jobKind, input: { sha256: item.sha256, source: 'manual' }, key: requestKey() });
     automatic.onclick = () => command('plugin.configure', { sha256: item.sha256, autostart: !item.autostart, revision: state.revision });
     const actions = el('div', 'actions'); actions.append(start, automatic); node.append(actions); return node;
   }) : [el('p', 'empty', Array.isArray(state.plugins) ? 'No plugins registered yet.' : 'Plugin loading requires the console runtime.') ]));

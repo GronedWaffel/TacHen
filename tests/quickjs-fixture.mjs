@@ -6,6 +6,7 @@ import { StateStore } from '../src/store.mjs';
 import { mergeSettings } from '../src/settings.mjs';
 import { inspectPayload } from '../src/payload-format.mjs';
 import { encodeDeck } from '../src/deck.mjs';
+import { pluginDeckRows } from '../src/deck-plugins.mjs';
 import { inspectPackage } from '../src/package-format.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
 import { GameLifecycle } from '../src/game-lifecycle.mjs';
@@ -80,6 +81,8 @@ globalThis.testPassed = false;
     gameModuleStart(request, upload, sha256, pid, generation) { moduleReceipt = { request, sha256, pid, generation, stage: 4, handle: 3, startResult: 0 }; },
     gameModulePoll: () => moduleReceipt });
   await plugins.register({ upload: pluginUpload, scope: 'system', revision: store.snapshot().revision });
+  const pluginRows=pluginDeckRows({plugins:plugins.list(),inbox:[],revision:store.snapshot().revision},{kind:'detail',sha256:pluginHash});
+  assert(pluginRows.some(row=>row.label==='Start now'&&row.enabled&&row.args.kind==='plugin.start'&&row.confirm), 'QuickJS controller plugin launch controls failed');
   const pluginInput = await pluginHandler.validate({ sha256: pluginHash, source: 'manual' });
   const loaded = await pluginHandler.run(pluginInput, { id: pluginRequest, signal: { aborted: false } });
   assert(await pluginHandler.verify(loaded, pluginInput) && loaded.initialized === false, 'QuickJS plugin dispatch contract failed');

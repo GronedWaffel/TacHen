@@ -1491,3 +1491,64 @@ No PS5 was contacted and nothing was published or deployed. Overall completion
 remains unproven. The full goal stays active: original native presentation and
 control coverage, remaining cheat formats, save recovery, older-firmware package
 installer ABI coverage and deferred console acceptance still need work.
+
+
+## Checkpoint twenty-nine - shared controller plugin controls and current embedded binaries
+
+Payloads -> Plugins now supports registering verified inbox containers, selecting
+system/game scope, manual loading and optional autostart. Exact game/version
+choices come from the running game and saved loadouts, including when no game is
+running. Registration does not execute code. Confirmations precede registration,
+manual loading and enabling autostart. Circle steps back through nested views;
+section changes clear that view. The wire remains version four with six pages.
+
+Phone and controller share start availability, exact module platform/game/version
+matching, pending-operation and startup-recovery holds, and residency explanations.
+Snapshot rendering does not query native process state. Autostart may be armed
+before opening a game. Disabling it does not terminate code or undo patches; this
+change does not supply a generic plugin unload operation.
+
+The new controller tests drive real shared runtime commands with a mocked native
+boundary: system registration/start before a game, duplicate confirmation, stale
+phone/controller configuration revisions, module target/version holds, deferred
+autostart, saved-loadout targets, and safe-recovery holds. They prove coordinator
+behavior, not execution or plugin compatibility on PS5. The 390-pixel local phone
+preview used fixture plugin data; `.local/plugins-phone-controls.png` records it.
+Its server and browser tab were closed after inspection.
+
+**Correction to earlier artifact validation:** final embedding inspection found
+that Zig could reuse stale assembly objects for unchanged `.incbin` paths, even
+though the binary at that path had rebuilt. The launcher contained an earlier
+runtime package, and the runtime contained old deck/save helpers. Earlier checks
+validated each standalone ELF, not those nested bytes; those checks did not prove
+that earlier launchers carried the latest code. None was deployed or published.
+
+Generated assembly now includes each current content digest outside the exported
+asset span, after helpers have linked. The build verifies exact byte equality at
+the start/end symbols with a unique file-backed load mapping before accepting the
+runtime or launcher. Manifest entries record the checked spans. The verifier
+rejected the prior launcher before the build fix. A real Zig incremental regression
+changes asset contents at the same path, size and timestamp, verifies the new
+bytes, and checks a repeat build is identical. Negative cases reject stale bytes,
+a matching copy elsewhere in the file, wrong spans, missing symbols, truncation
+and non-file-backed mappings. Tests also verify every final embed recursively
+through the launcher's package to the current runtime and its four assets.
+
+All **305 local tests** pass (`.local/checkpoint29-tests.txt`), including native
+image/process-link checks and the new embedding regressions. Embedded QuickJS
+checks pass. Hardware testing remains deferred. Current artifacts:
+
+Runtime **9,006,216 bytes**, SHA-256
+`bbe7d8c3014f3e0065b79a13bac1d64142d1e8ee5ada92b7259b74e78ff23f22`.
+Launcher **9,167,936 bytes**, SHA-256
+`7cc880791b95b2fd153721bc045d269cbc6435f23e53207a1e42f825facc6522`.
+Update package **9,006,472 bytes**, SHA-256
+`e10aeef712d40d38f33bb88a1f42061ea8f46e87b14f946f98cd041378a2b4cd`.
+Source fingerprint
+`fc5bbc6faaf964045f25f86e9af2a6ddda6a908b70ed5e64c759cbd918db1348`.
+
+No console was contacted and nothing was released. Remaining scope includes the
+original console presentation, broader cheat formats, save interruption recovery,
+older-firmware package installer ABI coverage, further developer scanning and
+plugin lifecycle work, and all deferred console acceptance. The full goal remains
+active; local checks do not establish console stability.

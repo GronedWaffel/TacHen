@@ -90,8 +90,12 @@ console boot and process generation; PID reuse never counts as the same running
 plugin. Process presence is reported separately from plugin feature initialization.
 This development stage permits one dispatch per plugin identity per boot; disabling
 autostart prevents future automatic launches but does not stop an existing process
-or undo its patches. Safe stop/restart and controller plugin
-controls remain unfinished. No plugin has been executed on console for this build.
+or undo its patches. Safe generic stop/restart remains unfinished.
+Controller Payloads -> Plugins now provides registration, manual loading and
+autostart controls through the same commands as the phone. Exact targets can come
+from the running game or a saved loadout; arbitrary title/version entry remains
+on the phone. Circle returns through the nested views without closing the deck.
+No plugin has been executed on console for this build.
 
 Native `.prx`/`.sprx` modules now have a separate game loader wired to phone
 registration, manual start and autostart. Register the exact game title/version;
@@ -331,3 +335,9 @@ build, pending selection and recorded launch. Unfinished staging blocks removal.
 Unreadable packages, uploads, temporary files and selection snapshots are preserved;
 this is not a directory sweep. Refresh after removing an entry to expose additional
 packages beyond the display limit. Do not claim these builds are release-ready.
+
+The build checks each embedded component and helper at its exported ELF symbol
+span, including the launcher's complete fallback package. Content digests in the
+generated assembly invalidate cached objects when an included binary changes.
+A successful build requires current bytes and a unique file-backed load mapping;
+validating the outer ELF alone is not sufficient.
