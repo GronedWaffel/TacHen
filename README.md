@@ -50,6 +50,12 @@ autostart prevents future automatic launches but does not stop an existing proce
 or undo its patches. Safe stop/restart, native PRX loading and controller plugin
 controls remain unfinished. No plugin has been executed on console for this build.
 
+The native PRX callback and game-entry injector now cross-build, and the actual
+freestanding callback/trampoline execute in a host regression runner. They are
+not yet connected to coordinator jobs or offered as PRX controls: staging,
+durable per-game ownership and result reconciliation remain required. The build
+manifest explicitly distinguishes compiled injection code from wired features.
+
 On console builds, verified ELF entries offer **Run payload**. A separate native
 worker hashes the exact execution buffer, validates memory/relocation bounds and
 spawns the payload with the PS5 payload ABI. Checksummed dispatch receipts survive

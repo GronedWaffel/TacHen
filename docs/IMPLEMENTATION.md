@@ -458,3 +458,54 @@ callback/input ownership, and controller-side plugin management. This checkpoint
 deliberately does not advertise a universal unload ABI or treat killing a plugin
 process as undoing patches. The other outstanding native cheat/save, overlay/FPS,
 MCP, loadout, update and older-firmware package integrations remain in scope.
+
+## Tenth implementation checkpoint: game callback and injector
+
+2026-10-07: **146 local tests pass**, including execution of the actual x86-64
+freestanding game callback and relocated entry stub on the Windows host with
+SysV calling conventions. Console module loading is not simulated as hardware
+success. The runtime cross-build is 8,454,976 bytes, SHA-256
+`b07bcd3816946cf9a9fb15970068ccb59490f3fdebf57ada656a167f02ab2a97`.
+No PS5 connection or native console testing was performed.
+
+- The new callback is 816 bytes, SHA-256
+  `c82184e5b2a30e4709f34d2d6e8a910e735553682361f2a0db08480c1ea3800e`.
+  Its control block has an exact version/size and ownership cookie. Eight bounded
+  module slots publish disabled-to-enabled; atomic state transitions prevent
+  duplicate or recursive module initialization. Each callback starts at most one
+  module. Paths must refer to a hash-named private `.prx` or `.sprx` staging file.
+  The callback itself does no filesystem scan, allocation, logging or sleeping.
+- Module loading calls the game's actual `sceKernelLoadStartModule` export from
+  its input thread. Both returned handle and initializer result are retained:
+  a module with a handle but a failed initializer is not assumed unloaded, and
+  neither success nor failure gets replayed on subsequent input callbacks.
+- The entry trampoline saves original argument registers, flags, floating-point
+  state and stack arguments before calling the helper, then restores state and
+  executes relocated original instructions. Host tests execute the actual binary
+  and stub, verify original integer arguments/results, test nested callbacks,
+  disabled slots, incorrect cookies, invalid paths and sticky initialization
+  failures. A fixture path-length error was caught and corrected during testing.
+- Native injection resolves mapped exports by module basename and NID, checks
+  process identity while stopped, stages private code/control memory, and uses
+  real target `mprotect` to split RX code from RW control pages. Entry patches use
+  stopped-thread publication, PT_IO writes, permission restoration and readback.
+  Existing hooks/forwarders are rejected. Failed or uncertain rollback retains
+  potentially referenced code rather than unmapping a live branch target.
+- The shared publication engine now supports one or two entries; regression
+  checks still cover rollback, partial writes, busy instruction pointers and
+  uncertain detach. The new injector is cross-compiled, not console-executed.
+- SDK v0.43 source inspection found a process-address cache keyed only by PID.
+  The new injector compares that cached address with a bounded fresh allproc
+  traversal before using it. A stale pointer, invalid list or exhausted traversal
+  rejects the operation. The host runner executes the actual guard with controlled
+  kernel-read responses, including PID reuse and list cycles. This prevents using
+  stale addresses in this path; automatic cache recovery and the other existing
+  SDK call paths still need a broader lifecycle audit before hardware acceptance.
+
+The build manifest correctly reports `nativeInjectorCompiled: true` and
+`coordinatorWired: false`. Still needed for usable PRX support: immutable module
+staging, native container/platform validation, durable per-game request/arena
+ownership, exact title/version checks at dispatch, coordinator/UI arming and
+result reconciliation. The callback counters are input-call observations, **not
+FPS**. In-game rendering/input arbitration and the remaining full TacHen scope
+remain unfinished. Overall goal remains active.

@@ -111,3 +111,18 @@ port's `port_plugin_runtime.h` and `daemon/source/game_plugins.cpp` in the local
 checksum-bound registry, autostart policy, process-generation receipts and
 duplicate/recovery behavior. No universal stop or unload contract is implied by
 the etaHEN container format.
+
+TacHen's native game callback trampoline follows the SysV register/FXSAVE
+preservation strategy in the GPL etaHEN port's `shellui/include/fps_limiter_stub.h`
+(SHA-256 `bfa7ab18cff723a53c5fe916b1edca73c3bffd698d53eb6b90cb2621640b3083`).
+Its PRX callback and split-permission arena strategy were checked against
+`daemon/source/game-prx.cpp` (SHA-256
+`c9f344eb3f962e581408d497dbd066021cf2bcc2959651ffd00b9c3eaf7b54a5`) and
+`include/port_game_arena.h` (SHA-256
+`68ba28cd469b466b444dac94d280a14a764b6eead48d2b449aa5fe20cf308605`).
+The symbol resolver's basename semantics and PID-only process cache were verified
+in [ps5-payload-sdk v0.43 kernel.c](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/kernel.c),
+copyright John Törnblom, GPL-3.0-or-later. TacHen adds a bounded fresh-process-list
+comparison before using cached SDK process pointers in the new game injector.
+The callback control ABI, slot validation and host execution tests are TacHen
+code; these checks do not establish PS5 runtime compatibility.

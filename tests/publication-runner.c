@@ -18,6 +18,9 @@ static int run(Mock* m,TacDeckPatch* patches){TacPublicationOps o={m,attach,deta
 int main(void){
  TacDeckPatch p[2]={{.address=0x10000},{.address=0x10020}};memset(p[0].after,0xa1,14);memset(p[1].after,0xb2,14);
  Mock m={0};CHECK(run(&m,p)==0);CHECK(m.acked==1&&m.detached==1&&!m.stopped);CHECK(m.memory[0]==0xa1&&m.memory[32]==0xb2);
+ m=(Mock){0};TacPublicationOps single={&m,attach,detach,threads,readbytes,writebytes,ack,reject,pause_mock};
+ CHECK(tac_publish_hooks(p,1,&single)==0);CHECK(m.memory[0]==0xa1&&m.memory[32]==0&&m.writes==1);
+ CHECK(tac_publish_hooks(p,0,&single)==1);CHECK(tac_publish_hooks(p,3,&single)==1);
  m=(Mock){.busy=3};CHECK(run(&m,p)==0);CHECK(m.attached==4&&m.detached==4&&m.writes==2);
  m=(Mock){.busy=100};CHECK(run(&m,p)==1);CHECK(m.writes==0&&m.attached==20&&m.detached==20);
  m=(Mock){.failWrite=2};CHECK(run(&m,p)==1);for(int i=0;i<64;i++)CHECK(m.memory[i]==0);CHECK(m.acked==0&&m.writes==4);

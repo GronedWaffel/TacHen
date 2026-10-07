@@ -4,7 +4,7 @@
 #include "publication.h"
 #include <string.h>
 int tac_publish_hooks(const TacDeckPatch* patches,size_t count,const TacPublicationOps* o){
- if(!patches||count!=2||!o||!o->attach||!o->detach||!o->threads||!o->read||!o->write||!o->ack||!o->reject||!o->pause)return 1;
+ if(!patches||count<1||count>2||!o||!o->attach||!o->detach||!o->threads||!o->read||!o->write||!o->ack||!o->reject||!o->pause)return 1;
  for(size_t i=0;i<count;i++){
   if(patches[i].address<0x10000||patches[i].address>UINT64_C(0x7fffffffffff)-64)return 1;
   for(size_t j=0;j<i;j++)if(patches[i].address<patches[j].address+14&&patches[j].address<patches[i].address+14)return 1;
