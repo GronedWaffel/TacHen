@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { invariant, TacError, publicError } from './errors.mjs';
 import { payloadDispatchHandler } from './payload-loader.mjs';
-import { localGet } from './local-http.mjs';
+import { localRequest } from './local-http.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const definitions = {
   kstuff: { needle: 'kstuff' },
@@ -10,7 +10,7 @@ const definitions = {
 };
 const match = (probe, id) => probe.processes.filter(p => (p.name + ' ' + p.thread).toLowerCase().includes(definitions[id].needle));
 const unknown = reason => ({ ready: false, absent: false, reason });
-export function serviceInspector(native, { get = localGet } = {}) {
+export function serviceInspector(native, { get = localRequest } = {}) {
   return async function inspect(id) {
     invariant(Object.hasOwn(definitions, id), 'SERVICE_UNKNOWN', 'Unknown native component.');
     const first = native.systemProbe();
@@ -30,7 +30,7 @@ export function serviceInspector(native, { get = localGet } = {}) {
     if (!Number.isInteger(process.pid) || process.pid <= 0 || !process.generation) return unknown('The component process identity is incomplete.');
     let api;
     try {
-      const response = await get(definitions[id].port, definitions[id].route);
+      const response = await get(definitions[id].port, definitions[id].route, id === 'shadowmount' ? { method: 'POST', body: {} } : {});
       if (id === 'shadowmount') {
         api = JSON.parse(response.text);
         if (api.status !== 0 || api.api_version !== 1 || api.shadowmount_version !== '1.7beta4' ||
@@ -56,7 +56,7 @@ export function serviceInspector(native, { get = localGet } = {}) {
 const sameInstance = (a, b) => a?.ready === true && b?.ready === true && a.id === b.id && a.boot === b.boot &&
   (a.id === 'kstuff' ? b.hooks === 'installed' && b.injectionReady : a.pid === b.pid && a.generation === b.generation && a.version === b.version);
 
-export function installNativeServices(runtime, native, assets, { delay = sleep, get = localGet, timeout = 90000 } = {}) {
+export function installNativeServices(runtime, native, assets, { delay = sleep, get = localRequest, timeout = 90000 } = {}) {
   const inspect = serviceInspector(native, { get });
   const dispatch = payloadDispatchHandler(runtime, native, { delay, managed: true });
   runtime.componentHashes = new Set(Object.keys(definitions).map(id => assets.get(id).sha256));

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 let csrf, state, connected = true, timer, busy = false;
+let libraryPage = { games: [], total: 0, offset: 0 }, libraryBusy = false;
 const $ = selector => document.querySelector(selector);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
 async function api(route, body) {
@@ -48,6 +49,11 @@ function draw() {
   $('#capabilities').replaceChildren(...available.map(item => { const card = el('article', 'cap'); card.append(el('span', 'indicator', 'AVAILABLE'), el('h3', '', item.name), el('p', '', item.reason || 'Connected to the shared TacHen runtime.')); return card; }));
   $('#component-list').replaceChildren(...state.capabilities.map(item => row(item.name, item.reason, item.available ? 'Available' : 'Not integrated', item.available)));
   $('#payload-file').disabled = !capability('inbox')?.available;
+  $('#library-refresh').disabled = libraryBusy || !capability('shadowmount')?.available;
+  $('#library-find').disabled = libraryBusy || !state.library?.available;
+  $('#library-previous').disabled = libraryBusy || libraryPage.offset === 0;
+  $('#library-next').disabled = libraryBusy || libraryPage.offset + libraryPage.games.length >= libraryPage.total;
+  if (state.library?.error) $('#library-status').textContent = state.library.error.message;
   $('#inbox-items').replaceChildren(...(state.inbox?.length ? state.inbox.map(item => {
     const node = row(item.name, `${(item.offset / 1048576).toFixed(1)} / ${(item.bytes / 1048576).toFixed(1)} MiB`, item.status, item.status === 'verified');
     if (item.status === 'verified' && /\.elf$/i.test(item.name) && capability('payloads')?.available) {
@@ -75,6 +81,32 @@ function draw() {
     input.disabled = needed ? !capability(needed)?.available : false;
   }
 }
+async function loadLibrary(rescan = false, offset = 0) {
+  if (libraryBusy) return; libraryBusy = true;
+  $('#library-status').textContent = rescan ? 'Reading your game library…' : 'Searching cached library…';
+  try {
+    if (rescan) await api('/api/command', { command: 'library.refresh', args: {} });
+    const { result } = await api('/api/command', { command: 'library.list', args: { search: $('#library-search').value, offset } });
+    libraryPage = result;
+    $('#library-games').replaceChildren(...(result.games.length ? result.games.map(game => {
+      const node = row(game.name, `${game.titleId} · ${game.platform.toUpperCase()} · ${game.sourceType}`, game.installedPackage ? 'Installed package' : game.mounted ? 'Mounted' : 'Unmounted');
+      if (game.canMount && game.sourceAvailable && result.available) {
+        const button = el('button', '', game.mounted ? 'Unmount' : 'Mount');
+        button.onclick = async () => { await command('job.enqueue', { kind: 'library.mount', input: { titleId: game.titleId, mounted: !game.mounted }, key: requestKey() });
+          $('#library-status').textContent = 'Follow the operation in Activity, then refresh the library.'; };
+        node.append(button);
+      }
+      return node;
+    }) : [el('p', 'empty', 'No matching games in the current library.') ]));
+    $('#library-status').textContent = `${result.total} games${result.total ? ` · Showing ${result.offset + 1}–${result.offset + result.games.length}` : ''}`;
+  } catch (error) { $('#library-status').textContent = error.message; }
+  finally { libraryBusy = false; await refresh(); }
+}
+$('#library-refresh').onclick = () => loadLibrary(true);
+$('#library-find').onclick = () => loadLibrary(false);
+$('#library-search').onkeydown = event => { if (event.key === 'Enter') loadLibrary(false); };
+$('#library-previous').onclick = () => loadLibrary(false, Math.max(0, libraryPage.offset - 100));
+$('#library-next').onclick = () => loadLibrary(false, libraryPage.offset + 100);
 for (const [key, name, detail] of [['fps', 'FPS', 'Game frame rate'], ['ram', 'RAM', 'Memory use'], ['cpu', 'CPU', 'Processor activity'], ['ip', 'Console IP', 'Bottom-right corner'], ['adaptive', 'Adaptive notices', 'Show useful changes briefly']]) {
   const label = el('label', 'setting'), text = el('span', '', name), input = el('input'); text.append(el('small', '', detail));
   input.type = 'checkbox'; input.dataset.overlay = key; input.onchange = () => command('settings.update', { patch: { overlay: { [key]: input.checked } }, revision: state.revision });

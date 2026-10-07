@@ -52,6 +52,12 @@ preserved. A self-update folder blocks dispatch of the pinned copy for review.
 Already running verified components are adopted without altering configuration.
 These adapters are implemented and cross-built; hardware behavior is unverified.
 
+The phone's Games tab reads ShadowMount's cached catalog, searches by name or
+title ID, and pages results without including the full library in every status
+poll. Mount/unmount operations use a durable queue, respect ShadowMount's active
+game guard and independently check the resulting state. Installed packages are
+shown alongside image sources but cannot be mounted through image controls.
+
 FTP uploads into `/payloads` are copied into the verified inbox after the transfer
 has committed. Other FTP files are ordinary transfers. Invalid payloads remain in
 the FTP share and generate an actionable entry in Activity. Uploads do not autorun

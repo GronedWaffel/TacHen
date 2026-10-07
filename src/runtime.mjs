@@ -53,7 +53,9 @@ export class TacRuntime {
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
-      inbox: clone(this.inboxItems), jobs: state.jobs.map(({ key, signature, args, ...job }) => job),
+      inbox: clone(this.inboxItems), library: this.libraryState ? { count: this.libraryState.games.length,
+        updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
+      jobs: state.jobs.map(({ key, signature, requestSignature, args, ...job }) => job),
       history: state.history.filter(entry => entry.session === this.session),
       queue: { halted: this.jobs.halted, error: this.jobs.fault } };
   }
@@ -77,6 +79,12 @@ export class TacRuntime {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
       case 'settings.update': return this.settings(args.patch, args.revision);
+      case 'library.refresh':
+        invariant(this.library, 'FEATURE_UNAVAILABLE', 'The game library requires the native ShadowMount adapter.');
+        return this.library.refresh();
+      case 'library.list':
+        invariant(this.library, 'FEATURE_UNAVAILABLE', 'The game library requires the native ShadowMount adapter.');
+        return this.library.page(args);
       case 'inbox.begin': {
         invariant(this.inbox, 'FEATURE_UNAVAILABLE', 'Payload inbox is not installed.');
         const result = await this.inbox.begin(args); this.inboxItems = await this.inbox.list(); return result;

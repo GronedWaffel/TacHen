@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
-import { localGet } from '../src/local-http.mjs';
+import { localGet, localRequest } from '../src/local-http.mjs';
 async function server(t, reply) {
   const connections = new Set();
   const server = createServer(socket => { connections.add(socket); socket.on('error', () => {}); socket.once('close', () => connections.delete(socket)); socket.once('data', request => reply(socket, request)); });
@@ -26,4 +26,12 @@ test('loopback client rejects truncated, redirected, encoded and oversized respo
 test('loopback client enforces a total deadline even if a listener never responds', async t => {
   const port = await server(t, () => {});
   await assert.rejects(localGet(port, '/version', { timeout: 20 }), { code: 'LOCAL_TIMEOUT' });
+});
+test('ShadowMount readiness uses its real POST-only JSON API contract', async t => {
+  const port = await server(t, (socket, request) => {
+    assert.match(request.toString(), /^POST \/api\/v1\/version HTTP\/1.0/);
+    assert.match(request.toString(), /Content-Type: application\/json\r\nContent-Length: 2\r\n\r\n\{\}$/);
+    socket.end('HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\n{"status":0}');
+  });
+  assert.deepEqual(JSON.parse((await localRequest(port, '/api/v1/version', { method: 'POST', body: {} })).text), { status: 0 });
 });

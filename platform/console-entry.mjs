@@ -12,6 +12,7 @@ import { installPayloadLoader } from '../src/payload-loader.mjs';
 import { ftpInboxReceiver } from '../src/ftp-inbox.mjs';
 import { ComponentAssets } from '../src/components.mjs';
 import { installNativeServices } from '../src/native-services.mjs';
+import { installLibrary } from '../src/library.mjs';
 import components from '../build/components.json';
 import assets from '../build/ui-assets.json';
 
@@ -31,6 +32,7 @@ globalThis.__ready = (async () => {
       await runtime.graph.start('coordinator');
       runtime.nativeServices = installNativeServices(runtime, __native,
         new ComponentAssets(runtime.inbox, components, (offset, length) => __native.asset(offset, length)));
+      installLibrary(runtime);
       runtime.graph.register({ id: 'ftp', start: async () => {
         runtime.ftp = await startFtp({ root: '/data/tachen/share', host: '0.0.0.0', address: __native.ip(), id,
           onUpload: ftpInboxReceiver(runtime) });

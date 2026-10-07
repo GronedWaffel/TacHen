@@ -9,9 +9,10 @@ const fresh = () => ({ boot: 'boot-one', firmware: '13.60', kstuff: { state: 'in
 const running = (state, id, pid = 30) => {
   state.processes.push({ pid, name: id === 'payload-manager' ? 'pldmgr.elf' : id + '.elf', thread: '', generation: 'instance-' + pid }); state.ports[id] = 1;
 };
-const response = async (_port, route) => ({ text: route === '/api/v1/version' ? JSON.stringify({ status: 0, api_version: 1,
+const response = async (_port, route, options) => { if (route === '/api/v1/version') assert.deepEqual(options, { method: 'POST', body: {} });
+  return ({ text: route === '/api/v1/version' ? JSON.stringify({ status: 0, api_version: 1,
   shadowmount_version: '1.7beta4', capabilities: ['list_games', 'storage_job_status', 'mount_game'] }) :
-  route === '/version' ? '0.5.2' : JSON.stringify({ AUTOLOAD_ENABLED: false, AUTO_BROWSER_OPEN: false, KILL_DISC_PLAYER_ON_STARTUP: false, AUTO_INSTALL_APP: false }) });
+  route === '/version' ? '0.5.2' : JSON.stringify({ AUTOLOAD_ENABLED: false, AUTO_BROWSER_OPEN: false, KILL_DISC_PLAYER_ON_STARTUP: false, AUTO_INSTALL_APP: false }) }); };
 test('native service readiness requires kernel hooks, matching process and the pinned API', async () => {
   const state = fresh(); const inspect = serviceInspector({ systemProbe: () => structuredClone(state) }, { get: response });
   assert.equal((await inspect('kstuff')).ready, true);

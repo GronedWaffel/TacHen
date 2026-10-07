@@ -171,3 +171,14 @@ Remaining major native work: original controller/in-game deck, ShadowMount libra
 actions and storage jobs, PKG installation, plugin/game/cheat/save adapters,
 FPS/resource/IP presentation, MCP, loadouts and update/recovery user flows. A
 running component is not completion of every feature built on top of it.
+
+The same checkpoint now includes a phone Games tab and real ShadowMount cached
+catalog/mount adapters. **82 local tests pass.** Reviewing the exact beta4 request
+dispatcher caught its POST-only JSON contract (including version queries); the
+transport and readiness fixture were corrected before any console use. Tests use
+real loopback HTTP connections with that contract, check source identity changes,
+active-game busy responses, mount observation, pagination and repeated request
+identities. Requests bind their original durable intent on retry, even if a
+successful first operation changed the state used during validation. The phone
+layout was checked at 390×844 with no horizontal document overflow. Kernel/process
+and mount behavior still await hardware tests; storage conversion jobs remain open.

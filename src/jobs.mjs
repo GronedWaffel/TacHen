@@ -35,18 +35,27 @@ export class JobQueue {
     invariant(typeof key === 'string' && /^[a-zA-Z0-9_-]{8,100}$/.test(key), 'JOB_KEY', 'A valid request identity is required.', { status: 400 });
     const handler = this.handlers.get(kind);
     invariant(handler, 'FEATURE_UNAVAILABLE', 'This operation has no installed native adapter.', { status: 409 });
+    const requestSignature = canonical({ kind, input });
+    const accepted = this.snapshot().find(job => job.key === key);
+    if (accepted?.requestSignature) {
+      invariant(accepted.requestSignature === requestSignature, 'JOB_KEY_REUSED', 'This request identity belongs to different work.');
+      // Validation may bind current process/source identities. A retry of the
+      // same accepted request must return its original intent, not rebind it.
+      return clone(accepted);
+    }
     const args = await handler.validate(clone(input));
     const signature = canonical({ kind, args });
     const { result } = await this.store.transaction(state => {
       const previous = state.jobs.find(job => job.key === key);
       if (previous) {
-        invariant(previous.signature === signature, 'JOB_KEY_REUSED', 'This request identity belongs to different work.');
+        invariant(previous.requestSignature ? previous.requestSignature === requestSignature : previous.signature === signature,
+          'JOB_KEY_REUSED', 'This request identity belongs to different work.');
         return clone(previous);
       }
       invariant(state.jobs.length < 1024, 'QUEUE_FULL', 'Job history is full; archive completed operations first.');
       const resources = handler.resources(args);
       invariant(Array.isArray(resources) && resources.every(x => typeof x === 'string' && x.length <= 160), 'JOB_RESOURCE', 'Invalid operation resources.');
-      const job = { id: this.id(), key, kind, args, signature, resources: [...new Set(resources)],
+      const job = { id: this.id(), key, kind, args, signature, requestSignature, resources: [...new Set(resources)],
         status: 'queued', progress: null, result: null, error: null, createdAt: this.now(), updatedAt: this.now() };
       state.jobs.push(job); return clone(job);
     });
