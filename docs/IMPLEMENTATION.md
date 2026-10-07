@@ -608,3 +608,22 @@ work still requires stopped, generation-verified leases, bounded module/VM
 inspection and transactional writes. Other SDK linked-list/tree walks are not
 all bounded by this change. The remaining feature work and deferred hardware
 acceptance described above still apply; this is not overall completion.
+
+The next memory-access prerequisite is also implemented and cross-built in
+`memory-map.c`: a bounded exact-basename module lookup and complete VM-span
+inspection. Module lookup rejects duplicate basenames, malformed kernel pointers,
+unbounded strings and list cycles. VM inspection checks contiguous coverage,
+preserves each exact protection byte and rejects holes, overlaps, overflow and
+cyclic trees. The VM-root offset must come from the initialized SDK. A valid
+module base alone never proves that a requested interval is mapped.
+
+The actual C readers execute in host tests against synthetic kernel layouts,
+including changed module bases, gaps across entries with different permissions,
+guard mappings at zero, injected read failures and bounded cycles. The full suite
+now passes **162 tests**. Latest runtime: **8,489,448 bytes**, SHA-256
+`186dcbfdc8e3e944b3d44ba6ee92e99a49aa65d6f5b67360b781d998bc985e6b`.
+These readers are not yet exposed as a phone/MCP capability and do not acquire
+or prove a stopped process lease. The immediate next integration is the native
+atomic cheat worker: exact metadata/generation checks, stopped target, complete
+before-byte validation, bounded patch transaction/rollback and confirmed resume,
+then coordinator jobs and phone/controller controls. No PS5 test occurred.

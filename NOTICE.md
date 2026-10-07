@@ -136,3 +136,10 @@ TacHen's complete-buffer validation, immutable staging, checksummed game-instanc
 receipts, stopped-slot publication/rollback and coordinator recovery are new
 implementations. Structural acceptance does not establish compatible imports or
 successful execution of a particular third-party module.
+
+The bounded read-only module/VM inspector in `platform/native/memory-map.c`
+uses the loaded-object and VM-entry layouts documented by the GPL-3.0-or-later
+[SDK v0.43 kernel.h](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/kernel.h)
+and `kernel.c`, copyright John Törnblom. TacHen adds strict pointer/range checks,
+exact basename uniqueness, iteration limits and contiguous-range validation.
+These checks do not establish runtime compatibility on an untested firmware.
