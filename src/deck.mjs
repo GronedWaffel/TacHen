@@ -195,7 +195,7 @@ export class ConsoleDeck {
         const job = runtime.jobs.snapshot().filter(j => j.kind === 'cheat.set' && j.args.sha256 === pack.sha256 && j.args.cheatId === cheat.id && j.args.generation === state.game?.generation).at(-1);
         const active = job && !['completed', 'failed', 'cancelled'].includes(job.status);
         const on = job?.status === 'completed' && job.result?.phase === 'applied' && job.args.enabled;
-        row(cheat.name, active ? job.error?.message || job.status : !matches ? 'Open the exact target game and version' : !cheat.supported ? 'Nonzero section adapter is not yet integrated' : on ? (cheat.exactUndo === false ? 'On. Select to apply the file’s Off bytes; extra On bytes may remain until the game closes.' : 'Last applied: On. Select to restore original bytes.') : 'Select to enable; expected bytes are checked first.',
+        row(cheat.name, active ? job.error?.message || job.status : !matches ? 'Open the exact target game and version' : !cheat.supported ? 'Advanced section addressing is not supported' : on ? (cheat.exactUndo === false ? 'On. Select to apply the file’s Off bytes; extra On bytes may remain until the game closes.' : 'Last applied: On. Select to restore original bytes.') : 'Select to enable; expected bytes are checked first.',
           matches && !active && cheat.supported && feature('cheats') && !state.safe ? 'job.enqueue' : null,
           { kind: 'cheat.set', input: { sha256: pack.sha256, cheatId: cheat.id, enabled: !on } }, { on: Boolean(on) });
       }

@@ -1,8 +1,46 @@
 # Package installer ABI review — October 7, 2026
 
-Native package installation remains gated to 13.60. File staging is separate.
-The goal still includes the other supported firmware profiles; this review does
-not waive their installer integration or establish hardware compatibility.
+## Current implementation: historical common prefix
+
+Native installation is now integrated for TacHen's 14 exact target profiles.
+No firmware has passed TacHen's deferred console acceptance. This decision uses
+the shared state and byte-counter fields instead of applying the 13.60 error
+tail to other firmware.
+
+The follow-up inspected etaHEN's first public source and older releases:
+
+- [First public source, 03d016f](https://github.com/etaHEN/etaHEN/blob/03d016fd316ecf0a1841465bef8937a71352bff0/Source%20Code/util/source/DirectPKGInstaller.cpp).
+- [2.4B, d47f99b](https://github.com/etaHEN/etaHEN/blob/d47f99bd37f349ae59b3c4b66e09e93ba69f56cd/Source%20Code/util/source/DirectPKGInstaller.cpp).
+- [2.5B metadata, 5061a85](https://github.com/etaHEN/etaHEN/blob/5061a85312eb1d2da811269bcb9061e4b01302a1/Source%20Code/util/include/common_utils.h).
+- [2.4B custom installer hook](https://github.com/etaHEN/etaHEN/blob/d47f99bd37f349ae59b3c4b66e09e93ba69f56cd/Source%20Code/shellui/src/HookFunctions.cpp).
+
+All three historical status declarations have a 600-byte layout with the error
+at 0x3c; the captured 13.60 layout is 712 bytes with the error at 0xa0. Both put
+the state at 0, downloaded bytes at 0x20 and total bytes at 0x30. TacHen reads
+only that 56-byte common prefix on lower firmware. Output uses aligned 4096-byte
+storage to accommodate both known layouts; that capacity is not a claim about
+an unknown firmware's structure or a substitute for hardware validation. Invalid
+state strings or impossible counters stop tracking. Only 13.60 reads the known
+numeric error field. Elsewhere the textual error state and API return codes
+report failures without inventing numeric details.
+
+The six metadata pointers from older releases retain their offsets in TacHen's
+zero-initialized 56-byte input, which also supplies the documented option/flag.
+Submission is still once only. Completion still requires observed matching
+progress and repeated terminal observations, never just API acceptance or bytes
+served. Existing identity, checksum, descriptor and lifecycle guards remain.
+
+This is source-contract evidence, not proof of lower-firmware execution: the
+historical DPI progress loop was disabled under `#if 0`, and the custom installer
+hook submits without proving completion. Older release support lists cannot
+establish that every current target has the same native contract. Synthetic
+native fixtures verify decoding both declarations, ignoring unknown tails,
+64-bit counts and textual errors; attended testing remains necessary.
+
+## Historical review through checkpoint 45
+
+At this stage native installation was gated to 13.60 while lower-firmware
+contract evidence was investigated. The following records that investigation.
 
 TacHen's `platform/native/package-abi.h` follows the local Neighborhood 13.60
 marshaller investigation recorded in that project's `docs/PS5-VALIDATION.md`:

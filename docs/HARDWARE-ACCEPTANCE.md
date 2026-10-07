@@ -46,10 +46,12 @@ working applications to manufacture a recovery case.
 5. **Packages.** On 13.60, stage and verify a small owned test PKG, review its
    content identity and install once. Verify real progress and the installed
    content/version, not merely installer acceptance. Check held/duplicate
-   requests without submitting another installation. On other firmware the
-   current native installer is unavailable: staging/verification can be tested,
-   but this does not pass installation support for those profiles. Never
-   override the gate solely to fill in the checklist.
+   requests without submitting another installation. Repeat on other exact
+   supported profiles through authorized testers: verify the common status
+   prefix gives real byte progress and error/terminal states, and independently
+   check installed content/version. Numeric status-tail error details are only
+   interpreted on 13.60. Cross-build and synthetic layout fixtures do not pass
+   installation acceptance for any firmware.
 6. **ShadowMount and managed files.** With the game closed, refresh the library,
    mount one known working image and check actual mounted state. Unmount after
    closing the game. Copy/extract a disposable image to a separate destination;
@@ -113,9 +115,10 @@ excluded. Do not upgrade or downgrade the owner's console for this checklist.
 Other target profiles need their own evidence from authorized testers. Shared
 source and offsets do not substitute for those results.
 
-Before release, resolve the lower-firmware installer ABI gap, evaluate the
-remaining nonzero-section/code-cave cheat support and verify every promised
-workflow. Separate unsupported input from an execution failure. Retain truthful
+Before release, validate the shared native installer contract on the target
+profiles and verify every promised workflow. Advanced section addressing and
+code-cave cheats are outside the revised scope. Separate unsupported input from
+an execution failure. Retain truthful
 per-firmware/per-feature results and original component credits. A feature marked
 unavailable is not counted as completed support. Current binaries remain
 unverified development artifacts; this document records no successful console

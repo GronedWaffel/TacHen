@@ -44,7 +44,7 @@ done:
 }
 static int start(TacPackageRequest* input){
  if(tac_native_busy()){errno=EBUSY;return -1;}
- if(tac_package_boot(input,0)||!tac_package_request_valid(input)||(kernel_get_fw_version()&0xffff0000)!=0x13600000){errno=EINVAL;return -1;}
+ if(tac_package_boot(input,0)||!tac_package_request_valid(input)||!snipers_firmware_profile(kernel_get_fw_version())){errno=EINVAL;return -1;}
  pthread_mutex_lock(&mutex);
  reap();
  if(running||child>0){pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}

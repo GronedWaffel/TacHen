@@ -17,9 +17,9 @@ Seven SHN files exposed two text-conversion cases:
 
 The fixtures reproduce those structures with original synthetic patch data. Normalization preserves both enable and disable packets exactly. QuickJS exercises the combined stale-label and padding case. Neither correction changes address resolution or the native transaction.
 
-## Remaining compatibility work
+## Scope and unsupported inputs
 
-Nonzero-section/master-code resolution and missing code caves remain unsupported, not silently approximated. Absolute user-address and section-zero module-relative patches retain mapping, overlap and expected-byte checks. Every accepted pack still requires its exact title/version and final console acceptance. This review did not contact the PS5.
+At the owner's request, advanced nonzero-section/master-code resolution and code-cave relocation are excluded from TacHen's scope. Imported entries requiring those operations remain disabled; their addresses are never approximated. Absolute user-address and section-zero module-relative patches retain mapping, overlap and expected-byte checks. Every accepted pack still requires its exact title/version and final console acceptance. This review did not contact the PS5.
 
 
 ## Independently sized patches

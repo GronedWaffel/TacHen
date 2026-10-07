@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { invariant, TacError } from './errors.mjs';
+import { FIRMWARES } from './firmware.mjs';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const clean = (code, message) => Object.assign(new TacError(code, message), { noSideEffects: true });
 export function installPackageInstaller(runtime, native, { delay = sleep, now = Date.now } = {}) {
-  const available = runtime.identity.firmware === '13.60' && typeof native.packageStart === 'function' && typeof native.packagePoll === 'function';
+  const available = FIRMWARES.includes(runtime.identity.firmware) && typeof native.packageStart === 'function' && typeof native.packagePoll === 'function';
   runtime.capability('packages', available, available
     ? 'Isolated native installer with durable progress receipts. Console validation is still pending.'
-    : 'Package staging is available; this firmware installer ABI has not yet been integrated.');
+    : 'Package staging is available; native installation requires a supported TacHen firmware profile and installer helper.');
   async function validate(input) {
-    invariant(available, 'PACKAGE_FIRMWARE', 'This firmware has no evidenced native package installer ABI in this build.');
+    invariant(available, 'PACKAGE_FIRMWARE', 'Native installation requires a supported TacHen firmware profile and installer helper.');
     const item = await runtime.packageInbox.describe(input?.id);
     invariant(item.status === 'verified', 'PACKAGE_NOT_VERIFIED', 'Finish package verification before installing.');
     const verification = runtime.jobs.snapshot().findLast(job => job.kind === 'package.verify' && job.args.id === item.id && job.status === 'completed');

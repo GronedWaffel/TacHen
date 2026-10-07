@@ -212,3 +212,10 @@ documented local-path failures and loopback delivery approach, reviewed at
 TacHen's HTTP parser, descriptor ownership, bounded transport and regression
 fixtures are new GPL-3.0-or-later code; no implementation code was copied from
 that project. Its hardware reports do not establish TacHen hardware acceptance.
+
+The package progress prefix is derived from etaHEN / LightningMods' public
+GPL-3.0-or-later installer declarations (first public source, 2.4B and 2.5B),
+alongside the credited Neighborhood 13.60 layout. Pinned links and the limits of
+this evidence are recorded in `docs/PACKAGE-ABI-REVIEW.md`. TacHen's bounded
+decoder, status-tail selection and synthetic fixtures are new code. Historical
+declarations do not establish TacHen's per-firmware hardware compatibility.

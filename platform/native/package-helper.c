@@ -5,6 +5,7 @@
 #include "package-abi.h"
 #include "package-io.h"
 #include "package-http.h"
+#include "firmware-profiles.h"
 #include "sha256.h"
 #include <ps5/kernel.h>
 #include <sys/file.h>
@@ -19,7 +20,7 @@
 #include <dlfcn.h>
 static TacPackageReceipt receipt;
 static int (*initialize)(void),(*install)(TacInstallMeta*,TacInstallPackage*,TacInstallPlaygo*);
-static int (*status)(const char*,TacInstallStatus*);
+static int (*status)(const char*,void*);
 static uint64_t savedAuth;static int elevated;
 static int publish(unsigned stage,int clean,const char* text){
  receipt.stage=stage;receipt.clean=clean;snprintf(receipt.message,sizeof receipt.message,"%s",text);return tac_package_receipt_save(&receipt);
@@ -45,10 +46,9 @@ static int same_file(int fd,const char* path,const struct stat* before){
   before->st_mtim.tv_sec==after.st_mtim.tv_sec&&before->st_mtim.tv_nsec==after.st_mtim.tv_nsec;
 }
 static int get_status(TacPackageProgress* result){
- TacInstallStatus value={0};if(auth_begin()){auth_end();return -1;}
+ TacInstallStatusStorage value={0};if(auth_begin()){auth_end();return -1;}
  int rc=status(receipt.input.content,&value),restore=auth_end();if(restore)return -2;if(rc)return rc;
- if(!memchr(value.state,0,sizeof value.state)||value.total>TAC_PACKAGE_MAX||value.downloaded>value.total)return -3;
- memset(result,0,sizeof *result);memcpy(result->state,value.state,sizeof result->state);result->downloaded=value.downloaded;result->total=value.total;result->error=value.error.code;return 0;
+ return tac_install_progress(&value,sizeof value,kernel_get_fw_version(),result)?-3:0;
 }
 int main(void){
  signal(SIGPIPE,SIG_IGN);signal(SIGALRM,SIG_DFL);
@@ -59,7 +59,7 @@ int main(void){
  if(tac_package_request_load(&request)||tac_package_boot(&request,1)||tac_package_receipt_load(request.request,&receipt)||
    memcmp(&request,&receipt.input,sizeof request)||receipt.stage!=TAC_PKG_QUEUED||receipt.clean)return 3;
  receipt.pid=getpid();int fd=-1;unsigned char* chunk=NULL;TacPackageSource* source=NULL;int result=1;const char* reason="Package helper preflight failed";
- if((kernel_get_fw_version()&0xffff0000)!=0x13600000){reason="This firmware has no evidenced package installer ABI yet";goto rejected;}
+ if(!snipers_firmware_profile(kernel_get_fw_version())){reason="This firmware is outside TacHen's supported profiles";goto rejected;}
  if(publish(TAC_PKG_HASHING,1,"Checking the exact package bytes before installation"))goto done;
  struct stat parent;if(lstat("/data/tachen/packages",&parent)||!S_ISDIR(parent.st_mode)||S_ISLNK(parent.st_mode))goto rejected;
  char path[160];snprintf(path,sizeof path,"/data/tachen/packages/%s.payload",request.upload);

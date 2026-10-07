@@ -34,8 +34,9 @@ The controller deck's **Games → Packages** screen lists phone-staged packages,
 starts background verification, and confirms installation of the displayed
 checksum and content identity. Held jobs can be resumed, queued work cancelled,
 and interrupted installations checked without resubmission. Running installation
-cannot be cancelled here. Installation remains limited to the evidenced 13.60
-adapter; other supported firmware profiles can stage and verify files.
+cannot be cancelled here. Native installation is integrated for the exact target
+profiles listed above using the historical shared progress fields. Per-firmware
+console validation is still pending.
 
 Running-game context now combines a native process-generation/application probe
 with bounded reads of that title's mounted sandbox metadata. Two consistent
@@ -59,9 +60,10 @@ Absolute addresses are used as supplied; ASLR correction is never guessed. Unequ
 On/Off lengths retain the file's semantics: every supplied expected byte is
 checked, and a failed transaction restores captured original bytes. Successful
 disable may leave extra On bytes beyond a shorter Off sequence, so these cheats
-are marked in both interfaces and do not offer exact history undo. Other
-relative section layouts, code-cave relocation and binary cheat formats remain
-work in progress. Local tests do not establish real-game compatibility.
+are marked in both interfaces and do not offer exact history undo. Advanced
+section addressing and code-cave relocation are excluded from TacHen's scope;
+unsupported entries cannot execute. Input formats are JSON, SHN and MC4.
+Local tests do not establish real-game compatibility.
 
 ## Developer MCP
 
@@ -200,15 +202,17 @@ actual console storage behavior remains untested.
 The Packages tab can stage complete PS4/PS5 PKGs separately from payloads, up to
 1 TiB subject to real free space. Uploads use bounded resumable chunks; checksum
 verification runs as a cancellable background job and can check an expected
-SHA-256. The payload and package inboxes share capacity reservations. On 13.60,
+SHA-256. The payload and package inboxes share capacity reservations. On each exact target profile,
 verified entries can queue an isolated native installer helper. It hashes the
 source again, serves that retained descriptor through a loopback-only HTTP source,
 submits once, and records observed transfer progress and complete status. Its
 temporary URL supports HEAD and single byte ranges with four bounded clients;
 it exposes no directory and stops when the operation ends or its file changes.
 Phone disconnects do not cancel it or cause duplicate submissions. The
-helper is cross-built and **not hardware tested**. Other firmware currently retains
-staging only: older installer layouts still need independent ABI evidence.
+helper is cross-built and **not hardware tested**. Progress reads the common
+state/byte-counter prefix shared by historical etaHEN declarations and the
+captured 13.60 layout. Numeric status-tail error details are read only on 13.60;
+other profiles use the textual error state and native API return errors.
 An API acceptance or a stale playable status is never presented as a successful
 new installation. An uncertain result holds the operation and retains its source.
 

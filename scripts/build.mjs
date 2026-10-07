@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { sourceFingerprint } from './source-fingerprint.mjs';
+import { FIRMWARES } from '../src/firmware.mjs';
 import { makeUpdatePackage } from '../src/update-format.mjs';
 import { embeddingAssembly, verifyEmbeddedAsset } from './embedded-assets.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -137,7 +138,7 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   nativeDeck: { file: 'tachen-deck.elf', bytes: deckElf.length, sha256: createHash('sha256').update(deckElf).digest('hex'),
     hardwareVerified: false, injectionIntegrated: true, inGameInputIntegrated: true },
   packageInstaller: { file: 'tachen-package-helper.elf', bytes: packageElf.length, sha256: createHash('sha256').update(packageElf).digest('hex'),
-    firmware: ['13.60'], hardwareVerified: false, isolatedProcess: true,
+    firmware: [...FIRMWARES], hardwareVerified: false, isolatedProcess: true, progressAbi: 'historical-common-prefix', errorDetailsFirmware: ['13.60'],
     source: { transport: 'loopback-http', clients: 4, rangeRequests: true, verifiedDescriptor: true } },
   saveExporter: { file: 'tachen-save-helper.elf', bytes: saveElf.length, sha256: createHash('sha256').update(saveElf).digest('hex'),
     hardwareVerified: false, isolatedProcess: true, coordinatorWired: true },

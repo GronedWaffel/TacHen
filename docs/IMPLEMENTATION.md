@@ -2177,3 +2177,31 @@ The Windows test harness supplies its host socket/thread/file APIs; the PS5
 transport is cross-built, not hardware verified. Logs are retained under
 `.local/checkpoint45-*`. No console contact, deployment or public release occurred.
 The full goal remains active and console testing stays last.
+
+## Checkpoint 46 — older installer contract and revised cheat scope
+
+At the owner's request, the installer review expanded to etaHEN's first public
+source, 2.4B and 2.5B. Their older status declarations and the captured 13.60
+layout share the first 56 bytes: textual state and 64-bit transfer counters.
+TacHen now decodes that prefix on every exact target profile, using aligned
+output capacity large enough for both known declarations. It reads the numeric
+error tail only on 13.60. This avoids imposing the later error offset on older
+firmware; it does not prove the contract on untested consoles. The historical
+progress loop was disabled and cannot be cited as completion validation.
+
+Phone and controller package installation use the same exact firmware allowlist.
+Recovery restrictions, verified descriptor delivery, one submission, durable
+receipts and observed completion checks remain. Native fixtures decode both
+declarations, ignore unknown tail bytes, handle large counts and reject malformed
+progress. Sources and remaining acceptance limits are in PACKAGE-ABI-REVIEW.md.
+
+Advanced nonzero-section/master-code addressing and code-cave relocation are now
+outside the owner's requested scope. Unsupported imported entries remain disabled
+in both interfaces; ordinary JSON/SHN/MC4 absolute and section-zero cheats retain
+their existing behavior. These advanced cases are no longer pending requirements.
+
+All **369 local tests** and the embedded QuickJS checks pass. The production
+cross-build, embedded-asset verification and process-link audit are recorded in
+`.local/checkpoint46-*`, followed by a source-bound local review bundle. No console
+connection, hardware test, deployment or public release is part of this change.
+Attended per-feature/per-firmware console acceptance remains the final phase.

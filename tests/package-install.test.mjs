@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TacRuntime } from '../src/runtime.mjs';
 import { installPackageInstaller } from '../src/package-install.mjs';
+import { FIRMWARES } from '../src/firmware.mjs';
 import { ids, store, until } from './helpers.mjs';
 const upload = 'a'.repeat(32), hash = 'b'.repeat(64), contentId = 'UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP';
 async function fixture({ firmware = '13.60', mutate = () => {}, stages = [2, 4, 5, 6] } = {}) {
@@ -50,9 +51,15 @@ test('a pre-submission native rejection is a clean failed job', async () => {
   const f = await fixture({ stages: [7] }); await f.enqueue(); const job = await settled(f);
   assert.equal(job.status, 'failed'); assert.equal(job.error.code, 'PACKAGE_REJECTED');
 });
-test('unsupported installer firmware retains staging without guessing a native ABI', async () => {
-  const f = await fixture({ firmware: '12.40' }); assert.equal(f.runtime.capabilities.get('packages').available, false);
-  await assert.rejects(f.enqueue(), { code: 'PACKAGE_FIRMWARE' }); assert.equal(f.starts(), 0);
+test('package installation admits every exact target profile and rejects excluded firmware', async () => {
+  for (const firmware of FIRMWARES) {
+    const f = await fixture({ firmware }); assert.equal(f.runtime.capabilities.get('packages').available, true, firmware);
+    await f.enqueue();assert.equal((await settled(f)).status, 'completed', firmware);assert.equal(f.starts(), 1);
+  }
+  for (const firmware of ['10.01', '11.40', '12.41', '13.61', '14.00']) {
+    const f = await fixture({ firmware }); assert.equal(f.runtime.capabilities.get('packages').available, false);
+    await assert.rejects(f.enqueue(), { code: 'PACKAGE_FIRMWARE' }); assert.equal(f.starts(), 0);
+  }
 });
 test('interrupted installer can reconcile its own later completion without another launch', async () => {
   let stale = true; const f = await fixture({ stages: [6], mutate: r => { if (stale) { r.stage = 5; r.ageMs = 61000; r.observed = false; } } });

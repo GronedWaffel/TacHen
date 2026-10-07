@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // JSON field compatibility follows etaHEN CheatManager's public JSON format.
-// Executable code-cave relocation requires a separate adapter.
+// Advanced section/code-cave relocation is outside TacHen's requested scope.
 import { invariant, TacError } from './errors.mjs';
 import { requireGame } from './firmware.mjs';
 const titlePattern = /^(PPSA|PPSB|MOUU|CUSA|PCAS|PCJS|PCKS|CUHJ|SCUS)\d{5}$/;
@@ -31,7 +31,7 @@ export function importCheatJson(source, { titleId, version }) {
       invariant(patch && typeof patch.offset === 'string' && /^(?:0x)?[0-9a-fA-F]{1,16}$/.test(patch.offset),
         'CHEAT_OFFSET', 'Invalid module-relative patch offset.');
       invariant(patch.absolute == null || typeof patch.absolute === 'boolean', 'CHEAT_ADDRESS_MODE', 'Absolute addressing must be an explicit boolean.');
-      invariant(!patch.codeCaveReloc, 'CHEAT_ADDRESS_MODE', 'Executable code-cave relocation is not integrated.');
+      invariant(!patch.codeCaveReloc, 'CHEAT_ADDRESS_MODE', 'Code-cave relocation is not supported by TacHen.');
       const offset = BigInt(patch.offset.startsWith('0x') ? patch.offset : '0x' + patch.offset);
       const on = hex(patch.on, 'enabled'), off = hex(patch.off, 'disabled');
       const section = patch.section == null || patch.section === '' ? 0 : Number(patch.section);
@@ -52,7 +52,7 @@ export function cheatPacket(pack, cheatId, enabled) {
   const cheat = pack.cheats.find(item => item.id === cheatId);
   invariant(cheat, 'CHEAT_MISSING', 'Cheat was not found.');
   const patches = cheat.memory.map(item => {
-    invariant(item.absolute || item.section === 0, 'CHEAT_SECTION_UNSUPPORTED', 'This cheat requires a nonzero section adapter that is not yet integrated.');
+    invariant(item.absolute || item.section === 0, 'CHEAT_SECTION_UNSUPPORTED', 'Advanced section addressing is not supported by TacHen.');
     return { absolute: Boolean(item.absolute), offset: BigInt(item.offset), before: Buffer.from(enabled ? item.off : item.on, 'hex'), after: Buffer.from(enabled ? item.on : item.off, 'hex') };
   }).sort((a, b) => Number(a.absolute) - Number(b.absolute) || (a.offset < b.offset ? -1 : a.offset > b.offset ? 1 : 0));
   invariant(patches.every(p => p.offset >= 0n && p.offset <= 0xffffffffffffffffn - BigInt(Math.max(p.before.length, p.after.length))), 'PATCH_BOUNDS', 'A patch offset overflows the native address width.');

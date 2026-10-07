@@ -58,11 +58,12 @@ test('Circle unwinds package confirmation, detail, list and games without submit
   await f.deck.action(action(f, 'back')); assert.equal(f.deck.packageView, null); assert.equal(f.deck.page, 2); assert.equal(f.starts(), 0);
 });
 
-test('lower firmware and recovery retain verification but disable controller installation', async t => {
+test('lower firmware enables controller installation while recovery still prevents submission', async t => {
   const f = await fixture(t, '12.40'); await open(f); f.runtime.graph.safe = true; await verify(f);
   let install = f.deck.frame().rows.find(row => row.label === 'Install package'); assert.equal(install.enabled, false); assert.match(install.detail, /recovery/);
   f.runtime.graph.safe = false; install = f.deck.frame().rows.find(row => row.label === 'Install package');
-  assert.equal(install.enabled, false); assert.match(install.detail, /ABI/); assert.equal(f.starts(), 0);
+  assert.equal(install.enabled, true); assert.equal(f.starts(), 0);
+  await choose(f, 'Install package'); assert(f.deck.confirmation); assert.equal(f.starts(), 0);
 });
 
 test('phone activity or changed verification invalidates a pending controller install review', async t => {

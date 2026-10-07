@@ -20,6 +20,7 @@ async function inspect(t, bytes, virtual = false) {
   return JSON.parse(run([file, ...(virtual ? ['virtual'] : [])]));
 }
 test('native installer tracker refuses stale playable states and partial downloads', () => { assert.match(run(['--track']), /passed/); });
+test('historical and current installer progress share counters without interpreting an unknown error tail', () => { assert.match(run(['--prefix']), /passed/); });
 test('native installer request bounds and content identity are checked before native effects', () => { assert.match(run(['--requests']), /passed/); });
 test('native package parser accepts full PS4 CNT and rejects changed byte counts or system identities', async t => {
   const bytes = Buffer.alloc(8192); bytes.writeUInt32BE(0x7f434e54); bytes.write('UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP', 0x40);
