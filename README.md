@@ -288,6 +288,18 @@ packages and exported files have explicit explanations instead of a pretend
 generic undo. This path has local integration coverage; live reversal behavior
 still needs console acceptance.
 
+Older terminal transfer, export, package, update and inspection jobs can move out
+of the active state into a private receipt archive. The newest 256 jobs,
+unresolved work, native launch guards, undo records, referenced child receipts
+and each package's latest successful verification stay active. Reusing an
+archived request key returns its original result; it never launches it again.
+MCP operation-status reads can retrieve archived results by ID. Archive damage
+blocks affected submissions rather than forgetting whether work already ran.
+The archive uses up to 64 groups with three recovery slots each, created only
+as needed, with a 4 MiB limit per slot. Receipt retention is bounded; a full
+archive or state containing only protected records still requires resolution.
+Archival does not delete exported files or native operation receipts.
+
 Adaptive notices now share verified completions and actionable failures between
 the phone and native overlay. Related bursts are grouped, success messages are
 shorter and more spaced out during games, and routine scans/preparation stay

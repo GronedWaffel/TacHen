@@ -26,6 +26,7 @@ import { StartupRecovery } from '../src/startup-recovery.mjs';
 import { makeUpdatePackage, inspectUpdate } from '../src/update-format.mjs';
 import { importCheatSource } from '../src/cheat-xml.mjs';
 import { compareCandidate } from '../src/scan-refinement.mjs';
+import { JobArchive } from '../src/job-archive.mjs';
 globalThis.Buffer = Buffer;
 globalThis.__native = { log: message => print(message) };
 globalThis.TextEncoder = class { encode(value) { return Buffer.from(value); } };
@@ -38,6 +39,15 @@ globalThis.testPassed = false;
   await store.transaction(s => { s.settings = mergeSettings(s.settings, { appearance: { accent: 'ice' } }); });
   const reopened = await new StateStore(disk, checksum).open();
   assert(reopened.snapshot().settings.appearance.accent === 'ice', 'QuickJS persistence failed');
+  const archiveFiles = new Map(), archiveStore = await new StateStore({ read: async name => archiveFiles.get(name) ?? null,
+    replace: async (name, text) => archiveFiles.set(name, text) }, checksum).open();
+  await archiveStore.transaction(state => { state.jobs = Array.from({ length: 768 }, (_, i) => ({
+    id: (i + 1).toString(16).padStart(32, '0'), key: `quickjs-archive-${i}`, kind: 'memory.inspect', args: {},
+    status: 'completed', signature: '{}', requestSignature: '{}', result: { completed: true }, resources: [] })); });
+  const archive = new JobArchive(archiveStore);
+  await archiveStore.transaction(state => archive.compact(state, new Set()));
+  const archived = await archiveStore.inspect(state => archive.find(state, 'quickjs-archive-0'));
+  assert(archived?.archived && archived.status === 'completed' && archiveStore.snapshot().jobs.length === 704, 'QuickJS operation archive failed');
   const binary = Buffer.alloc(160); Buffer.from([0x7f,69,76,70,2,1,1]).copy(binary);
   binary.writeUInt16LE(3,16);binary.writeUInt16LE(62,18);binary.writeBigUInt64LE(128n,24);binary.writeBigUInt64LE(64n,32);
   binary.writeUInt16LE(64,52);binary.writeUInt16LE(56,54);binary.writeUInt16LE(1,56);binary.writeUInt32LE(1,64);binary.writeUInt32LE(5,68);

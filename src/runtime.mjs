@@ -99,7 +99,8 @@ export class TacRuntime {
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
       jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
       history: this.changes.snapshot(state),
-      queue: { halted: this.jobs.halted, error: this.jobs.fault } };
+      queue: { halted: this.jobs.halted, error: this.jobs.fault,
+        archived: Object.values(state.jobArchive || {}).reduce((sum, ref) => sum + ref.count, 0) } };
   }
   async settings(patch, revision) {
     invariant(Number.isSafeInteger(revision), 'REVISION_REQUIRED', 'Settings require the displayed state revision.', { status: 400 });

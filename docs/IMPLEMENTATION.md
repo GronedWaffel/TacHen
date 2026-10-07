@@ -1755,3 +1755,51 @@ Runtime **9,039,576 bytes**, SHA-256 `b5d4f85ae1bbb0bb1aafbab9a60f8ff6f3ff3ff30e
 Launcher **9,200,704 bytes**, SHA-256 `f35bd00d35f8c491a755f1a9b7162d769092dfa624c1213c9c8c9e4225723728`.
 Update package **9,039,832 bytes**, SHA-256 `f6fe6e8b1f717330d4d8857c76ad01b9b7b3ed2398f385273ef03049603d77b2`.
 Source fingerprint `c77e99e250cbf8e2b4d56f5c60fd644f701bf3d3a38bf36d4d00110942eae5e9`.
+
+
+## Checkpoint 34 — durable terminal-job archive
+
+The job queue now moves eligible older terminal jobs out of the active snapshot
+in batches of at most 64 when it reaches 768 records or 2 MiB of job data. It
+retains the newest 256 jobs, unresolved work, executing/reconciling transitions,
+unknown job kinds, native residency/once-per-boot guards, reversible operations,
+referenced receipts and each package's latest successful verification. This
+reduces routine scan/export/transfer history pressure without erasing ownership
+or removing evidence needed for supported undo.
+
+Sixty-four lazily created archive groups each have three reusable slots and a
+4 MiB / 8,192-record per-slot bound. Checksummed slot references live in the two
+state snapshots. Writes preserve both current and previous state roots; failed
+archive or state commits do not publish removal. Serialized reads prevent slot
+reuse during receipt lookup. Missing, changed or malformed referenced archives
+fail closed for their request group, including previously unseen keys, instead
+of treating lost evidence as permission to replay work. Space remains bounded;
+protected-only state and full archive groups can still refuse new work. This is
+not a generic purge or an infinite history guarantee.
+
+Exact-key retries consult durable archives before live validation. Archived
+results retain their original identity/outcome, and mismatched key reuse is
+rejected. MCP operation-status reads retrieve an archived result by ID while
+omitting private intent/checkpoint fields. Ordinary runtime snapshots report
+only the archived count; archive contents are not sent on every phone refresh.
+Original source/output files and native receipts are not removed.
+
+All **340 local tests** pass (`.local/checkpoint34-tests.txt`). Archive tests cover
+restart/deduplication, protected/reference retention, missing/changed receipts,
+failed main commits, both-state fallback, repeated three-slot reuse, serialized
+reads and protected-only capacity. QuickJS executes real archive serialization,
+hashing and lookup; the production build and embedded-image checks pass
+(`.local/checkpoint34-build.txt`). No console was contacted and no build was
+published or deployed.
+
+The accompanying `PACKAGE-ABI-REVIEW.md` records the pinned public-source review.
+Those sources do not establish lower-firmware AppInstUtil structure layouts;
+the existing 13.60 native-installer guard remains. This is an outstanding full-
+goal integration, not a claimed firmware test or a removed requirement. Other
+outstanding native presentation/integration and final console acceptance work
+remains active.
+
+Runtime **9,039,576 bytes**, SHA-256 `b5085a892b8f967eaecf448e2fc55729be3a2f91ddcf45a3e0347df0bb824185`.
+Launcher **9,200,704 bytes**, SHA-256 `df4b4261b697ea24d9e1afd6f9a8c090f121118a2674d6ca4cb6a7211da63496`.
+Update package **9,039,832 bytes**, SHA-256 `ae3f9f04a3e3c462099d562329b90447e383e77e1a7fd17ccb48ea34183b7c90`.
+Source fingerprint `dee0ae0075360038fd26fbbeddbe817e43bb8a9721f72f31c4fbf3caf0bd995b`.

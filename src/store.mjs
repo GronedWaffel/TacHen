@@ -23,10 +23,16 @@ export class StateStore {
     if (present && !copies.length) throw new TacError('STATE_CORRUPT',
       'Neither saved state snapshot is readable.', { action: 'Preserve the state files for support; no settings were overwritten.' });
     this.state = copies.sort((a, b) => b.revision - a.revision)[0] || initialState();
+    this.previousState = copies[1] || null;
     this.recovered = present > copies.length;
     return this;
   }
   snapshot() { return clone(this.state); }
+  inspect(read) {
+    const work = this.tail.then(() => read(this.snapshot()));
+    this.tail = work.catch(() => {});
+    return work;
+  }
   transaction(change, expectedRevision) {
     const work = this.tail.then(async () => {
       invariant(this.state, 'STATE_NOT_OPEN', 'State is not open.');
@@ -39,6 +45,7 @@ export class StateStore {
       const envelope = JSON.stringify({ state: next, checksum: this.checksum(canonical(next)) });
       invariant(new TextEncoder().encode(envelope).length <= 4 * 1024 * 1024, 'STATE_FULL', 'Saved state reached its size limit. Archive completed operations first.');
       await this.storage.replace(`state-${next.revision % 2}.json`, envelope);
+      this.previousState = this.state;
       this.state = next;
       return { result, revision: next.revision };
     });

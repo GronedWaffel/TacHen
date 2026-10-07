@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { canonical, clone, invariant, publicError, TacError } from './errors.mjs';
+import { JobArchive } from './job-archive.mjs';
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const ACTIVE = new Set(['running', 'cancelling', 'uncertain']);
 
@@ -11,6 +12,7 @@ export class JobQueue {
     this.admit = admit;
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
     this.reconciling = new Map();
+    this.archive = new JobArchive(store);
   }
   register(kind, handler) {
     invariant(!this.handlers.has(kind) && typeof handler.run === 'function' && typeof handler.validate === 'function',
@@ -33,13 +35,17 @@ export class JobQueue {
     });
   }
   snapshot() { return this.store.snapshot().jobs; }
+  async get(id) {
+    invariant(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'JOB_ID', 'Choose a valid operation identity.');
+    return this.store.inspect(async state => state.jobs.find(job => job.id === id) || await this.archive.findId(state, id));
+  }
   async enqueue(kind, input, key) {
     invariant(!this.halted && !this.stopped, 'QUEUE_HALTED', 'The job queue is not accepting work.');
     invariant(typeof key === 'string' && /^[a-zA-Z0-9_-]{8,100}$/.test(key), 'JOB_KEY', 'A valid request identity is required.', { status: 400 });
     const handler = this.handlers.get(kind);
     invariant(handler, 'FEATURE_UNAVAILABLE', 'This operation has no installed native adapter.', { status: 409 });
     const requestSignature = canonical({ kind, input });
-    const accepted = this.snapshot().find(job => job.key === key);
+    const accepted = await this.store.inspect(async state => state.jobs.find(job => job.key === key) || await this.archive.find(state, key));
     if (accepted?.requestSignature) {
       invariant(accepted.requestSignature === requestSignature, 'JOB_KEY_REUSED', 'This request identity belongs to different work.');
       // Validation may bind current process/source identities. A retry of the
@@ -49,18 +55,20 @@ export class JobQueue {
     this.admit(kind, input);
     const args = await handler.validate(clone(input));
     const signature = canonical({ kind, args });
-    const { result } = await this.store.transaction(state => {
-      const previous = state.jobs.find(job => job.key === key);
+    const { result } = await this.store.transaction(async state => {
+      const previous = state.jobs.find(job => job.key === key) || await this.archive.find(state, key);
       if (previous) {
         invariant(previous.requestSignature ? previous.requestSignature === requestSignature : previous.signature === signature,
           'JOB_KEY_REUSED', 'This request identity belongs to different work.');
         return clone(previous);
       }
-      invariant(state.jobs.length < 1024, 'QUEUE_FULL', 'Job history is full; archive completed operations first.');
       // Admission can change while file/native validation awaits. Recheck in
       // the serialized intent transaction before accepting any new operation.
       this.admit(kind, args);
       handler.guard?.(args, state);
+      await this.archive.compact(state, new Set([...this.running.keys(), ...this.reconciling.keys()]));
+      invariant(state.jobs.length < 1024, 'QUEUE_FULL', 'Active and protected operation records reached their limit. Resolve unfinished work; live launch guards and undo records cannot be discarded.');
+      this.admit(kind, args);
       const resources = handler.resources(args);
       invariant(Array.isArray(resources) && resources.every(x => typeof x === 'string' && x.length <= 160), 'JOB_RESOURCE', 'Invalid operation resources.');
       const job = { id: this.id(), session: this.session, key, kind, args, signature, requestSignature, resources: [...new Set(resources)],

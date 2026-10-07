@@ -70,7 +70,8 @@ export class DeveloperMcp {
         return r.snapshot().jobs.find(j => j.id === args.id);
       }
       case 'operation_status': {
-        const job = r.snapshot().jobs.find(j => j.id === args.id);invariant(job, 'JOB_MISSING', 'Operation not found.');return job;
+        const job = await r.jobs.get(args.id);invariant(job, 'JOB_MISSING', 'Operation not found.');
+        const { key, signature, requestSignature, args: input, checkpoint, ...publicJob } = job;return publicJob;
       }
     }
   }

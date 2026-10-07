@@ -3,6 +3,7 @@ import { clone, invariant } from './errors.mjs';
 import { validatePlugins } from './plugin-schema.mjs';
 import { validateCheatRegistry } from './cheat-packs.mjs';
 import { validateProfiles } from './profiles.mjs';
+import { validateJobArchive } from './job-archive.mjs';
 export const defaults = Object.freeze({
   overlay: { fps: false, ram: false, cpu: false, ip: false, adaptive: true },
   services: { ftp: true, inboxAutoRun: false, shadowmount: true, payloadManager: true },
@@ -61,5 +62,6 @@ export function validateState(state) {
   state.plugins = validatePlugins(state.plugins ?? []);
   state.cheats = validateCheatRegistry(state.cheats ?? []);
   state.profiles = validateProfiles(state.profiles);
+  state.jobArchive = validateJobArchive(state.jobArchive);
   return state;
 }
