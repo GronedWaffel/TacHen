@@ -20,7 +20,7 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=1||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=2||(f.flags&~3u)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
  for(unsigned i=0;i<f.count;i++){
@@ -34,7 +34,9 @@ void tac_deck_init(TacDeck* d){memset(d,0,sizeof(*d));}
 int tac_deck_receive(TacDeck* d,const void* bytes,size_t length,uint64_t now){
  TacDeckFrame f;if(!tac_deck_decode(bytes,length,&f))return 0;
  if(d->valid&&(int32_t)(f.sequence-d->frame.sequence)<0)return 0;
- if(d->valid&&f.sequence==d->frame.sequence&&memcmp(&f,&d->frame,sizeof f))return 0;
+ if(d->valid&&f.sequence==d->frame.sequence&&memcmp(&f,&d->frame,offsetof(TacDeckFrame,metricsSequence)))return 0;
+ if(d->valid&&((int32_t)(f.metricsSequence-d->frame.metricsSequence)<0||
+    (f.metricsSequence==d->frame.metricsSequence&&memcmp(f.metrics,d->frame.metrics,sizeof f.metrics))))return 0;
  if(!d->valid||f.page!=d->frame.page||strcmp(f.title,d->frame.title))d->selected=0;
  if(d->selected>=f.count)d->selected=f.count?f.count-1:0;
  d->frame=f;d->received=now;d->valid=1;return 1;

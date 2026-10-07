@@ -4,7 +4,7 @@
 #include <string.h>
 #define CHECK(expr) do { if(!(expr)){fprintf(stderr,"line %d: %s\n",__LINE__,#expr);return 1;} }while(0)
 int main(int argc,char** argv){
- CHECK(argc==2);FILE* f=fopen(argv[1],"rb");CHECK(f);unsigned char bytes[2801];size_t length=fread(bytes,1,sizeof bytes,f);fclose(f);
+ CHECK(argc==2);FILE* f=fopen(argv[1],"rb");CHECK(f);unsigned char bytes[sizeof(TacDeckFrame)+1];size_t length=fread(bytes,1,sizeof bytes,f);fclose(f);
  TacDeckFrame frame;CHECK(tac_deck_decode(bytes,length,&frame));CHECK(frame.count==3);CHECK(!strcmp(frame.rows[1].label,"Payload 二"));
  bytes[12]=5;CHECK(tac_deck_decode(bytes,length,&frame));bytes[12]=6;CHECK(!tac_deck_decode(bytes,length,&frame));bytes[12]=0;
  CHECK(!tac_deck_decode(bytes,length-1,&frame));
@@ -32,5 +32,11 @@ int main(int argc,char** argv){
  CHECK(tac_deck_input(&d,0,TAC_CROSS,3002));CHECK(tac_deck_input(&d,0,0,3003));CHECK(!tac_deck_input(&d,0,TAC_CROSS,3004));
  CHECK(tac_deck_receive(&d,bytes,length,4000));frame=d.frame;frame.sequence++;CHECK(tac_deck_receive(&d,&frame,sizeof frame,4001));
  CHECK(!tac_deck_receive(&d,bytes,length,4002));frame.title[0]='X';CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4003));
+ frame=d.frame;frame.metricsSequence++;strcpy(frame.metrics,"FPS 60");
+ CHECK(tac_deck_receive(&d,&frame,sizeof frame,4004));CHECK(d.frame.sequence==frame.sequence);
+ frame.metrics[4]='3';CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4005));
+ frame.metricsSequence++;CHECK(tac_deck_receive(&d,&frame,sizeof frame,4006));
+ frame.metricsSequence-=2;CHECK(!tac_deck_receive(&d,&frame,sizeof frame,4007));
+ frame=d.frame;memset(frame.metrics,'x',sizeof frame.metrics);CHECK(!tac_deck_decode(&frame,sizeof frame,&frame));
  puts("Native deck wire, controller ownership, hold/repeat, stale release and action acknowledgement checks passed");return 0;
 }

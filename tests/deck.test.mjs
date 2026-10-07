@@ -13,6 +13,16 @@ async function fixture(t) {
   return runtime;
 }
 function action(runtime, kind, row = 0) { return { kind, row, sequence: runtime.consoleDeck.frame().sequence, request: runtime.id() }; }
+
+test('live metric updates preserve pending controller selections and action tokens', async t => {
+  const runtime = await fixture(t), deck = runtime.consoleDeck;
+  runtime.capability('fps', true);await runtime.settings({ overlay: { fps: true } }, runtime.snapshot().revision);
+  let fps = 60;runtime.telemetry = { snapshot: () => ({ fps, fpsSource: 'agc-ring' }), stop() {} };
+  const first = deck.frame(), request = action(runtime, 'next');fps = 59.9;
+  const next = deck.frame();assert.equal(next.sequence, first.sequence);assert.deepEqual(next.rows, first.rows);
+  assert.notEqual(next.metricsSequence, first.metricsSequence);assert.match(next.metrics, /59.9/);
+  await deck.action(request);assert.equal(deck.frame().page, 1);
+});
 test('native renderer availability is never inferred from phone availability', async t => {
   const runtime = await fixture(t);
   assert.equal(runtime.capabilities.get('deck').available, false); assert.equal(runtime.capabilities.get('phone').available, true);

@@ -2,8 +2,9 @@
 // Controller presentation uses the same commands, validation and durable jobs as
 // the phone. No privileged operation is implemented inside the renderer.
 import { invariant } from './errors.mjs';
+import { telemetryText } from './telemetry.mjs';
 
-export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 1, bytes: 2800, rows: 8, rowBytes: 292 });
+export const DECK_WIRE = Object.freeze({ magic: 0x54414344, version: 2, bytes: 2996, rows: 8, rowBytes: 292 });
 const pages = ['Home', 'Payloads', 'Games', 'Activity', 'Preferences', 'Cheats'];
 function text(buffer, offset, bytes, value) {
   const input = Buffer.from(String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' '));
@@ -15,7 +16,7 @@ function text(buffer, offset, bytes, value) {
 export function encodeDeck(frame) {
   invariant(frame.rows.length <= 8, 'DECK_LIMIT', 'Too many deck rows.');
   const out = Buffer.alloc(DECK_WIRE.bytes);
-  out.writeUInt32LE(DECK_WIRE.magic, 0); out.writeUInt16LE(1, 4);
+  out.writeUInt32LE(DECK_WIRE.magic, 0); out.writeUInt16LE(DECK_WIRE.version, 4);
   out.writeUInt16LE((frame.ready ? 1 : 0) | (frame.ipVisible ? 2 : 0), 6);
   out.writeUInt32LE(frame.sequence, 8); out.writeUInt16LE(frame.page, 12); out.writeUInt16LE(frame.rows.length, 14);
   text(out, 16, 64, frame.title); text(out, 80, 160, frame.subtitle);
@@ -27,6 +28,7 @@ export function encodeDeck(frame) {
     text(out, at + 32, 96, row.label); text(out, at + 128, 160, row.detail);
     out.writeUInt32LE((row.enabled ? 1 : 0) | (row.on ? 2 : 0), at + 288);
   });
+  out.writeUInt32LE(frame.metricsSequence || 1, 2800);text(out, 2804, 192, frame.metrics);
   return out;
 }
 
@@ -35,6 +37,7 @@ export class ConsoleDeck {
     this.runtime = runtime; this.page = 0; this.offset = 0; this.sequence = 0;
     this.signature = ''; this.current = null; this.requests = new Map(); this.tail = Promise.resolve();
     this.notice = ''; this.confirmation = null;
+    this.metrics = ''; this.metricsSequence = 1;
   }
   frame() {
     const runtime = this.runtime, state = runtime.snapshot();
@@ -107,7 +110,10 @@ export class ConsoleDeck {
       this.signature = signature; this.sequence = (this.sequence + 1) >>> 0 || 1;
       this.current = { ...data, sequence: this.sequence, rows: selected.map(item => ({ ...item, token: runtime.id() })) };
     }
-    return this.current;
+    const metrics = telemetryText(state);
+    if (metrics !== this.metrics) { this.metrics = metrics;this.metricsSequence = (this.metricsSequence + 1) >>> 0 || 1; }
+    // Telemetry never changes action tokens or the selected menu's sequence.
+    return { ...this.current, metrics, metricsSequence: this.metricsSequence };
   }
   action(input) {
     invariant(input && /^[a-f0-9]{32}$/.test(input.request || ''), 'DECK_REQUEST', 'Invalid controller request.', { status: 400 });

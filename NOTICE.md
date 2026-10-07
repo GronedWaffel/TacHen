@@ -143,3 +143,16 @@ uses the loaded-object and VM-entry layouts documented by the GPL-3.0-or-later
 and `kernel.c`, copyright John Törnblom. TacHen adds strict pointer/range checks,
 exact basename uniqueness, iteration limits and contiguous-range validation.
 These checks do not establish runtime compatibility on an untested firmware.
+
+PS5 telemetry counter layouts and display-query ABI follow OnionHEN /
+LightningMods' FPS sources and PHU Games Tools by ArkSama, as carried in the
+GronedWaffel etaHEN tree. File hashes and the source revision are recorded in
+`vendor/telemetry-provenance.json`. TacHen implements a separate, opt-in point
+sampler, guarded fresh page reads, generation/age checks and shared readout;
+display scanout is explicitly distinguished from game render counters.
+The linked page translator is from GPL-3.0-or-later SDK v0.43
+[`kernel_procio.c`](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/kernel_procio.c),
+copyright John Törnblom, idlesauce and sleirsgoevy. The sampler does not use that
+file's generic process-copy fallback or alter process credentials. Its bounded
+page-copy loop is original TacHen code. Counter semantics and native operations
+still require console validation.

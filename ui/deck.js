@@ -73,6 +73,13 @@ $('#cheat-file').onchange = async event => {
 };
 function draw() {
   drawCheats();
+  const sample = state.telemetry;
+  $('#game-measurements').replaceChildren(...[
+    ['fps', sample?.fpsSource === 'display-scanout' ? 'Display rate' : 'Game FPS', sample?.fps, sample?.fpsSource === 'display-scanout' ? ' Hz' : ' FPS'],
+    ['cpu', 'Game CPU', sample?.cpuPercent, '%'],
+    ['ram', 'Resident memory', sample?.rssBytes == null ? null : Math.round(sample.rssBytes / 1024 ** 2), ' MiB']
+  ].filter(([key]) => state.settings.overlay[key]).map(([, label, value, unit]) => row(label, '', value == null ? 'Unavailable' : value + unit, value != null)));
+  $('#measurement-detail').textContent = sample?.reason || 'Monitoring is not integrated in this runtime.';
   $('#mcp-enabled').checked = state.settings.developer.enabled;
   $('#mcp-enabled').disabled = !capability('mcp')?.available || state.safe;
   $('#mcp-writes').checked = state.settings.developer.memoryWrites;

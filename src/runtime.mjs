@@ -54,6 +54,7 @@ export class TacRuntime {
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
+      telemetry: this.telemetry ? this.telemetry.snapshot() : null,
       settings: state.settings, services: this.graph.snapshot(), capabilities: [...this.capabilities.values()].map(clone),
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list() : null,
@@ -79,6 +80,7 @@ export class TacRuntime {
       state.history = state.history.slice(-256);
     }, revision);
     if (!this.store.snapshot().settings.developer.enabled) this.mcp?.revoke();
+    if (patch.overlay) this.telemetry?.reset();
     this.sequence++; return this.snapshot();
   }
   async execute(command, args) {
@@ -141,5 +143,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.mcp?.revoke(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
+  async close() { this.mcp?.revoke(); this.telemetry?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; }
 }

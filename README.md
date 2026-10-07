@@ -187,3 +187,12 @@ must retain source, licensing and provenance. Existing etaHEN, Neighborhood,
 ShadowMount and YouTube releases are not modified by this project.
 
 See `docs/IMPLEMENTATION.md` for scope, current evidence and remaining work.
+
+Optional native telemetry now samples PS5 AGC render counters, DCE display
+scanout, process CPU time and resident memory. Phone Preferences and the native
+ShellUI deck consume the same readings. Metric updates do not invalidate menu
+actions. CPU is normalized to total logical CPU capacity; display scanout is
+labeled separately, and stale/missing measurements are unavailable. Sampling
+does no native work when disabled or without a verified game. PS4 frame-hook
+integration and full in-game rendering remain unfinished; none of these native
+sampling or display paths has been tested on a console.

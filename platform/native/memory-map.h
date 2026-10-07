@@ -3,8 +3,10 @@
 #include <stdint.h>
 #include <stddef.h>
 // Layout follows ps5-payload-sdk v0.43's dynlib and VM walkers. The caller must
-// own the kernel-copy guard and a stopped, generation-verified target. These
-// bounded readers do not establish process identity or acquire that lease.
+// own the kernel-copy guard and verify generation. Transactions require a stopped
+// target. A live observational module lookup is not a coherent snapshot: its
+// consumer must recheck generation/module identity and never use it for writes.
+// These bounded readers do not establish process identity or acquire a lease.
 typedef struct {
   void *context;
   int (*read)(void *context,uint64_t kernelAddress,void *bytes,size_t length);

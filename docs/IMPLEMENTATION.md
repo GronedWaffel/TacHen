@@ -709,3 +709,54 @@ playing, cancellation/revocation, restart recovery and third-party MCP clients.
 The broader in-game deck, overlays, saves, loadouts, update recovery, remaining
 format/firmware adapters and other open requirements still apply. No console
 connection, test, deployment or publication occurred. TacHen remains unfinished.
+
+## Checkpoint fifteen — PS5 telemetry and shared readout
+
+The runtime now compiles and wires a native point-sampling worker for process
+CPU time/resident memory, PS5 AGC ring/driver counters and the DCE display query.
+Requests bind PID, process generation and title. The worker owns the native
+kernel-copy guard, translates fresh user pages and rechecks identity before and
+after reads; module identity is checked around the driver-counter observation.
+There is no process injection, ptrace, credential change or disk publication in
+this sampler. Its live observations are not atomic process snapshots.
+
+Source inspection found that SDK v0.43's generic process-copy fallback clamps
+later physical chunks to the original total length rather than the remaining
+length. The sampler therefore uses the SDK page translator with TacHen's own
+bounded per-page copy loop, not the generic process-copy fallback. The actual C
+tests exercise an unaligned page crossing with output canaries, mid-read identity
+loss, short/failed translations, failed reads, ring wrap, malformed headers and
+concurrent ring resizing. Partial output is discarded. This does not establish
+that arbitrary kernel calls cannot stall; a pending native worker retains its
+guard and is not replaced when the coordinator's freshness deadline expires.
+
+Portable telemetry retains 64-bit counter precision, rejects stale/regressing
+intervals, averages current observations, and separates display scanout from
+game render counters. CPU is the game's share of total logical CPU capacity.
+Missing readings remain unavailable. Monitoring makes no native requests when
+disabled, in safe startup or without a verified game. Queued native work takes
+precedence. In-flight samples are drained and discarded after settings or game
+identity changes. Values are transient and never written to saved settings.
+
+The phone Preferences panel displays shared readings; native deck wire version
+2 appends an independently sequenced metric label. Changing measurements does
+not regenerate action tokens or interrupt a controller selection. The C decoder
+rejects stale/contradictory metric revisions. A lost native connection clears
+the metric label with the rest of the presentation. The actual managed label
+placement and native sampling remain hardware untested.
+
+All **191 local tests** pass, including the actual C counter/page reader and
+controller engine. The real embedded QuickJS smoke test passes with 64-bit
+telemetry and the revised wire format. All three ELFs cross-build; the runtime
+is **8,590,312 bytes**, SHA-256
+`ec786fb0cd040aee773fe8a580432c30e685cf40658bb3c0cec0348ab96ce8ba`.
+The localhost phone fixture displayed synthetic 60 FPS, 50% CPU and 512 MiB at
+390-pixel width without overflow or browser errors. `build/telemetry-phone.png`
+records that UI check, not a console measurement. The fixture was stopped and
+its browser tab closed; the temporary viewport was reset.
+
+Next implementation work includes the separate PS4 GNM submission hook and
+full in-game rendering/input integration. The earlier save, loadout, update,
+firmware/format and other requirements remain open. Counter interpretation,
+overhead, interaction with native jobs and lower-firmware behavior require
+hardware acceptance later. No PS5 connection, deployment or release occurred.

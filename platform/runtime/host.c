@@ -10,6 +10,7 @@ extern void tac_package_bind(JSContext*,JSValue);
 extern void tac_game_bind(JSContext*,JSValue);
 extern void tac_module_bind(JSContext*,JSValue);
 extern void tac_cheat_bind(JSContext*,JSValue);
+extern void tac_telemetry_bind(JSContext*,JSValue);
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,7 +152,7 @@ int main(int argc,char **argv){(void)argc;(void)argv;signal(SIGPIPE,SIG_IGN);mkd
  FILE *runtimeLog=freopen(ROOT "/runtime.log","w",stderr);if(runtimeLog)setvbuf(runtimeLog,NULL,_IOLBF,0);
 #endif
  JSRuntime *rt=JS_NewRuntime();if(!rt)return 4;JS_SetMemoryLimit(rt,48*1048576);JS_SetMaxStackSize(rt,2*1048576);context=JS_NewContext(rt);if(!context){JS_FreeRuntime(rt);return 4;}JSValue global=JS_GetGlobalObject(context),api=JS_NewObject(context);
- const char *names[]={"log","random","stat","statfs","realpath","mkdir","readdir","rename","unlink","rmdir","open","read","write","fstat","fsync","close","connect","connected","send","recv","shutdown","listen","port","accept","sqlite","native","notify","ip","peer","truncate","utime","asset","stop","firmware"};for(int i=0;i<(int)(sizeof names/sizeof names[0]);i++)JS_SetPropertyStr(context,api,names[i],JS_NewCFunctionMagic(context,native,names[i],4,JS_CFUNC_generic_magic,i));tac_loader_bind(context,api);tac_system_bind(context,api);tac_manager_bind(context,api);tac_deck_bind(context,api);tac_package_bind(context,api);tac_game_bind(context,api);tac_module_bind(context,api);tac_cheat_bind(context,api);JS_SetPropertyStr(context,global,"__native",api);
+ const char *names[]={"log","random","stat","statfs","realpath","mkdir","readdir","rename","unlink","rmdir","open","read","write","fstat","fsync","close","connect","connected","send","recv","shutdown","listen","port","accept","sqlite","native","notify","ip","peer","truncate","utime","asset","stop","firmware"};for(int i=0;i<(int)(sizeof names/sizeof names[0]);i++)JS_SetPropertyStr(context,api,names[i],JS_NewCFunctionMagic(context,native,names[i],4,JS_CFUNC_generic_magic,i));tac_loader_bind(context,api);tac_system_bind(context,api);tac_manager_bind(context,api);tac_deck_bind(context,api);tac_package_bind(context,api);tac_game_bind(context,api);tac_module_bind(context,api);tac_cheat_bind(context,api);tac_telemetry_bind(context,api);JS_SetPropertyStr(context,global,"__native",api);
 #ifdef TACHEN_EMBEDDED
  const char *code=(const char *)tachen_bundle;size_t length=sizeof tachen_bundle-1;
 #else

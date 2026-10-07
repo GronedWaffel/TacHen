@@ -34,7 +34,7 @@ static void render(void* instance){
  TacDeckFrame frame;int open=0;unsigned selected=0;
  if(pthread_mutex_trylock(&mutex)){__atomic_store_n(&rendering,0,__ATOMIC_RELEASE);return;}
  tac_deck_tick(&deck,millis());frame=deck.frame;open=deck.open;selected=deck.selected;
- if(!deck.valid){open=0;frame.flags=0;frame.sequence=0;}
+ if(!deck.valid){open=0;frame.flags=0;frame.sequence=0;frame.metricsSequence=0;}
  pthread_mutex_unlock(&mutex);
  int rendered=tac_deck_view_render(&view,&frame,open,selected,millis());
  if(rendered&&!pthread_mutex_trylock(&mutex)){

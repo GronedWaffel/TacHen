@@ -9,8 +9,10 @@ typedef struct { char token[32], label[96], detail[160]; uint32_t flags; } TacDe
 typedef struct {
  uint32_t magic; uint16_t version,flags; uint32_t sequence; uint16_t page,count;
  char title[64],subtitle[160],footer[160],ip[64]; TacDeckRow rows[TAC_DECK_ROWS];
+ uint32_t metricsSequence; char metrics[192];
 } TacDeckFrame;
-_Static_assert(sizeof(TacDeckFrame)==2800,"Deck wire size");
+_Static_assert(sizeof(TacDeckFrame)==2996,"Deck wire size");
+_Static_assert(offsetof(TacDeckFrame,metricsSequence)==2800,"Independent telemetry sequence offset");
 _Static_assert(offsetof(TacDeckFrame,rows)==464,"Deck row offset");
 typedef struct { uint32_t kind,sequence,row,serial; } TacDeckEvent;
 enum { TAC_DECK_SELECT=1,TAC_DECK_NEXT=2,TAC_DECK_PREVIOUS=3,TAC_DECK_BACK=4 };
