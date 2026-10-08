@@ -87,7 +87,7 @@ for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c',
   deckObjects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
-  '--wrap=__patch_init', '--wrap=mmap', '--wrap=mprotect', '--wrap=munmap', ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '--wrap=__patch_init', '--wrap=__crt_syscall_init', '--wrap=__kernel_init', '--wrap=__rtld_init', ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
 const embeddedAssets = [];
 for (const [symbol, file] of [['assets', 'components.bin'], ['deck', 'tachen-deck.elf'],

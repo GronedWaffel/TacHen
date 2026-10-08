@@ -4,6 +4,7 @@
 #include "deck-view.h"
 #include "deck-http.h"
 #include "deck-bootstrap.h"
+#include "resident-memory.h"
 #include <ps5/kernel.h>
 #include <ps5/payload.h>
 #include <sys/mman.h>
@@ -97,6 +98,11 @@ static int prepare_patch(void* original,void* replacement,void* slot,TacDeckPatc
  patch->address=(uintptr_t)original;memcpy(patch->before,bytes,14);
  const unsigned char code[]={0xff,0x25,0,0,0,0};memcpy(patch->after,code,6);memcpy(patch->after+6,&replacement,8);return 1;
 }
+// Once a worker may reference this image, returning through SDK main would
+// finalize/close its dependencies. Keep the resident CRT alive on successful,
+// rejected and uncertain publication alike. Metadata preparation has already
+// detached this thread from Mono, so sleeping does not obstruct managed GC.
+static _Noreturn void resident_wait(void){for(;;)sleep(3600);}
 int main(void){
  boot=(volatile TacDeckBoot*)((unsigned char*)payload_get_args()+TAC_DECK_BOOT_OFFSET);
  if(boot->magic!=TAC_DECK_BOOT_MAGIC||boot->version!=TAC_DECK_BOOT_VERSION||boot->state||boot->credential[32])return -1;
@@ -104,12 +110,12 @@ int main(void){
  for(unsigned i=0;i<32;i++)if(!((credential[i]>='0'&&credential[i]<='9')||(credential[i]>='a'&&credential[i]<='f')))return -1;
  boot->phase=10;tac_deck_init(&deck);void* update=NULL;void* get=NULL;
  if(!tac_deck_view_prepare(&view,&update,&get,&boot->phase)){boot->error=view.prepareError?view.prepareError:1;boot->state=3;return -1;}
- boot->phase=20;void* arena=mmap(NULL,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+ boot->phase=20;void* arena=tac_deck_mmap(NULL,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
  if(arena==MAP_FAILED){boot->error=2;boot->state=3;return -1;}
  boot->phase=21;TacDeckPatch patches[2];
  if(!prepare_patch(update,render,arena,&patches[0])||!prepare_patch(get,input,(unsigned char*)arena+512,&patches[1])||
     kernel_mprotect(getpid(),(uintptr_t)arena,0x4000,PROT_READ|PROT_EXEC)){
-  munmap(arena,0x4000);boot->error=3;boot->state=3;return -1;
+  tac_deck_munmap(arena,0x4000);boot->error=3;boot->state=3;return -1;
  }
  originalUpdate=(void(*)(void*))arena;originalInput=(TacPad(*)(int))((unsigned char*)arena+512);
  memcpy((void*)boot->patches,patches,sizeof patches);boot->count=2;
@@ -117,9 +123,9 @@ int main(void){
  pthread_detach(thread);
  __atomic_thread_fence(__ATOMIC_RELEASE);boot->phase=23;boot->state=1;
  for(unsigned i=0;i<1500;i++){
-  if(boot->state==2){boot->phase=24;boot->state=4;return 0;}if(boot->state==3)return -1;usleep(10000);
+  if(boot->state==2){boot->phase=24;boot->state=4;resident_wait();}if(boot->state==3){__atomic_store_n(&workerStop,1,__ATOMIC_RELEASE);resident_wait();}usleep(10000);
  }
  // Publication outcome is unknown: leave trampolines mapped, disable deck
  // input, and let the coordinator report uncertainty instead of reinjecting.
- boot->error=5;__atomic_store_n(&workerStop,1,__ATOMIC_RELEASE);__atomic_store_n(&workerRunning,0,__ATOMIC_RELEASE);return -1;
+ boot->error=5;__atomic_store_n(&workerStop,1,__ATOMIC_RELEASE);__atomic_store_n(&workerRunning,0,__ATOMIC_RELEASE);resident_wait();
 }
