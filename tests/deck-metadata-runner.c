@@ -18,6 +18,11 @@ static void* result(void* m){return &((Method*)m)->result;}
 static void* param(void* m,void** it){(void)it;return &((Method*)m)->param;}
 static int kind(void* t){return ((Type*)t)->kind;}
 static void* type_class(void* t){return ((Type*)t)->klass;}
+typedef struct {int value,size;} ManagedClass;
+static int is_value(void* k){return ((ManagedClass*)k)->value;}
+static int value_size(void* k,uint32_t* alignment){*alignment=4;return ((ManagedClass*)k)->size;}
+static void* parent(void* k){(void)k;return NULL;}
+static void* property(void* k,const char* n){(void)k;return !strcmp(n,"TextColor")?&methods[0]:NULL;}
 int main(void){
  TacDeckView v={0};v.mono.mono_class_get_methods=next;v.mono.mono_method_get_name=name;
  v.mono.mono_method_get_flags=flags;v.mono.mono_method_signature=signature;
@@ -32,6 +37,21 @@ int main(void){
  methods[1].param.kind=0x10;CHECK(!object_method(&v,&klass,"AppendChild",&widget));
  methods[1].param.kind=0x12;methods[1].result.kind=8;CHECK(!object_method(&v,&klass,"AppendChild",&widget));
  methods[1].result.kind=1;methods[1].count=2;CHECK(!object_method(&v,&klass,"AppendChild",&widget));
+ // HDR adds data to the managed color. Mono owns its allocation and ABI;
+ // neither that extension nor the font's references belong in a C RGBA buffer.
+ ManagedClass fontClass={1,40},colorClass={1,20},wrongClass={1,20};
+ v.font=&fontClass;v.color=&colorClass;v.mono.mono_class_is_valuetype=is_value;
+ v.mono.mono_class_value_size=value_size;
+ CHECK(managed_styles(&v));colorClass.size=16;CHECK(managed_styles(&v));
+ colorClass.value=0;CHECK(!managed_styles(&v));colorClass.value=1;
+ fontClass.value=0;CHECK(!managed_styles(&v));fontClass.value=1;
+ v.mono.mono_class_get_parent=parent;v.mono.mono_class_get_property_from_name=property;
+ v.mono.mono_property_get_set_method=signature;
+ methods[0]=(Method){"set_TextColor",0,1,{1,NULL},{0x11,&colorClass}};
+ CHECK(value_setter(&v,&klass,"TextColor",&colorClass)==&methods[0]);
+ CHECK(!value_setter(&v,&klass,"TextColor",&wrongClass));
+ methods[0].param.kind=0x12;CHECK(!value_setter(&v,&klass,"TextColor",&colorClass));
+ methods[0].param.kind=0x11;methods[0].flags=16;CHECK(!value_setter(&v,&klass,"TextColor",&colorClass));
  CHECK(!strcmp(tac_deck_prepare_error(112),"append"));
  TacDeckPatch patch={.address=0x12340000};memset(patch.before,0x90,14);
  patch.after[0]=0xff;patch.after[1]=0x25;patch.after[6]=0x42;

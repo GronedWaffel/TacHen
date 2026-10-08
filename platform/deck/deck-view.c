@@ -58,6 +58,18 @@ static void* setter(TacDeckView* v,void* klass,const char* name,int valueType){
   if(valueType>=0&&type(v,v->mono.mono_signature_get_params(signature,&it))!=valueType)return NULL;return m;
  }return NULL;
 }
+static void* value_setter(TacDeckView* v,void* klass,const char* name,void* expected){
+ void* m=setter(v,klass,name,0x11);if(!m)return NULL;
+ void* signature=v->mono.mono_method_signature(m);void* iterator=NULL;
+ void* parameter=v->mono.mono_signature_get_params(signature,&iterator);
+ return v->mono.mono_class_from_mono_type(parameter)==expected?m:NULL;
+}
+static int managed_styles(TacDeckView* v){
+ // Both objects are allocated, constructed and unboxed by Mono. There is no
+ // native color buffer or memcpy requiring a 16-byte RGBA layout. 13.60's
+ // UIColor also contains an HDR flag; validate managed identity instead.
+ return v->mono.mono_class_is_valuetype(v->font)&&v->mono.mono_class_is_valuetype(v->color);
+}
 static int pad_abi(TacDeckView* v,void* get){
  void* signature=v->mono.mono_method_signature(get);void* t=v->mono.mono_signature_get_return_type(signature);
  if(type(v,t)!=0x11)return 0;void* klass=v->mono.mono_class_from_mono_type(t);uint32_t align=0;
@@ -110,16 +122,15 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uin
  v->labelCtor=method(v,v->label,".ctor",0,0,1,NULL);
  v->panelCtor=method(v,v->panel,".ctor",0,0,1,NULL);
  v->panelWidth=setter(v,v->panel,"Width",0x0c);v->panelHeight=setter(v,v->panel,"Height",0x0c);
- v->panelColor=setter(v,v->panel,"BackgroundColor",0x11);v->panelVisible=setter(v,v->panel,"Visible",2);
+ v->panelColor=value_setter(v,v->panel,"BackgroundColor",v->color);v->panelVisible=setter(v,v->panel,"Visible",2);
  v->fontCtor=method(v,v->font,".ctor",3,0,1,fontTypes);
  v->colorCtor=method(v,v->color,".ctor",4,0,1,colorTypes);
  v->text=setter(v,v->label,"Text",0x0e);v->name=setter(v,v->widget,"Name",0x0e);
  v->x=setter(v,v->widget,"X",0x0c);v->y=setter(v,v->widget,"Y",0x0c);
  v->width=setter(v,v->label,"FitWidthToText",2);v->height=setter(v,v->label,"FitHeightToText",2);
- v->textColor=setter(v,v->label,"TextColor",0x11);v->labelFont=setter(v,v->label,"Font",0x11);
- uint32_t alignment=0;
+ v->textColor=value_setter(v,v->label,"TextColor",v->color);v->labelFont=value_setter(v,v->label,"Font",v->font);
  preparing(v,109);
- if(!v->mono.mono_class_is_valuetype(v->font)||!v->mono.mono_class_is_valuetype(v->color)||v->mono.mono_class_value_size(v->color,&alignment)!=16)goto done;
+ if(!managed_styles(v))goto done;
  preparing(v,110);if(!v->findScene)goto done;
  preparing(v,111);if(!v->getRoot)goto done;
  preparing(v,112);if(!v->append)goto done;
