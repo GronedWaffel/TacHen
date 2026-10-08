@@ -72,11 +72,13 @@ int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char crede
  if(code<=0||params<=0||pt_copyin(pid,stager,code,sizeof stager)||pt_copyin(pid,pointers,params,sizeof pointers)||
    kernel_mprotect(pid,code,0x4000,PROT_READ|PROT_EXEC))goto done;
  check="create bootstrap thread";if(pt_call2(pid,code,(uintptr_t)params)!=0)goto done;
- // The stager returned and the new thread only retains args. Its entry, args
- // and eventual trampolines must stay mapped for the resident deck's lifetime.
- pt_munmap(pid,code,0x4000);pt_munmap(pid,params,0x4000);
+ // The new thread can already be inside CRT initialization. Detach directly,
+ // matching the working libNineS resident path: do not commandeer the host
+ // thread for cleanup syscalls while its new sibling is starting. These two
+ // small mappings remain owned by this ShellUI generation until process exit.
+ // The durable receipt prevents repeated allocations/reinjection this boot.
  check="resume ShellUI";if(pt_detach(pid,0))goto done;attached=0;
- for(unsigned tick=0;tick<1800;tick++){
+ for(unsigned tick=0;tick<180;tick++){
   check="bootstrap process identity";
   if(!identity(cookie))goto done;
   check="read bootstrap record";TacDeckBoot status;if(kernel_proc_copyout(pid,*control,&status,sizeof status))goto done;
@@ -95,7 +97,7 @@ int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char crede
     uint32_t failed=3;kernel_proc_copyin(pid,&failed,*control+offsetof(TacDeckBoot,state),4);goto done;
    }
   }
-  if(status.state==4){ok=1;break;}check="bootstrap wait";usleep(10000);
+  if(status.state==4){ok=1;break;}check="bootstrap wait";usleep(100000);
  }
 done:
  if(attached){if(pt_detach(pid,0))ok=0;else attached=0;}
