@@ -75,14 +75,15 @@ static int pad_abi(TacDeckView* v,void* get){
  }
  return 1;
 }
-int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
- memset(v,0,sizeof *v);*update=NULL;*input=NULL;
- v->prepareError=101;if(!tac_mono_load(&v->mono))return 0;
- v->prepareError=102;if((v->domain=v->mono.mono_get_root_domain())==NULL)return 0;
- v->prepareError=103;
+static void preparing(TacDeckView* v,uint32_t stage){v->prepareError=stage;if(v->prepareTrace)*v->prepareTrace=stage;}
+int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uint32_t* trace){
+ memset(v,0,sizeof *v);v->prepareTrace=trace;*update=NULL;*input=NULL;
+ preparing(v,101);if(!tac_mono_load(&v->mono))return 0;
+ preparing(v,102);if((v->domain=v->mono.mono_get_root_domain())==NULL)return 0;
+ preparing(v,103);
  void* thread=v->mono.mono_thread_attach(v->domain);if(!thread)return 0;int ok=0;
  void* pui=image(v,"Sce.PlayStation.PUI.dll"),*core=image(v,"Sce.PlayStation.Core.dll"),*app=image(v,"Sce.Vsh.ShellUI.AppSystem.dll");
- v->prepareError=104;if(!pui||!core||!app)goto done;
+ preparing(v,104);if(!pui||!core||!app)goto done;
  v->label=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Label");
  v->panel=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Panel");
  v->widget=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Widget");
@@ -92,15 +93,15 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
  void* gamepad=v->mono.mono_class_from_name(core,"Sce.PlayStation.Core.Input","GamePad");
  void* layer=v->mono.mono_class_from_name(app,"Sce.Vsh.ShellUI.AppSystem","LayerManager");
  void* scene=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Scene");
- v->prepareError=105;if(!v->label||!v->panel||!v->widget||!v->font||!v->color||!application||!gamepad||!layer||!scene)goto done;
+ preparing(v,105);if(!v->label||!v->panel||!v->widget||!v->font||!v->color||!application||!gamepad||!layer||!scene)goto done;
  void* parent=v->panel;unsigned depth=0;
  while(parent&&parent!=v->widget&&depth++<12)parent=v->mono.mono_class_get_parent(parent);
- v->prepareError=106;if(parent!=v->widget)goto done;
+ preparing(v,106);if(parent!=v->widget)goto done;
  int i32[]={8},str[]={0x0e},fontTypes[]={8,-2,-2},colorTypes[]={0x0c,0x0c,0x0c,0x0c};
  void* tick=method(v,application,"Update",0,0,1,NULL);
  void* get=method(v,gamepad,"GetData",1,1,0x11,i32);
- v->prepareError=107;if(!tick||!get)goto done;
- v->prepareError=108;if(!pad_abi(v,get))goto done;
+ preparing(v,107);if(!tick||!get)goto done;
+ preparing(v,108);if(!pad_abi(v,get))goto done;
  v->findScene=method(v,layer,"FindContainerSceneByPath",1,1,-1,str);
  void* property=v->mono.mono_class_get_property_from_name(scene,"RootWidget");
  v->getRoot=property?v->mono.mono_property_get_get_method(property):NULL;
@@ -117,34 +118,34 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input){
  v->width=setter(v,v->label,"FitWidthToText",2);v->height=setter(v,v->label,"FitHeightToText",2);
  v->textColor=setter(v,v->label,"TextColor",0x11);v->labelFont=setter(v,v->label,"Font",0x11);
  uint32_t alignment=0;
- v->prepareError=109;
+ preparing(v,109);
  if(!v->mono.mono_class_is_valuetype(v->font)||!v->mono.mono_class_is_valuetype(v->color)||v->mono.mono_class_value_size(v->color,&alignment)!=16)goto done;
- v->prepareError=110;if(!v->findScene)goto done;
- v->prepareError=111;if(!v->getRoot)goto done;
- v->prepareError=112;if(!v->append)goto done;
- v->prepareError=113;if(!v->remove)goto done;
- v->prepareError=114;if(!v->labelCtor)goto done;
- v->prepareError=115;if(!v->fontCtor)goto done;
- v->prepareError=116;if(!v->colorCtor)goto done;
- v->prepareError=117;if(!v->text)goto done;
- v->prepareError=118;if(!v->name)goto done;
- v->prepareError=119;if(!v->x)goto done;
- v->prepareError=120;if(!v->y)goto done;
- v->prepareError=121;if(!v->width)goto done;
- v->prepareError=122;if(!v->height)goto done;
- v->prepareError=123;if(!v->textColor)goto done;
- v->prepareError=124;if(!v->labelFont)goto done;
- v->prepareError=125;if(!v->panelCtor)goto done;
- v->prepareError=126;if(!v->panelWidth)goto done;
- v->prepareError=127;if(!v->panelHeight)goto done;
- v->prepareError=128;if(!v->panelColor)goto done;
- v->prepareError=129;if(!v->panelVisible)goto done;
+ preparing(v,110);if(!v->findScene)goto done;
+ preparing(v,111);if(!v->getRoot)goto done;
+ preparing(v,112);if(!v->append)goto done;
+ preparing(v,113);if(!v->remove)goto done;
+ preparing(v,114);if(!v->labelCtor)goto done;
+ preparing(v,115);if(!v->fontCtor)goto done;
+ preparing(v,116);if(!v->colorCtor)goto done;
+ preparing(v,117);if(!v->text)goto done;
+ preparing(v,118);if(!v->name)goto done;
+ preparing(v,119);if(!v->x)goto done;
+ preparing(v,120);if(!v->y)goto done;
+ preparing(v,121);if(!v->width)goto done;
+ preparing(v,122);if(!v->height)goto done;
+ preparing(v,123);if(!v->textColor)goto done;
+ preparing(v,124);if(!v->labelFont)goto done;
+ preparing(v,125);if(!v->panelCtor)goto done;
+ preparing(v,126);if(!v->panelWidth)goto done;
+ preparing(v,127);if(!v->panelHeight)goto done;
+ preparing(v,128);if(!v->panelColor)goto done;
+ preparing(v,129);if(!v->panelVisible)goto done;
  void* colorSignature=v->mono.mono_method_signature(v->panelColor),*colorIterator=NULL;
- v->prepareError=130;
+ preparing(v,130);
  if(v->mono.mono_class_from_mono_type(v->mono.mono_signature_get_params(colorSignature,&colorIterator))!=v->color)goto done;
- v->prepareError=131;
+ preparing(v,131);
  *update=v->mono.mono_compile_method(tick);*input=v->mono.mono_compile_method(get);ok=*update&&*input;
-done:if(ok)v->prepareError=0;v->mono.mono_thread_detach(thread);return ok;
+done:if(ok)preparing(v,0);v->mono.mono_thread_detach(thread);return ok;
 }
 static void* target(TacDeckView* v,uint32_t h){return h?v->mono.mono_gchandle_get_target(h):NULL;}
 static uint32_t object(TacDeckView* v,void* klass){void* o=v->mono.mono_object_new(v->domain,klass);return o?v->mono.mono_gchandle_new(o,1):0;}

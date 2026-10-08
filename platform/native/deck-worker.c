@@ -144,7 +144,7 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
  if(!live&&(r.stage==1||r.stage==2))r.stage=5;
  if(!tac_native_busy()&&r.stage==3&&r.control&&identity(&r)){
   TacDeckBoot status;uint64_t now=millis();
-  if(!kernel_proc_copyout(r.pid,r.control,&status,sizeof status)&&status.magic==TAC_DECK_BOOT_MAGIC&&status.version==1&&status.state==4&&
+  if(!kernel_proc_copyout(r.pid,r.control,&status,sizeof status)&&status.magic==TAC_DECK_BOOT_MAGIC&&status.version==TAC_DECK_BOOT_VERSION&&status.state==4&&
     status.renderedAt&&now>=status.renderedAt&&now-status.renderedAt<=3000)ready=1;
  }
  JSValue out=JS_NewObject(c);JS_SetPropertyStr(c,out,"request",JS_NewString(c,r.request));JS_SetPropertyStr(c,out,"stage",JS_NewInt32(c,r.stage));

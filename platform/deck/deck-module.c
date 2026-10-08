@@ -26,7 +26,7 @@ static void (*originalUpdate)(void*);static TacPad (*originalInput)(int);
 static char credential[33];
 static uint64_t millis(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return (uint64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
 static void render(void* instance){
- originalUpdate(instance);
+ boot->renderPhase=1;originalUpdate(instance);boot->renderPhase=2;
  if(__atomic_exchange_n(&rendering,1,__ATOMIC_ACQ_REL))return;
  if(!__atomic_load_n(&workerRunning,__ATOMIC_ACQUIRE)){
   if(__atomic_exchange_n(&ready,0,__ATOMIC_ACQ_REL)||(view.failed&&view.root)){
@@ -40,7 +40,9 @@ static void render(void* instance){
  frame.notice.remainingMs=tac_deck_notice_remaining(&deck,millis());
  if(!deck.valid){open=0;frame.flags=0;frame.sequence=0;frame.metricsSequence=0;}
  pthread_mutex_unlock(&mutex);
+ boot->renderPhase=3;
  int rendered=tac_deck_view_render(&view,&frame,open,selected,millis());
+ boot->renderPhase=4;
  if(rendered&&!pthread_mutex_trylock(&mutex)){
   tac_deck_present(&deck,frame.sequence,open,selected);renderedAt=millis();pthread_mutex_unlock(&mutex);
  }
@@ -53,7 +55,7 @@ static void render(void* instance){
  __atomic_store_n(&rendering,0,__ATOMIC_RELEASE);
 }
 static TacPad input(int device){
- TacPad result=originalInput(device);int consume=0;
+ boot->inputPhase=1;TacPad result=originalInput(device);boot->inputPhase=2;int consume=0;
  if(!__atomic_load_n(&ready,__ATOMIC_ACQUIRE))return result;
  if(!pthread_mutex_trylock(&mutex)){
   if(route.active){pthread_mutex_unlock(&mutex);return result;}
@@ -97,25 +99,25 @@ static int prepare_patch(void* original,void* replacement,void* slot,TacDeckPatc
 }
 int main(void){
  boot=(volatile TacDeckBoot*)((unsigned char*)payload_get_args()+TAC_DECK_BOOT_OFFSET);
- if(boot->magic!=TAC_DECK_BOOT_MAGIC||boot->version!=1||boot->state||boot->credential[32])return -1;
+ if(boot->magic!=TAC_DECK_BOOT_MAGIC||boot->version!=TAC_DECK_BOOT_VERSION||boot->state||boot->credential[32])return -1;
  memcpy(credential,(const void*)boot->credential,33);
  for(unsigned i=0;i<32;i++)if(!((credential[i]>='0'&&credential[i]<='9')||(credential[i]>='a'&&credential[i]<='f')))return -1;
- tac_deck_init(&deck);void* update=NULL;void* get=NULL;
- if(!tac_deck_view_prepare(&view,&update,&get)){boot->error=view.prepareError?view.prepareError:1;boot->state=3;return -1;}
- void* arena=mmap(NULL,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+ boot->phase=10;tac_deck_init(&deck);void* update=NULL;void* get=NULL;
+ if(!tac_deck_view_prepare(&view,&update,&get,&boot->phase)){boot->error=view.prepareError?view.prepareError:1;boot->state=3;return -1;}
+ boot->phase=20;void* arena=mmap(NULL,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
  if(arena==MAP_FAILED){boot->error=2;boot->state=3;return -1;}
- TacDeckPatch patches[2];
+ boot->phase=21;TacDeckPatch patches[2];
  if(!prepare_patch(update,render,arena,&patches[0])||!prepare_patch(get,input,(unsigned char*)arena+512,&patches[1])||
     kernel_mprotect(getpid(),(uintptr_t)arena,0x4000,PROT_READ|PROT_EXEC)){
   munmap(arena,0x4000);boot->error=3;boot->state=3;return -1;
  }
  originalUpdate=(void(*)(void*))arena;originalInput=(TacPad(*)(int))((unsigned char*)arena+512);
  memcpy((void*)boot->patches,patches,sizeof patches);boot->count=2;
- pthread_t thread;if(pthread_create(&thread,NULL,worker,NULL)){boot->error=4;boot->state=3;return -1;}
+ boot->phase=22;pthread_t thread;if(pthread_create(&thread,NULL,worker,NULL)){boot->error=4;boot->state=3;return -1;}
  pthread_detach(thread);
- __atomic_thread_fence(__ATOMIC_RELEASE);boot->state=1;
+ __atomic_thread_fence(__ATOMIC_RELEASE);boot->phase=23;boot->state=1;
  for(unsigned i=0;i<1500;i++){
-  if(boot->state==2){boot->state=4;return 0;}if(boot->state==3)return -1;usleep(10000);
+  if(boot->state==2){boot->phase=24;boot->state=4;return 0;}if(boot->state==3)return -1;usleep(10000);
  }
  // Publication outcome is unknown: leave trampolines mapped, disable deck
  // input, and let the coordinator report uncertainty instead of reinjecting.
