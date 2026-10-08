@@ -13,6 +13,7 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
     // The separate game-input relay owns game-overlay readiness. ShellUI's
     // heartbeat alone cannot establish game-process input isolation.
   }
+  enable(false);
   function inspect(requestId = request) {
     if (!requestId) return { absent: true, ready: false };
     const status = native.deckPoll(requestId), job = runtime.jobs.snapshot().find(j => j.id === requestId);
@@ -37,7 +38,18 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
     validate: target, resources: () => ['native-payload-dispatch', 'shellui-hooks'], timeout: timeout + 30000, cancellable: false,
     async run(input, context) {
       try { target(input); } catch (error) { error.noSideEffects = true; throw error; }
-      request = context.id; native.deckStart(request, input.pid, input.generation, runtime.deckCredential);
+      request = context.id;
+      try { native.deckStart(request, input.pid, input.generation, runtime.deckCredential); }
+      catch (error) {
+        // The native binding creates a plain JS Error, not a TacError. Preserve
+        // its known check/errno instead of replacing it with OPERATION_FAILED.
+        if (['DECK_NATIVE', 'DECK_ALREADY_ATTEMPTED', 'NATIVE_BUSY'].includes(error?.code)) {
+          console.error('TacHen deck startup:', error.code, error.message);
+          throw new TacError(error.code, error.message, { action: 'Review Activity before retrying. Native deck startup was not confirmed.' });
+        }
+        console.error('TacHen deck startup exception:', error?.stack || error?.message || String(error));
+        throw error;
+      }
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline && !context.signal.aborted) {
         const status = inspect();
@@ -69,8 +81,10 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
       while (!signal.aborted) {
         const state = runtime.jobs.snapshot().find(j => j.id === job.id);
         if (state.status === 'completed') { enable(true); return state.result.evidence; }
-        if (['failed', 'interrupted', 'cancelled', 'held', 'uncertain'].includes(state.status))
+        if (['failed', 'interrupted', 'cancelled', 'held', 'uncertain'].includes(state.status)) {
+          for (const feature of ['deck', 'ip-overlay']) runtime.capability(feature, false, state.error?.message || 'Native renderer startup failed. Review Activity.');
           throw new TacError(state.error?.code || 'DECK_STOPPED', state.error?.message || 'Native deck startup needs inspection.');
+        }
         await delay(250);
       }
       throw new TacError('DECK_WAIT_EXPIRED', 'Deck startup remains recorded in Activity.');

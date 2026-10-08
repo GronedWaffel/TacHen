@@ -303,6 +303,7 @@ function draw() {
     $(selector).checked = state.settings.services[key];$(selector).disabled = !startup || startup.running;
   }
   $('#payload-file').disabled = !capability('inbox')?.available;
+  $('#plugin-add').disabled = !capability('inbox')?.available || !Array.isArray(state.plugins);
   $('#package-file').disabled = packageUploading || !Array.isArray(state.packages);
   $('#package-hash').disabled = packageUploading;
   $('#package-stop').disabled = !packageUploading;
@@ -344,6 +345,10 @@ function draw() {
     }
     return node;
   }) : [el('p', 'empty', 'Uploaded payloads will appear here.') ]));
+  $('#plugin-pending').replaceChildren(...(state.inbox || []).filter(item => item.status === 'verified' && /\.(plugin|prx|sprx)$/i.test(item.name) && !state.plugins?.some(plugin => plugin.upload === item.id)).map(item => {
+    const node = row(item.name, 'Verified file. Register it before choosing how it loads.', 'Not registered');
+    const button = el('button', '', 'Register plugin');button.disabled = !Array.isArray(state.plugins);button.onclick = () => pluginDialog(item);node.append(button);return node;
+  }));
   $('#plugin-items').replaceChildren(...(state.plugins?.length ? state.plugins.map(item => {
     const module = ['prx', 'sprx'].includes(item.format);
     const detail = `${module ? item.format.toUpperCase() + ' · ' + item.platform.toUpperCase() : item.pluginId + ' · ' + item.pluginVersion} · ${item.target ? item.target.titleId + ' / ' + item.target.version : 'System / game watcher'}`;
@@ -604,23 +609,29 @@ $('#mcp-revoke').onclick = async () => {
   finally { busy = false; }
 };
 $('#mcp-select').onclick = () => { $('#mcp-token').focus();$('#mcp-token').select(); };
-$('#payload-file').onchange = async event => {
+async function uploadPayload(event, plugin = false) {
   const file = event.target.files[0]; if (!file || busy) return; busy = true;
+  const progressNode = $(plugin ? '#plugin-upload-progress' : '#upload-progress');
   try {
+    if (plugin && !/\.(plugin|prx|sprx)$/i.test(file.name)) throw Error('Choose a .plugin, .prx or .sprx file.');
     const { result } = await api('/api/command', { command: 'inbox.begin', args: { name: file.name, bytes: file.size } });
     for (let offset = 0; offset < file.size;) {
       const chunk = file.slice(offset, offset + 1024 * 1024);
       const response = await fetch(`/api/uploads/${result.id}?offset=${offset}`, { method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream', 'X-TacHen-CSRF': csrf }, body: chunk });
       const progress = await response.json(); if (!response.ok) throw new Error(progress.error?.message || 'Upload failed.');
-      offset = progress.offset; $('#upload-progress').textContent = `Uploading ${file.name}: ${Math.floor(offset / file.size * 100)}%`;
+      offset = progress.offset; progressNode.textContent = `Uploading ${file.name}: ${Math.floor(offset / file.size * 100)}%`;
     }
-    $('#upload-progress').textContent = 'Checking file structure and checksum…';
+    progressNode.textContent = 'Checking file structure and checksum…';
     await api('/api/command', { command: 'inbox.verify', args: { id: result.id } });
-    $('#upload-progress').textContent = `${file.name} uploaded and verified. It has not been executed.`; await refresh();
-  } catch (error) { $('#upload-progress').textContent = error.message; }
+    progressNode.textContent = `${file.name} uploaded and verified. It has not been executed.`; await refresh();
+    if (plugin) { const item = state.inbox.find(entry => entry.id === result.id);if (item?.status === 'verified') pluginDialog(item); }
+  } catch (error) { progressNode.textContent = error.message; }
   finally { busy = false; event.target.value = ''; }
-};
+}
+$('#payload-file').onchange = event => uploadPayload(event);
+$('#plugin-file').onchange = event => uploadPayload(event, true);
+$('#plugin-add').onclick = () => { if (!busy) $('#plugin-file').click(); };
 $('#package-stop').onclick = () => { packageStop = true; $('#package-progress').textContent = 'Stopping after the current chunk…'; };
 $('#package-file').oncancel = () => { packageResume = null; };
 $('#package-file').onchange = async event => {

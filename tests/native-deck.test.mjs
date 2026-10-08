@@ -28,6 +28,17 @@ test('native deck readiness requires the renderer heartbeat, not merely publishe
   await runtime.graph.start('native-deck'); assert.equal(calls.length, 1);
   assert.equal(JSON.stringify(runtime.snapshot()).includes(calls[0].credential), false);
 });
+
+test('native binding failure retains its exact check and replaces the misleading unavailable-build label', async t => {
+  const { runtime, native } = await fixture(t);
+  native.deckStart = () => { throw Object.assign(new Error('Native deck stopped at ShellUI identity (errno 12). No automatic reinjection.'), { code: 'DECK_NATIVE', errno: 12 }); };
+  await assert.rejects(runtime.graph.start('native-deck'), { code: 'DECK_NATIVE' });
+  const job = runtime.jobs.snapshot()[0];
+  assert.equal(job.error.code, 'DECK_NATIVE');assert.match(job.error.message, /ShellUI identity.*errno 12/);
+  assert.equal(job.status, 'interrupted');
+  assert.match(runtime.capabilities.get('deck').reason, /ShellUI identity/);
+  assert.equal(runtime.capabilities.get('deck').available, false);
+});
 test('missing render heartbeat holds the injection resource; another start cannot launch a second module', async t => {
   const { runtime, calls } = await fixture(t, { heartbeat: false, timeout: 10 });
   await assert.rejects(runtime.graph.start('native-deck'), { code: 'DECK_NOT_READY' });
