@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <errno.h>
 extern intptr_t tac_elf_map(pid_t,const uint8_t*,size_t);
 extern intptr_t tac_payload_args(pid_t);
 extern int pt_getlwps(pid_t,int*,size_t);
@@ -72,7 +74,7 @@ int tac_deck_inject(pid_t pid,const uint8_t* image,size_t bytes,const char crede
   if(!identity(cookie))goto done;
   TacDeckBoot status;if(kernel_proc_copyout(pid,*control,&status,sizeof status))goto done;
   if(status.magic!=TAC_DECK_BOOT_MAGIC||status.version!=1)goto done;
-  if(status.state==3)goto done;
+  if(status.state==3){fprintf(stderr,"TacHen deck bootstrap rejected: check=%s error=%u count=%u\n",tac_deck_prepare_error(status.error),status.error,status.count);goto done;}
   if(status.state==1){
    if(status.count!=2)goto done;
    context.address=*control;TacPublicationOps ops={&context,attach,detach,threads,readbytes,writebytes,ack,reject,pause_thread};

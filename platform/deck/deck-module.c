@@ -101,7 +101,7 @@ int main(void){
  memcpy(credential,(const void*)boot->credential,33);
  for(unsigned i=0;i<32;i++)if(!((credential[i]>='0'&&credential[i]<='9')||(credential[i]>='a'&&credential[i]<='f')))return -1;
  tac_deck_init(&deck);void* update=NULL;void* get=NULL;
- if(!tac_deck_view_prepare(&view,&update,&get)){boot->error=1;boot->state=3;return -1;}
+ if(!tac_deck_view_prepare(&view,&update,&get)){boot->error=view.prepareError?view.prepareError:1;boot->state=3;return -1;}
  void* arena=mmap(NULL,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
  if(arena==MAP_FAILED){boot->error=2;boot->state=3;return -1;}
  TacDeckPatch patches[2];

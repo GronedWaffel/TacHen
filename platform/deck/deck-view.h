@@ -3,6 +3,7 @@
 #include "deck-layout.h"
 #include "mono-api.h"
 typedef struct {
+ uint32_t prepareError;
  TacMono mono;void* domain;void* label;void* widget;void* font;void* color;void* panel;
  void* findScene;void* getRoot;void* append;void* remove;void* labelCtor;void* fontCtor;void* colorCtor;
  void* text;void* name;void* x;void* y;void* width;void* height;void* textColor;void* labelFont;

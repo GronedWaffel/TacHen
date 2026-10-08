@@ -88,6 +88,16 @@ test('production renderer avoids idle managed mutations and releases failed or r
   const run=spawnSync(target,[],{encoding:'utf8'});assert.equal(run.status,0,run.stderr||run.error?.message);
 });
 
+test('native metadata selects Widget overload and rejects mismatched or ambiguous signatures',()=>{
+  const zig=process.env.ZIG||path.join(root,'../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
+  const target=path.join(root,'build/deck-metadata-test.exe');
+  const compiled=spawnSync(zig,['cc','-O1','-Wall','-Wextra','-Werror','-Iplatform/deck','tests/deck-metadata-runner.c',
+    'platform/deck/deck-layout.c','-o',target],{cwd:root,encoding:'utf8',
+    env:{...process.env,ZIG_GLOBAL_CACHE_DIR:path.join(root,'build/zig-cache')}});
+  assert.equal(compiled.status,0,compiled.stderr||compiled.error?.message);
+  const run=spawnSync(target,[],{encoding:'utf8'});assert.equal(run.status,0,run.stderr||run.error?.message);
+});
+
 
 test('all native accents match phone colors without recoloring warnings or changing geometry',async t=>{
   const expected={mint:[0.722,0.953,0.545,1],amber:[1,0.827,0.565,1],ice:[0.584,0.851,1,1]};
