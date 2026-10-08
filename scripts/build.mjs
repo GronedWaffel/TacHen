@@ -44,7 +44,7 @@ const q = 'vendor/quickjs';
 const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
     'platform/native/update-core.c','platform/native/update-io.c','platform/native/update-bindings.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
-      'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'save-recovery.c', 'save-recovery-io.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c',
+      'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'save-recovery.c', 'save-recovery-io.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c', 'process-info.c',
       'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
   'platform/native/pad-worker.c', 'platform/native/pad-exchange.c', 'platform/native/user-write.c',

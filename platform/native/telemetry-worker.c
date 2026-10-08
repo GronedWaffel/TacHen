@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include "process-info.h"
 #include <sys/ioctl.h>
 #include <pthread.h>
 #include <time.h>
@@ -52,8 +53,8 @@ static int read_kernel(void *p,uint64_t at,void *out,size_t n){
   (void)p;return kernel_copyout(at,out,n);
 }
 static void resource_sample(Sample *s){
-  struct kinfo_proc info={0};size_t length=sizeof info;int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_PID,s->pid};
-  if(sysctl(mib,4,&info,&length,NULL,0)||length<offsetof(struct kinfo_proc,ki_start)+sizeof info.ki_start||info.ki_pid!=s->pid||info.ki_rssize<0)return;
+  struct kinfo_proc info={0};
+  if(tac_process_info(s->pid,&info)||info.ki_rssize<0)return;
   int pages=getpagesize(),cpus=0;size_t n=sizeof cpus;int cpuMib[]={CTL_HW,HW_NCPU};
   if(pages<4096||pages>65536||(pages&(pages-1))||sysctl(cpuMib,2,&cpus,&n,NULL,0)||n!=sizeof cpus||cpus<1||cpus>64)return;
   if((uint64_t)info.ki_rssize>UINT64_C(128)*1024*1024*1024/(unsigned)pages)return;

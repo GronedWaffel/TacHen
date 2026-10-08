@@ -21,6 +21,7 @@
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/user.h>
+#include "process-info.h"
 #include <ps5/kernel.h>
 #define DISPATCH_ROOT "/data/tachen/dispatch"
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
@@ -85,8 +86,8 @@ static int plugin_present(const char *name){
   free(table);return result;
 }
 static int capture_generation(TacDispatchReceipt *r){
-  struct kinfo_proc info={0};size_t size=sizeof info;int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_PID,r->pid};
-  if(sysctl(mib,4,&info,&size,NULL,0)||size<offsetof(struct kinfo_proc,ki_comm)+COMMLEN+1||info.ki_pid!=r->pid||
+  struct kinfo_proc info={0};
+  if(tac_process_info(r->pid,&info)||
      info.ki_start.tv_sec<=0||info.ki_start.tv_usec<0||info.ki_start.tv_usec>=1000000)return -1;
   info.ki_comm[COMMLEN]=0;if(strcmp(info.ki_comm,r->plugin_id))return -1;
   snprintf(r->generation,sizeof r->generation,"%lld:%lld/%d/%lld:%lld",(long long)r->boot_sec,(long long)r->boot_usec,r->pid,

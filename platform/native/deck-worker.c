@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include "process-info.h"
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <fcntl.h>
@@ -54,12 +55,9 @@ static int identity(Receipt* r){
  struct timeval boot;size_t size=sizeof boot;int bm[]={CTL_KERN,KERN_BOOTTIME};
  if(sysctl(bm,2,&boot,&size,NULL,0)||size!=sizeof boot)return 0;
  if(r->bootSec!=boot.tv_sec||r->bootUsec!=boot.tv_usec)return 0;
- struct kinfo_proc info={0};size=sizeof info;int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_PID,r->pid};
- errno=0;int read_result=sysctl(mib,4,&info,&size,NULL,0);int read_error=errno;
- if(read_result||size<offsetof(struct kinfo_proc,ki_comm)+COMMLEN+1||info.ki_pid!=r->pid){
-  size_t required=0;int query_result=sysctl(mib,4,NULL,&required,NULL,0);
-  fprintf(stderr,"TacHen deck identity: pid=%d read=%d errno=%d returned=%zu capacity=%zu required=%zu query=%d actual_pid=%d\n",r->pid,read_result,read_error,size,sizeof info,required,query_result,info.ki_pid);
-  errno=read_error?read_error:ESRCH;return 0;
+ struct kinfo_proc info={0};
+ if(tac_process_info(r->pid,&info)){
+  int error=errno;fprintf(stderr,"TacHen deck identity: process record read failed pid=%d errno=%d\n",r->pid,error);errno=error;return 0;
  }
  info.ki_comm[COMMLEN]=0;if(strcmp(info.ki_comm,"SceShellUI")||info.ki_start.tv_sec<=0||info.ki_start.tv_usec<0||info.ki_start.tv_usec>=1000000)return 0;
  char generation[128];snprintf(generation,sizeof generation,"%lld:%lld/%d/%lld:%lld",(long long)boot.tv_sec,(long long)boot.tv_usec,r->pid,(long long)info.ki_start.tv_sec,(long long)info.ki_start.tv_usec);

@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include "process-info.h"
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <dlfcn.h>
@@ -27,8 +28,8 @@ int tac_game_app_info(int pid,TacAppInfo* out){
 int tac_game_identity(int pid,const char* generation,const char* title){
  struct timeval boot;size_t size=sizeof boot;int bm[]={CTL_KERN,KERN_BOOTTIME};
  if(sysctl(bm,2,&boot,&size,NULL,0)||size!=sizeof boot)return 0;
- struct kinfo_proc info={0};size=sizeof info;int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_PID,pid};
- if(sysctl(mib,4,&info,&size,NULL,0)||size<offsetof(struct kinfo_proc,ki_comm)+COMMLEN+1||info.ki_pid!=pid||info.ki_start.tv_sec<=0||info.ki_start.tv_usec<0||info.ki_start.tv_usec>=1000000)return 0;
+ struct kinfo_proc info={0};
+ if(tac_process_info(pid,&info)||info.ki_start.tv_sec<=0||info.ki_start.tv_usec<0||info.ki_start.tv_usec>=1000000)return 0;
  char actual[128];snprintf(actual,sizeof actual,"%lld:%lld/%d/%lld:%lld",(long long)boot.tv_sec,(long long)boot.tv_usec,pid,(long long)info.ki_start.tv_sec,(long long)info.ki_start.tv_usec);
  TacAppInfo app;return !strcmp(actual,generation)&&!tac_game_app_info(pid,&app)&&!strcmp(app.title,title);
 }
