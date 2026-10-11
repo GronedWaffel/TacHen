@@ -1,6 +1,6 @@
 # TacHen
 
-**Beta 3 — Havana compatibility update; 67 exact PS5 firmware profiles from 1.00 to 13.60, including 11.40.**
+**Beta 3 — GoldHEN Plugin Support; 67 exact PS5 firmware profiles from 1.00 to 13.60, including 11.40.**
 
 The original **Beta 1 ELF remains available unchanged**. The separate compatibility ELF adds public offset tables; the added firmware support is **untested on hardware**. Firmware below 11.00 is theoretical compatibility, not a confirmed working claim.
 
@@ -18,11 +18,11 @@ TacHen brings a native controller menu and a console-hosted web interface with l
 
 TacHen is a post-jailbreak payload, not an exploit. Use a fresh boot when replacing an already-running TacHen build. This release ELF selects its bundled runtime so an older saved update cannot replace the build you just downloaded.
 
-## Havana plugin compatibility
+## GoldHEN Plugin Support
 
-Beta 3 adds support for the official Havana 1.2 `rdr3Payload_132.sprx` on RDR2 update **1.32**. A community tester reported it working without errors on **PS5 13.42**. Download **TacHen-compatibility.elf** for this fix; the preserved original `TacHen.elf` does not include it.
+Beta 3 introduces a compatibility bridge for GoldHEN plugin process-information and memory operations on PS5. Download **TacHen-compatibility.elf** for this update; the preserved original `TacHen.elf` does not include it. Import your plugin under Plugins, register its matching game/version, and load it once you are in the game.
 
-After a fresh boot and jailbreak, load TacHen, enter RDR2 Story Mode, then load Havana manually. Open Havana with **R1 + Square**. The adapter supplies the process-info and memory operations this exact plugin uses and installs its game hook in one complete write. It does not establish compatibility with every GoldHEN plugin, other Havana releases, or every firmware. See [the plugin compatibility notes](docs/PRX-CONTAINER-COMPATIBILITY.md).
+**Initial compatibility:** the adapter currently recognizes the official Havana 1.2 `rdr3Payload_132.sprx`; a community tester reported it working without errors on PS5 13.42 with RDR2 1.32. Other GoldHEN plugins still need compatible API coverage and validation. See [the plugin compatibility notes](docs/PRX-CONTAINER-COMPATIBILITY.md).
 
 ## Features
 
