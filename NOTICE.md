@@ -59,10 +59,14 @@ beta build embeds their unmodified upstream ELFs; it does not embed the
 older etaHEN-dependent Snipers supervisor wrappers. Pinned corresponding source archives, submodules and licenses accompany the
 beta release in TacHen-third-party-sources.zip.
 
-`platform/native/firmware-profiles.h` preserves the unified GronedWaffel port's
-public DATA-relative tables. Immutable source references and values are retained
-in `vendor/firmware-provenance.json`. The kstuff marker classifier is adapted from
-that GPL port's `port_kstuff_state.hpp`; TacHen adds consistent snapshot checks,
+`platform/native/firmware-profiles.h` retains all fourteen original unified
+GronedWaffel port profiles and adds public tables from the PS5 Payload SDK,
+EchoStretch/kstuff-lite and ps5-payload-dev/ftpsrv. Those projects and their
+contributors retain credit for the offsets. Immutable source references, table
+hashes, exact values and the pre-3.00 SDK DATA-base conversion are recorded in
+`vendor/firmware-provenance.json`; the original records are preserved in
+`vendor/firmware-baseline-beta1.json`. The kstuff marker classifier is adapted
+from the GPL port's `port_kstuff_state.hpp`; TacHen adds consistent snapshot checks,
 worker serialization and process/API generation checks without modifying hooks.
 
 Native deck PUI discovery is informed by etaHEN / LightningMods' `overlay-ui.cpp`

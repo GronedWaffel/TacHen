@@ -4,6 +4,9 @@
 #include <stdint.h>
 #define TAC_UPDATE_LIMIT (64u*1024u*1024u)
 #define TAC_UPDATE_MASK 0x3fffu
+// Wire v1: firmware_mask is the original fourteen bits and reserved is zero.
+// Wire v2: reserved[0..7] extends the mask by two little-endian uint32 words.
+// Keep the 256-byte header/state layout and original bit identities unchanged.
 typedef struct {
   char magic[8];uint32_t version,header_size;uint64_t bytes;
   uint32_t firmware_mask,state_schema;uint8_t payload_hash[32],source_hash[32];

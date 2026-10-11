@@ -59,7 +59,7 @@ test('settings reject prototype keys and invalid types; disabling developer clea
   assert.throws(() => mergeSettings(defaults, { overlay: { fps: 'true' } }), { code: 'BAD_SETTINGS' });
   assert.equal(mergeSettings(defaults, { developer: { enabled: false, memoryWrites: true } }).developer.memoryWrites, false);
 });
-test('firmware gate uses exact supported profiles, including explicit 11.40 exclusion', () => {
-  for (const fw of ['11.00', '11.20', '12.40', '13.60']) assert.equal(requireFirmware(fw), fw);
-  for (const fw of ['10.01', '11.40', '13.61', '13.6', null]) assert.throws(() => requireFirmware(fw), { code: 'FIRMWARE_UNSUPPORTED' });
+test('firmware gate uses exact supported profiles, including the added compatibility profiles', () => {
+  for (const fw of ['1.00', '2.70', '9.05', '10.60', '11.00', '11.20', '11.40', '12.40', '13.60']) assert.equal(requireFirmware(fw), fw);
+  for (const fw of ['1.03', '10.61', '13.61', '13.6', '14.00', null]) assert.throws(() => requireFirmware(fw), { code: 'FIRMWARE_UNSUPPORTED' });
 });

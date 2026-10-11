@@ -67,7 +67,7 @@ test('package installation admits every exact target profile and rejects exclude
     const f = await fixture({ firmware }); assert.equal(f.runtime.capabilities.get('packages').available, true, firmware);
     await f.enqueue();assert.equal((await settled(f)).status, 'completed', firmware);assert.equal(f.starts(), 1);
   }
-  for (const firmware of ['10.01', '11.40', '12.41', '13.61', '14.00']) {
+  for (const firmware of ['1.03', '10.61', '12.41', '13.61', '14.00']) {
     const f = await fixture({ firmware }); assert.equal(f.runtime.capabilities.get('packages').available, false);
     await assert.rejects(f.enqueue(), { code: 'PACKAGE_FIRMWARE' }); assert.equal(f.starts(), 0);
   }

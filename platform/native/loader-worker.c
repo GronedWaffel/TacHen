@@ -66,10 +66,7 @@ static int duplicate(const TacDispatchReceipt *r){
   closedir(dir);return found;
 }
 static int supported(void){
-  const uint32_t accepted[]={0x11000000,0x11200000,0x11600000,0x12000000,0x12020000,0x12200000,0x12400000,
-    0x12600000,0x12700000,0x13000000,0x13200000,0x13400000,0x13420000,0x13600000};
-  uint32_t fw=kernel_get_fw_version()&0xffff0000;
-  for(unsigned i=0;i<sizeof accepted/sizeof accepted[0];i++)if(fw==accepted[i])return 1;return 0;
+  return snipers_firmware_profile(kernel_get_fw_version())!=NULL;
 }
 static int plugin_present(const char *name){
   int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_PROC,0};size_t size=0;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "update-core.h"
-#define TAC_UPDATE_ROOT "/data/tachen/updates"
+#define TAC_UPDATE_ROOT "/data/tachen/updates-compatibility"
 int tac_update_lock(void);
 int tac_update_read(TacUpdateState*,int*);
 int tac_update_write(TacUpdateState*);

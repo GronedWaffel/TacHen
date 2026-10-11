@@ -26,3 +26,17 @@ test('native firmware tables exactly match the pinned public profile data and JS
     assert.deepEqual(match[3].split(',').map(Number), fields.map(field => profile.offsets[field]));
   }
 });
+test('expanded tables preserve every Beta 1 offset and firmware update bit', async () => {
+  const baseline=JSON.parse(await fs.readFile(new URL('../vendor/firmware-baseline-beta1.json',import.meta.url)));
+  const expanded=JSON.parse(await fs.readFile(new URL('../vendor/firmware-provenance.json',import.meta.url)));
+  assert.equal(baseline.firmwares.length,14);assert.equal(expanded.firmwares.length,67);
+  for(const [bit,old] of baseline.firmwares.entries()){
+    const row=expanded.firmwares.find(p=>p.firmware===old.firmware);
+    assert.deepEqual(row.offsets,old.offsets,old.firmware);assert.equal(Number(row.code),Number(old.code));assert.equal(row.updateBit,bit);
+  }
+  for(const row of expanded.firmwares){
+    assert.equal(row.kstuffAnchorAdjustment,Number(row.firmware)<3?-0x1010000:0);
+    for(const source of Object.values(row.sourceUrls))assert.match(source,/^https:\/\/github\.com\/.+\/blob\/[a-f0-9]{40}\//);
+  }
+  await import('../scripts/check-firmware-profiles.mjs');
+});

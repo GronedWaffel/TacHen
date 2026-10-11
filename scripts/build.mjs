@@ -15,6 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-neighbourhood/tools/ps5-sdk-0.43/ps5-payload-sdk'));
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
 await fs.mkdir(path.join(root, 'build'), { recursive: true });
+await import('./check-firmware-profiles.mjs');
 await import('./build-download-ca.mjs');
 await import('./prepare-download.mjs');
 await import('./prepare-catalog.mjs');
@@ -125,7 +126,7 @@ run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall',
   '-Lbuild/download', '-lcurl', '-lwolfssl', '-lpsl', '-lzstd', '-lz', '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNet', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
 const embeddedAssetChecks = embeddedAssets.map(asset => verifyEmbeddedAsset(elf, asset.symbol, asset.bytes));
-const updatePackage=makeUpdatePackage(elf,{source:buildIdentity.source,label:'TacHen development ' + buildIdentity.source.slice(0,12)});
+const updatePackage=makeUpdatePackage(elf,{source:buildIdentity.source,label:'TacHen compatibility ' + buildIdentity.source.slice(0,12)});
 await fs.writeFile(path.join(root,'build/tachen-update.tachen'),updatePackage);
 await fs.writeFile(path.join(root, 'build/fallback.S'), embeddingAssembly([{ symbol: 'tachen_fallback', path: 'build/tachen-update.tachen', bytes: updatePackage }]));
 const launcherObjects=[];
@@ -156,7 +157,7 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   version: JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version, kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   buildIdentity,
   embeddedAssets: { runtime: embeddedAssetChecks, launcher: fallbackCheck, bundledLauncher: bundledFallbackCheck },
-  updatePackage:{file:'tachen-update.tachen',bytes:updatePackage.length,sha256:createHash('sha256').update(updatePackage).digest('hex'),format:1,stateSchema:1,signed:false},
+  updatePackage:{file:'tachen-update.tachen',bytes:updatePackage.length,sha256:createHash('sha256').update(updatePackage).digest('hex'),format:updatePackage.readUInt32LE(8),stateSchema:1,signed:false},
   launcher:{file:'tachen.elf',bytes:launcher.length,sha256:createHash('sha256').update(launcher).digest('hex'),hardwareVerified:false},
   bundledLauncher:{file:'tachen-bundled.elf',bytes:bundledLauncher.length,sha256:createHash('sha256').update(bundledLauncher).digest('hex'),selection:'embedded-runtime-trial',hardwareVerified:false},
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
@@ -182,11 +183,11 @@ catch (error) { if (error.code !== 'ENOENT') throw error; }
 if (localOutput?.desktopDirectory) {
   const directory = path.resolve(localOutput.desktopDirectory);
   if (!(await fs.stat(directory)).isDirectory()) throw Error('Configured desktop output is not a directory');
-  const destination = path.join(directory, 'TacHen-latest.elf');
+  const destination = path.join(directory, 'TacHen-compatibility.elf');
   await fs.writeFile(destination + '.tmp', bundledLauncher);
   await fs.rename(destination + '.tmp', destination);
-  await fs.writeFile(path.join(directory, 'TacHen-latest-build.json'), JSON.stringify({
-    source: buildIdentity.source, file: 'TacHen-latest.elf', selection: 'embedded-runtime-trial',
+  await fs.writeFile(path.join(directory, 'TacHen-compatibility-build.json'), JSON.stringify({
+    source: buildIdentity.source, file: 'TacHen-compatibility.elf', selection: 'embedded-runtime-trial',
     sha256: createHash('sha256').update(bundledLauncher).digest('hex'), bytes: bundledLauncher.length,
     hardwareVerified: false
   }, null, 2) + '\n');

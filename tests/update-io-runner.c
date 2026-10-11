@@ -98,7 +98,7 @@ static void image_tests(const uint8_t *bytes,size_t size){
   crash();CHECK(!tac_update_read_image(&h,0x13600000,&copy,&length));free(copy);
   reset();put(file,TEST_LINK,NULL,0);CHECK(tac_update_save_image(bytes,size,0x13600000,&saved)<0);CHECK(!writes&&!open_count());
   reset();put(file,TEST_REG,bytes,size-1);CHECK(tac_update_read_image(&h,0x13600000,&copy,&length)<0);CHECK(!open_count());
-  reset();put(file,TEST_REG,bytes,size);zero_read=1;CHECK(tac_update_read_image(&h,0x13600000,&copy,&length)<0);CHECK(!open_count());clear_faults();CHECK(tac_update_read_image(&h,0x11400000,&copy,&length)<0);
+  reset();put(file,TEST_REG,bytes,size);zero_read=1;CHECK(tac_update_read_image(&h,0x13600000,&copy,&length)<0);CHECK(!open_count());clear_faults();CHECK(tac_update_read_image(&h,0x14000000,&copy,&length)<0);
   reset();TacUpdateState s=baseline();CHECK(!tac_update_save_image(bytes,size,0x13600000,&saved));
   TacUpdateHeader *keep[]={&s.good,&s.previous,&s.candidate,&s.attempt};for(unsigned i=0;i<4;i++){
     *keep[i]=h;CHECK(tac_update_retire_image(&s,hash,s.revision)<0);CHECK(find(file)>=0);memset(keep[i],0,sizeof h);

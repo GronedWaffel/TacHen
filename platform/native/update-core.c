@@ -1,25 +1,38 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "update-core.h"
+#include "update-profiles.h"
 #include "sha256.h"
 #include "elf-image.h"
 #include <string.h>
 #define STATE_MAGIC UINT32_C(0x55544354)
 static int zero(const void *p,size_t n){const uint8_t *b=p;for(size_t i=0;i<n;i++)if(b[i])return 0;return 1;}
+static uint32_t firmware_word(const TacUpdateHeader *h,unsigned word){
+  if(!word)return h->firmware_mask;
+  if(h->version!=2||word>2)return 0;
+  uint32_t value;memcpy(&value,h->reserved+(word-1)*4,sizeof value);return value;
+}
+static int firmware_mask_valid(const TacUpdateHeader *h){
+  if(h->version==1)return h->firmware_mask&&!(h->firmware_mask&~TAC_UPDATE_MASK)&&zero(h->reserved,sizeof h->reserved);
+  if(h->version!=2||!zero(h->reserved+8,sizeof h->reserved-8))return 0;
+  uint32_t any=0;for(unsigned i=0;i<3;i++){uint32_t word=firmware_word(h,i);if(word&~tac_update_masks[i])return 0;any|=word;}
+  return any!=0;
+}
 void tac_update_digest(const void *p,size_t n,uint8_t out[32]){SHA256_CTX h;sha256_init(&h);sha256_update(&h,p,n);sha256_final(&h,out);}
 void tac_update_hex(const uint8_t hash[32],char out[65]){const char *digits="0123456789abcdef";for(unsigned i=0;i<32;i++){out[i*2]=digits[hash[i]>>4];out[i*2+1]=digits[hash[i]&15];}out[64]=0;}
 int tac_update_unhex(const char *s,uint8_t out[32]){if(!s||strlen(s)!=64)return -1;for(unsigned i=0;i<32;i++){unsigned v=0;for(unsigned j=0;j<2;j++){char c=s[i*2+j];if(c>='0'&&c<='9')v=v*16+c-'0';else if(c>='a'&&c<='f')v=v*16+c-'a'+10;else return -1;}out[i]=(uint8_t)v;}return 0;}
 int tac_update_header(const void *raw,size_t size,TacUpdateHeader *out){
   if(!raw||size<sizeof *out)return -1;TacUpdateHeader h;memcpy(&h,raw,sizeof h);uint8_t digest[32];tac_update_digest(&h,offsetof(TacUpdateHeader,checksum),digest);
-  if(memcmp(h.magic,"TACUPD01",8)||h.version!=1||h.header_size!=256||h.state_schema!=1||h.bytes<64||h.bytes>TAC_UPDATE_LIMIT||
-     !h.firmware_mask||(h.firmware_mask&~TAC_UPDATE_MASK)||zero(h.payload_hash,32)||zero(h.source_hash,32)||
-     !zero(h.reserved,sizeof h.reserved)||memcmp(h.checksum,digest,32))return -1;
+  if(memcmp(h.magic,"TACUPD01",8)||h.header_size!=256||h.state_schema!=1||h.bytes<64||h.bytes>TAC_UPDATE_LIMIT||
+     !firmware_mask_valid(&h)||zero(h.payload_hash,32)||zero(h.source_hash,32)||memcmp(h.checksum,digest,32))return -1;
   size_t n=0;for(;n<sizeof h.label&&h.label[n];n++)if(h.label[n]<32||h.label[n]>126)return -1;
   if(!n||n==sizeof h.label||!zero(h.label+n,sizeof h.label-n))return -1;
   *out=h;return 0;
 }
 int tac_update_supported(const TacUpdateHeader *h,uint32_t fw){
-  static const uint32_t profiles[]={0x11000000,0x11200000,0x11600000,0x12000000,0x12020000,0x12200000,0x12400000,0x12600000,0x12700000,0x13000000,0x13200000,0x13400000,0x13420000,0x13600000};
-  fw&=0xffff0000;for(unsigned i=0;i<sizeof profiles/sizeof profiles[0];i++)if(profiles[i]==fw)return !!(h->firmware_mask&(1u<<i));return 0;
+  if(!h||(h->version!=1&&h->version!=2))return 0;
+  fw&=0xffff0000;for(unsigned i=0;i<sizeof tac_update_profiles/sizeof tac_update_profiles[0];i++)
+    if(tac_update_profiles[i]==fw)return !!(firmware_word(h,i/32)&(1u<<(i%32)));
+  return 0;
 }
 int tac_update_image(const void *raw,size_t size,uint32_t fw,TacUpdateHeader *out){
   TacUpdateHeader h;if(tac_update_header(raw,size,&h)||size!=sizeof h+h.bytes||!tac_update_supported(&h,fw))return -1;

@@ -5,7 +5,7 @@ import {unlinkSync} from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {makeUpdatePackage,inspectUpdate,parseUpdateHeader} from '../src/update-format.mjs';
+import {makeUpdatePackage,inspectUpdate,parseUpdateHeader,UPDATE_PROFILES} from '../src/update-format.mjs';
 import {installUpdates} from '../src/updates.mjs';
 import {TacRuntime} from '../src/runtime.mjs';
 import {ConsoleDeck} from '../src/deck.mjs';
@@ -30,19 +30,49 @@ for(const mode of ['journal','images','boot'])test(`native update ${mode} handle
 });
 test('native and JavaScript update formats agree on the built runtime; native rollback and promotion transitions pass',async t=>{
   const bytes=await make(),header=inspectUpdate(bytes,{firmware:'13.60'});
-  assert.equal(header.source,'a'.repeat(64));assert.equal(header.profiles.length,14);assert(!header.profiles.includes('11.40'));
+  assert.equal(header.source,'a'.repeat(64));assert.equal(header.profiles.length,67);assert(header.profiles.includes('11.40'));assert.equal(header.formatVersion,2);
   assert.match(await native(t,bytes),/transitions passed/);
-  assert.throws(()=>inspectUpdate(bytes,{firmware:'11.40'}),{code:'UPDATE_FIRMWARE'});
+  assert.throws(()=>inspectUpdate(bytes,{firmware:'14.00'}),{code:'UPDATE_FIRMWARE'});
 });
 test('both update parsers reject malformed headers, incompatible schemas and changed executable bytes',async t=>{
   const source=await make();
-  for(const change of [b=>b[0]^=1,b=>b.writeUInt32LE(2,28),b=>b.writeUInt32LE(0x8000,24),b=>b.fill(65,96,160),b=>b[160]=1,b=>b.writeBigUInt64LE(1n<<40n,16),b=>b[b.length-1]^=1]){
+  for(const change of [b=>b[0]^=1,b=>b.writeUInt32LE(2,28),b=>b.writeUInt32LE(8,164),b=>b.fill(65,96,160),b=>b[168]=1,b=>b.writeBigUInt64LE(1n<<40n,16),b=>b[b.length-1]^=1]){
     const bytes=Buffer.from(source);change(bytes);
     // Re-seal malformed fields: a checksum alone must not make them valid.
     createHash('sha256').update(bytes.subarray(0,224)).digest().copy(bytes,224);
     assert.throws(()=>inspectUpdate(bytes));assert.match(await native(t,bytes),/rejected/);
   }
   assert.throws(()=>parseUpdateHeader(source,{totalBytes:source.length+1}),{code:'UPDATE_SIZE'});
+});
+test('every extended update bit selects only its exact firmware in JavaScript and native code',async t=>{
+  const elf=await fs.readFile(path.join(root,'build/tachen-runtime.elf')),records=[];
+  for(const firmware of UPDATE_PROFILES){
+    const bytes=makeUpdatePackage(elf,{source:'a'.repeat(64),label:'One firmware',profiles:[firmware]});
+    const header=parseUpdateHeader(bytes);assert.deepEqual(header.profiles,[firmware]);
+    const record=Buffer.alloc(260);record.writeUInt32LE(parseInt(firmware.replace('.',''),16)*65536);
+    bytes.copy(record,4,0,256);records.push(record);
+  }
+  const dir=await fs.mkdtemp(path.join(root,'build/update-profiles-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'headers.bin');await fs.writeFile(file,Buffer.concat(records));
+  const result=spawnSync(exe,['--headers',file],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/67 one-bit profiles passed/);
+});
+test('legacy update packages retain all fourteen bit identities and strict reserved bytes',async t=>{
+  const elf=await fs.readFile(path.join(root,'build/tachen-runtime.elf'));
+  const legacy=['11.00','11.20','11.60','12.00','12.02','12.20','12.40','12.60','12.70','13.00','13.20','13.40','13.42','13.60'];
+  const bytes=makeUpdatePackage(elf,{source:'a'.repeat(64),label:'Legacy',profiles:legacy});
+  assert.equal(bytes.readUInt32LE(8),1);assert.equal(bytes.readUInt32LE(24),0x3fff);
+  assert(bytes.subarray(160,224).every(x=>x===0));assert.deepEqual(inspectUpdate(bytes).profiles,legacy);
+  assert.match(await native(t,bytes),/transitions passed/);
+  for(const change of [b=>b[160]=1,b=>b.writeUInt32LE(0x4000,24),b=>b.writeUInt32LE(0,24),b=>b.writeUInt32LE(3,8)]){
+    const bad=Buffer.from(bytes);change(bad);createHash('sha256').update(bad.subarray(0,224)).digest().copy(bad,224);
+    assert.throws(()=>inspectUpdate(bad));assert.match(await native(t,bad),/rejected/);
+  }
+});
+test('compatibility update storage does not write the original beta selection directory',async()=>{
+  const nativeHeader=await fs.readFile(path.join(root,'platform/native/update-io.h'),'utf8');
+  const js=await fs.readFile(path.join(root,'src/updates.mjs'),'utf8');
+  assert.match(nativeHeader,/TAC_UPDATE_ROOT "\/data\/tachen\/updates-compatibility"/);
+  assert.match(js,/root='\/data\/tachen\/updates-compatibility'/);
 });
 
 async function manager(t,{baseline=true}={}){

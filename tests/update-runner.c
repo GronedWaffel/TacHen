@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "update-core.h"
+#include "firmware-profiles.h"
 #include "check.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,10 +34,23 @@ static void bundled_tests(TacUpdateHeader old){
   s.pid=43;CHECK(!tac_update_ack(&s,200,0,43,fresh.source_hash));roundtrip(&s);CHECK(!memcmp(&s.good,&fresh,sizeof fresh));CHECK(!s.previous.bytes);
 }
 int main(int argc,char **argv){
+  if(argc==3&&!strcmp(argv[1],"--headers")){
+    FILE *f=fopen(argv[2],"rb");CHECK(f);uint32_t expected;unsigned count=0;
+    while(fread(&expected,sizeof expected,1,f)==1){
+      TacUpdateHeader raw,h;CHECK(fread(&raw,sizeof raw,1,f)==1);CHECK(!tac_update_header(&raw,sizeof raw,&h));
+      for(unsigned i=0;i<sizeof snipers_firmware_profiles/sizeof snipers_firmware_profiles[0];i++){
+        uint32_t fw=snipers_firmware_profiles[i].code;
+        CHECK(tac_update_supported(&h,fw)==(fw==expected));
+        CHECK(tac_update_supported(&h,fw|7)==(fw==expected));
+      }
+      CHECK(!tac_update_supported(&h,0x14000000));CHECK(!tac_update_supported(&h,0x1030000));count++;
+    }
+    CHECK(feof(f));fclose(f);CHECK(count==67);puts("All 67 one-bit profiles passed without aliases");return 0;
+  }
   if(argc!=2)return 2;FILE *f=fopen(argv[1],"rb");CHECK(f);CHECK(!fseek(f,0,SEEK_END));long n=ftell(f);CHECK(n>256&&(uint64_t)n<TAC_UPDATE_LIMIT+256);rewind(f);
   uint8_t *bytes=malloc((size_t)n);CHECK(bytes);CHECK(fread(bytes,1,n,f)==(size_t)n);fclose(f);TacUpdateHeader h;
   if(tac_update_image(bytes,(size_t)n,0x13600000,&h)){puts("rejected");free(bytes);return 0;}
-  CHECK(!tac_update_supported(&h,0x11400000));CHECK(!tac_update_supported(&h,0x10000000));
+  CHECK(!tac_update_supported(&h,0x14000000));CHECK(!tac_update_supported(&h,0x13610000));
   bundled_tests(h);
   TacUpdateState s;tac_update_init(&s);roundtrip(&s);
   TacUpdateState virgin=s;TacUpdateHeader first_trial=different(h,7);CHECK(!tac_update_stage(&virgin,&first_trial,virgin.revision));CHECK(tac_update_arm(&virgin,virgin.revision));

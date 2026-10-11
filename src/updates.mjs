@@ -13,7 +13,7 @@ async function inspect(file,prefix,status,firmware){
   inspectPayload(elf,'tachen-runtime.elf',{totalBytes:header.bytes});return header;
 }
 const matches=(image,args)=>image?.sha256===args.payloadHash&&image?.source===args.source;
-export async function installUpdates(runtime,native,root='/data/tachen/updates'){
+export async function installUpdates(runtime,native,root='/data/tachen/updates-compatibility'){
   await fs.mkdir(root,{recursive:true});invariant(!(await fs.lstat(root)).isSymbolicLink(),'UPDATE_PATH','The update directory cannot be a link.');
   const inbox=await new PayloadInbox(path.join(root,'incoming'),{id:runtime.id,reservationGroup:runtime.inbox?.reservations,policy:{minimum:UPDATE_HEADER+64,maximum:UPDATE_HEADER+UPDATE_MAX,
     names:/^[^/\\\x00-\x1f]{1,180}\.tachen$/i,nameMessage:'Choose a .tachen update package.',sizeMessage:'TacHen update packages are limited to 64 MiB plus their header.',

@@ -19,6 +19,6 @@ int main(int argc,char** argv){
     s.readable=0;CHECK(tac_kstuff_classify(base,&s)==TAC_KSTUFF_UNKNOWN);
     CHECK(snipers_firmware_profile(p->code)==p);
   }
-  CHECK(!snipers_firmware_profile(0x11400000));CHECK(!snipers_firmware_profile(0x10010000));CHECK(!snipers_firmware_profile(0x13610000));
+  CHECK(!snipers_firmware_profile(0x1030000));CHECK(!snipers_firmware_profile(0x14000000));CHECK(!snipers_firmware_profile(0x13610000));
   puts("All supported profile classifiers passed; partial, poisoned and unreadable hooks withheld.");return 0;
 }

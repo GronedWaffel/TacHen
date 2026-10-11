@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "quickjs.h"
 #include "update-io.h"
+#include "firmware-profiles.h"
 #include "update-source.h"
 #include <ps5/kernel.h>
 #include <sys/stat.h>
@@ -11,7 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 static JSValue error(JSContext *c,const char *code,const char *message){JSValue e=JS_NewError(c);JS_SetPropertyStr(c,e,"code",JS_NewString(c,code));JS_SetPropertyStr(c,e,"message",JS_NewString(c,message));return JS_Throw(c,e);}
-static JSValue image(JSContext *c,const TacUpdateHeader *h){if(!h->bytes)return JS_NULL;JSValue v=JS_NewObject(c);char hash[65];tac_update_hex(h->payload_hash,hash);JS_SetPropertyStr(c,v,"sha256",JS_NewString(c,hash));tac_update_hex(h->source_hash,hash);JS_SetPropertyStr(c,v,"source",JS_NewString(c,hash));JS_SetPropertyStr(c,v,"label",JS_NewString(c,h->label));JS_SetPropertyStr(c,v,"bytes",JS_NewInt64(c,h->bytes));JS_SetPropertyStr(c,v,"firmwareMask",JS_NewInt32(c,h->firmware_mask));return v;}
+static JSValue image(JSContext *c,const TacUpdateHeader *h){if(!h->bytes)return JS_NULL;JSValue v=JS_NewObject(c);char hash[65];tac_update_hex(h->payload_hash,hash);JS_SetPropertyStr(c,v,"sha256",JS_NewString(c,hash));tac_update_hex(h->source_hash,hash);JS_SetPropertyStr(c,v,"source",JS_NewString(c,hash));JS_SetPropertyStr(c,v,"label",JS_NewString(c,h->label));JS_SetPropertyStr(c,v,"bytes",JS_NewInt64(c,h->bytes));JS_SetPropertyStr(c,v,"firmwareMask",JS_NewUint32(c,h->firmware_mask));
+  JS_SetPropertyStr(c,v,"formatVersion",JS_NewUint32(c,h->version));JSValue profiles=JS_NewArray(c);uint32_t index=0;
+  for(unsigned i=0;i<sizeof snipers_firmware_profiles/sizeof snipers_firmware_profiles[0];i++)
+    if(tac_update_supported(h,snipers_firmware_profiles[i].code))JS_SetPropertyUint32(c,profiles,index++,JS_NewString(c,snipers_firmware_profiles[i].name));
+  JS_SetPropertyStr(c,v,"profiles",profiles);return v;}
 static JSValue snapshot(JSContext *c,const TacUpdateState *s,int recovered){
   static const char *phases[]={"idle","staged","armed","trial"};char revision[32];snprintf(revision,sizeof revision,"%llu",(unsigned long long)s->revision);JSValue v=JS_NewObject(c);
   int64_t sec=0,usec=0;int managed=!tac_update_boot(&sec,&usec)&&s->boot_sec==sec&&s->boot_usec==usec&&s->pid==getpid();

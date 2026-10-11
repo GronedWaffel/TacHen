@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { invariant } from './errors.mjs';
-export const FIRMWARES = Object.freeze(['11.00', '11.20', '11.60', '12.00', '12.02',
-  '12.20', '12.40', '12.60', '12.70', '13.00', '13.20', '13.40', '13.42', '13.60']);
+import { FIRMWARES } from './firmware-profiles.mjs';
+export { FIRMWARES } from './firmware-profiles.mjs';
 export function requireFirmware(version) {
   invariant(FIRMWARES.includes(version), 'FIRMWARE_UNSUPPORTED',
     `TacHen has no supported profile for ${String(version).slice(0, 32)}.`,
