@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { canonical, clone, invariant, TacError, publicError } from './errors.mjs';
+import { waitForNativeProbe } from './native-readiness.mjs';
 const moduleFile = item => ['prx', 'sprx'].includes(item.format);
 const matches = (item, game) => game && item.target?.titleId === game.titleId && item.target?.version === game.version && item.platform === game.platform;
 const sameGame = (input, game) => game && ['pid', 'generation', 'titleId', 'version', 'metadataHash'].every(key => input[key] === game[key]);
@@ -38,11 +39,12 @@ export class GameModules {
       invariant(moduleFile(item), 'PLUGIN_FORMAT', 'Standalone .plugin files use their own process loader.');
       invariant(!runtime.graph.safe, 'SAFE_STARTUP', 'Game modules are held during safe startup.');
       invariant(matches(item, game) && Number.isSafeInteger(game.pid) && game.pid > 1 && /^[a-f0-9]{64}$/.test(game.metadataHash) &&
-        typeof game.generation === 'string', 'MODULE_GAME', 'Open the exact target game and version, or enable autostart to wait for it.');
-      const probe = native.systemProbe();
+        typeof game.generation === 'string', 'MODULE_GAME', 'Open the exact target game and version, then choose Load into game.');
+      const probe = await waitForNativeProbe(native, { delay: plugins.delay, check: () =>
+        invariant(sameGame(game, runtime.game), 'MODULE_GAME', 'The target game changed while waiting to load the module.') });
       invariant(!probe.busy && probe.kstuff?.injectionReady === true && typeof probe.boot === 'string' && game.generation.startsWith(probe.boot + '/' + game.pid + '/'),
         'MODULE_READINESS', 'Wait for verified native services and game identity.');
-      if (input.source === 'automatic') invariant(item.autostart, 'MODULE_AUTOSTART', 'Module autostart is disabled.');
+      invariant(input.source !== 'automatic', 'PLUGIN_MANUAL_ONLY', 'Plugins load manually. It is recommended to not start plugins until you are in game.');
       if (!input.generation) invariant(!runtime.jobs.snapshot().some(job => job.kind === 'game.module.start' && job.args.sha256 === item.sha256 &&
         job.args.generation === game.generation && !['failed', 'cancelled'].includes(job.status)), 'MODULE_ALREADY_ATTEMPTED', 'This module already has a load attempt in the current game instance.');
       const info = await runtime.inbox.verify(item.upload);
@@ -54,7 +56,16 @@ export class GameModules {
       return accepted;
     };
     return {
-      validate, resources: input => ['native-payload-dispatch', 'game-modules:' + input.generation], timeout: 120000, cancellable: false,
+      // The native worker serializes ptrace/setup with tac_native_claim. Once
+      // published, the initializer runs inside this game, not the ELF sender.
+      // An uncertain PRX outcome must retain this game's ownership without
+      // disabling unrelated payloads and services for the rest of the session.
+      validate, resources: input => ['game-modules:' + input.generation], timeout: 120000, cancellable: false,
+      guard(input, state) {
+        invariant(!state.jobs.some(job => job.kind === 'game.module.start' && job.args.sha256 === input.sha256 &&
+          job.args.generation === input.generation && !['failed','cancelled'].includes(job.status)),
+        'MODULE_ALREADY_ATTEMPTED', 'This module already has a load attempt in the current game instance.');
+      },
       async run(input, context) {
         try { await validate(input); } catch (error) { error.noSideEffects = true; throw error; }
         for (;;) {
@@ -63,7 +74,12 @@ export class GameModules {
               'MODULE_CONTEXT_CHANGED', 'The target game or module settings changed while waiting.');
           } catch (error) { error.noSideEffects = true; throw error; }
           try { native.gameModuleStart(context.id, input.upload, input.sha256, input.pid, input.generation, input.titleId, input.metadataHash, input.format); break; }
-          catch (error) { if (error.code !== 'NATIVE_BUSY') throw error; await plugins.delay(250); }
+          catch (error) {
+            if (error.code === 'NATIVE_BUSY') { await plugins.delay(250);continue; }
+            if (['MODULE_NATIVE','MODULE_LIMIT','MODULE_ALREADY_ATTEMPTED'].includes(error.code))
+              throw new TacError(error.code,String(error.message).slice(0,384));
+            throw error;
+          }
         }
         for (;;) {
           const receipt = native.gameModulePoll(context.id, input.pid, input.generation); context.evidence?.(receipt);
@@ -74,13 +90,14 @@ export class GameModules {
           invariant([1, 2, 3].includes(receipt.stage), 'MODULE_RECEIPT', 'Unknown game module operation stage.');
           if (!receipt.busy) { const ended = self.ended(input, context.id); if (ended) return ended; }
           invariant(!context.signal.aborted, 'MODULE_TIMEOUT', 'Module initialization was not confirmed in time. The existing attempt is retained; no retry was issued.');
-          await context.progress({ completed: 0, total: 1, phase: receipt.stage === 3 ? 'Waiting for the game module initializer' : 'Preparing game module' });
+          await context.progress({ completed: 0, total: 1, phase: typeof receipt.message === 'string' && receipt.message ? receipt.message.slice(0,192) : receipt.stage === 3 ? 'Waiting for the game module initializer' : 'Preparing game module' });
           await plugins.delay(250);
         }
       },
       verify: async (result, input) => result.completed && result.sha256 === input.sha256 && result.generation === input.generation && result.pid === input.pid &&
         (result.phase === 'module-started' && result.initialized === true || result.phase === 'game-ended' && result.initialized === false),
       async reconcile(job) {
+        const ended = self.ended(job.args, job.id); if (ended) return ended;
         const receipt = native.gameModulePoll(job.id, job.args.pid, job.args.generation);
         if (receipt) {
           const result = self.outcome(receipt, job.args, job.id); if (result) return result;
@@ -106,18 +123,10 @@ export class GameModules {
       const prior = attempts.filter(job => job.args.generation === game?.generation).at(-1) || attempts.at(-1), result = prior?.result;
       const sameInstance = prior && probe.processes.some(process => process.pid === prior.args.pid && process.generation === prior.args.generation);
       if (sameInstance) {
-        if (result?.initialized) this.observe(item, 'module-started', 'Module initializer succeeded; it stays resident until the game ends.');
-        else this.observe(item, prior.status, prior.error?.message || prior.progress?.phase || 'Module operation is tracked in Activity.');
-      } else this.observe(item, item.autostart ? 'armed' : 'stopped', item.autostart ? 'Waiting for the exact game title and version.' : 'Enable autostart before opening the target game, or load it while that game is running.');
-      if (!matches(item, game) || !item.autostart || this.runtime.loadouts?.ownsAutostart(item.sha256) || this.runtime.graph.safe || probe.kstuff?.injectionReady !== true) continue;
-      const key = game.generation + ':' + item.sha256;
-      if (attempts.some(job => job.args.generation === game.generation) || this.attempts.has(key)) continue;
-      this.attempts.add(key);
-      try { await this.runtime.jobs.enqueue('game.module.start', { sha256: item.sha256, source: 'automatic' }, this.runtime.id()); }
-      catch (error) {
-        if (error.code === 'STARTUP_BUSY') this.attempts.delete(key);
-        this.observe(item, 'held', error.message, { error: publicError(error) });
-      }
+        if (result?.initialized) this.observe(item, 'module-started', 'Module initializer succeeded; it stays resident until the game ends.', {generation:prior.args.generation});
+        else this.observe(item, prior.status, prior.error?.message || prior.progress?.phase || 'Module operation is tracked in Activity.', {generation:prior.args.generation});
+      } else this.observe(item, 'stopped', 'It is recommended to not start plugins until you are in game.');
+
     }
   }
 }

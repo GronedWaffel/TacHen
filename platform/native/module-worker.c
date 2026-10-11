@@ -4,6 +4,7 @@
 #include "quickjs.h"
 #include "module-session.h"
 #include "pad-worker.h"
+#include "pad-bridge.h"
 #include "prx-image.h"
 #include "game-inject.h"
 #include "game-source.h"
@@ -14,6 +15,9 @@
 #include "sha256.h"
 #include "pt.h"
 #include <pthread.h>
+#include "module-thread.h"
+#include "module-storage.h"
+#include <sys/mman.h>
 #include <ps5/kernel.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -60,6 +64,8 @@ static int transition(TacModuleSession *s,unsigned slot,unsigned stage,int clean
   TacModuleReceipt *r=&s->slots[slot];r->stage=stage;r->clean=clean;snprintf(r->message,sizeof r->message,"%s",message);
   int result=save(s);
   if(result){r->stage=TAC_PRX_UNKNOWN;r->clean=0;snprintf(r->message,sizeof r->message,"Module operation receipt could not be saved; no retry was issued");}
+  printf("TacHen game module: title=%s pid=%d stage=%u clean=%u handle=0x%08x startResult=0x%08x message=%s\n",
+    s->title,s->pid,r->stage,r->clean,(unsigned)r->handle,(unsigned)r->startResult,r->message);fflush(stdout);
   publish(s);return result;
 }
 static int identity(void *arg){TacModuleSession *s=arg;return tac_game_identity(s->pid,s->generation,s->title);}
@@ -69,35 +75,59 @@ static int metadata_matches(TacModuleSession *s,char *reason){
   char hash[65];sha_hex(bytes,size,hash);free(bytes);
   if(strcmp(hash,s->metadataHash)){snprintf(reason,192,"Mounted game version changed before the native operation");return 0;}return 1;
 }
-static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,char *reason){
-  int inbox=open("/data/tachen/inbox",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);if(inbox<0)return -1;
+// Read the process parameter through the kernel API, without calling game
+// functions on a suspended thread or changing its SDK/credentials.
+static uint32_t host_sdk(TacModuleSession *s,int *attached){
+  uint32_t sdk=0;intptr_t scratch=0;uint64_t address=0,length=0;unsigned char param[32];
+  if(!identity(s)||pt_attach_owned(s->pid,attached))return 0;
+  if(!identity(s))goto done;
+  scratch=pt_mmap(s->pid,0,0x4000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+  if(scratch<=0){scratch=0;goto done;}
+  if(pt_syscall(s->pid,598,scratch,scratch+8,0,0,0,0)||pt_copyout(s->pid,scratch,&address,8)||
+    pt_copyout(s->pid,scratch+8,&length,8)||address<0x10000||address>UINT64_C(0x7fffffffffff)-32||length<32||length>4096||
+    pt_copyout(s->pid,address,param,sizeof param))goto done;
+  if(identity(s))sdk=tac_ps5_process_sdk(param,sizeof param);
+done:
+  if(scratch)pt_munmap(s->pid,scratch,0x4000);
+  if(*attached&&!pt_detach(s->pid,0))*attached=0;
+  return sdk;
+}
+static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,uint32_t sdk,char *reason){
+  int inbox=open("/data/tachen/inbox",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);if(inbox<0){snprintf(reason,192,"Cannot open plugin storage (errno %d)",errno);return -1;}
   char name[64];snprintf(name,sizeof name,"%s.payload",r->upload);int fd=openat(inbox,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);close(inbox);
-  if(fd<0)return -1;struct stat st;unsigned char *bytes=NULL;int bad=1;
-  if(fstat(fd,&st)||!S_ISREG(st.st_mode)||st.st_size<64||st.st_size>128*1024*1024)goto done;
-  size_t size=(size_t)st.st_size;bytes=malloc(size);if(!bytes||transfer(fd,bytes,size,0))goto done;
+  if(fd<0){snprintf(reason,192,"Cannot open the registered plugin file (errno %d)",errno);return -1;}struct stat st;unsigned char *bytes=NULL;int bad=1;
+  if(fstat(fd,&st)){snprintf(reason,192,"Cannot inspect the registered plugin file (errno %d)",errno);goto done;}
+  if(!S_ISREG(st.st_mode)||st.st_size<64||st.st_size>128*1024*1024){snprintf(reason,192,"Registered plugin has an invalid file type or size");goto done;}
+  size_t size=(size_t)st.st_size;bytes=malloc(size);
+  if(!bytes){snprintf(reason,192,"Not enough memory to verify the plugin (%zu bytes)",size);goto done;}
+  if(transfer(fd,bytes,size,0)){snprintf(reason,192,"Could not read the complete plugin file (errno %d)",errno);goto done;}
   char hash[65];sha_hex(bytes,size,hash);if(strcmp(hash,r->sha256)){snprintf(reason,192,"Module changed after inbox verification");goto done;}
   int actual;if(tac_prx_inspect(bytes,size,&actual,reason,192))goto done;
   if(actual&&actual!=platform){snprintf(reason,192,"Module container targets a different console platform than this game");goto done;}
-  // The game opens this through its own sandbox root. Do not depend on a
-  // global /data mount or widen access to the coordinator's private records.
-  int root=tac_game_sandbox_open(s->pid,s->generation,s->title,reason,192);if(root<0)goto done;
-  int created=mkdirat(root,"tachen-modules",0755)==0;
-  if(!created&&errno!=EEXIST){close(root);snprintf(reason,192,"The game sandbox cannot stage a module directory");goto done;}
-  int dir=openat(root,"tachen-modules",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);close(root);if(dir<0)goto done;
-  struct stat folder;if((created&&fchmod(dir,0755))||fstat(dir,&folder)||!S_ISDIR(folder.st_mode)||(folder.st_mode&0022)||(folder.st_mode&0005)!=0005){close(dir);snprintf(reason,192,"Game module directory permissions are not suitable for verified staging");goto done;}
+  uint32_t originalSdk=0;int adapted=platform==5?tac_prx_match_host_sdk(bytes,size,sdk,kernel_get_fw_version(),&originalSdk):0;
+  if(adapted<0){snprintf(reason,192,"Development module SDK metadata is malformed");goto done;}
+  char stagedHash[65];sha_hex(bytes,size,stagedHash);
+  printf("TacHen game module SDK: host=0x%08x module=0x%08x adapted=%d source=%s staged=%s originalUploadPreserved=1\n",sdk,originalSdk,adapted,r->sha256,stagedHash);fflush(stdout);
+  // The backing copy is isolated by SDK and never modifies the verified upload.
+  // The console still checks imports and runs the module's normal initializer.
+  int dir=tac_module_storage_open(s->pid,s->generation,s->title,platform,sdk,reason);if(dir<0)goto done;
   char final[80],temp[80];snprintf(final,sizeof final,"%s.%s",r->sha256,r->extension);snprintf(temp,sizeof temp,"%s.part",r->request);
   int existing=openat(dir,final,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
   if(existing>=0){
     struct stat old;bad=fstat(existing,&old)||!S_ISREG(old.st_mode)||old.st_size!=st.st_size||(old.st_mode&0222);
-    unsigned char chunk[32768];size_t offset=0;
+    unsigned char chunk[4096];size_t offset=0;
     while(!bad&&offset<size){size_t count=size-offset;if(count>sizeof chunk)count=sizeof chunk;bad=transfer(existing,chunk,count,0)||memcmp(chunk,bytes+offset,count);offset+=count;}
+    // Repair execute permissions only after comparing the complete expected
+    // staged copy, including its explicit host-SDK adaptation if applicable.
+    if(!bad)bad=fchmod(existing,0555)||fsync(existing);
+    if(bad)snprintf(reason,192,"Existing staged plugin differs from its verified file or cannot be made executable (errno %d)",errno);
     close(existing);close(dir);goto done;
   }
-  if(errno!=ENOENT){close(dir);goto done;}
-  int out=openat(dir,temp,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);if(out<0){close(dir);goto done;}
-  bad=transfer(out,bytes,size,1)||fchmod(out,0444)||fsync(out);if(close(out))bad=1;
+  if(errno!=ENOENT){snprintf(reason,192,"Cannot inspect the staged plugin (errno %d)",errno);close(dir);goto done;}
+  int out=openat(dir,temp,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);if(out<0){snprintf(reason,192,"Cannot create the game's staged plugin (errno %d)",errno);close(dir);goto done;}
+  bad=transfer(out,bytes,size,1)||fchmod(out,0555)||fsync(out);if(close(out))bad=1;
   if(!bad)bad=renameat(dir,temp,dir,final)||fsync(dir);
-  if(bad)unlinkat(dir,temp,0);close(dir);
+  if(bad){snprintf(reason,192,"Could not write or finalize the staged plugin (errno %d)",errno);unlinkat(dir,temp,0);}close(dir);
 done:
   close(fd);free(bytes);return bad?-1:0;
 }
@@ -111,7 +141,9 @@ static void *worker(void *ignored){
   TacModuleReceipt *r=&s.slots[slot];char reason[192]="Module file could not be prepared";int attached=0;
   int pendingStage=0;const char *pendingMessage=NULL;
   int platform=!memcmp(s.title,"PPS",3)||!memcmp(s.title,"MOUU",4)?5:4;
-  if(sealed_file(&s,r,platform,reason)||!metadata_matches(&s,reason))goto rejected;
+  uint32_t sdk=platform==5?host_sdk(&s,&attached):0;
+  if(attached){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed after SDK inspection";goto done;}
+  if(sealed_file(&s,r,platform,sdk,reason)||!metadata_matches(&s,reason))goto rejected;
   const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
   TacKstuffSnapshot a=tac_kstuff_read(base,profile),b=tac_kstuff_read(base,profile);
   if(!profile||!tac_kstuff_snapshot_equal(&a,&b)||!tac_kstuff_injection_ready(base,&b)){
@@ -120,7 +152,7 @@ static void *worker(void *ignored){
   if(s.phase==TAC_ARENA_EMPTY){
     arc4random_buf(&s.cookie,sizeof s.cookie);if(!s.cookie)s.cookie=1;s.phase=TAC_ARENA_INTENT;
     if(transition(&s,slot,TAC_PRX_ARMING,0,"Preparing a verified game callback"))goto done;
-    TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,identity,&s,&injected);
+    TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,0,identity,&s,&injected);
     s.arena=injected.arena;s.control=injected.control;
     if(!injected.resumed){
       s.phase=TAC_ARENA_UNKNOWN;r->stage=TAC_PRX_UNKNOWN;r->clean=0;
@@ -132,11 +164,22 @@ static void *worker(void *ignored){
   }else if(s.phase!=TAC_ARENA_READY){snprintf(reason,sizeof reason,"Previous game callback ownership is unresolved");goto rejected;}
   if(!metadata_matches(&s,reason))goto rejected;
   if(transition(&s,slot,TAC_PRX_ARMING,0,"Publishing the module slot in the verified game"))goto done;
-  if(pt_attach_owned(s.pid,&attached)){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Could not acquire a confirmed stopped game lease";goto done;}
-  TacModuleOps ops={&s,read_gate,write_gate};int staged=tac_module_stage(&s,slot,&ops);
-  if(pt_detach(s.pid,0)){s.phase=TAC_ARENA_UNKNOWN;pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed; no retry was issued";goto done;}attached=0;
+  TacModuleOps ops={&s,read_gate,write_gate};int staged=2;
+  for(unsigned attempt=0;attempt<40;attempt++){
+    if(!identity(&s)){snprintf(reason,sizeof reason,"Game ended while waiting for its module callback");goto rejected;}
+    if(pt_attach_owned(s.pid,&attached)){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Could not acquire a confirmed stopped game lease";goto done;}
+    staged=tac_module_stage(&s,slot,&ops);
+    if(pt_detach(s.pid,0)){s.phase=TAC_ARENA_UNKNOWN;pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed; no retry was issued";goto done;}attached=0;
+    if(staged!=2)break;
+    // Retry only a proven untouched slot. The game must run between samples
+    // so its controller callback (or another initializer) can release busy.
+    if(!attempt){printf("TacHen game module: callback busy; waiting with game resumed\n");fflush(stdout);}
+    usleep(25000);
+  }
   if(staged<0){s.phase=TAC_ARENA_UNKNOWN;transition(&s,slot,TAC_PRX_UNKNOWN,0,"Module slot rollback could not be confirmed");}
-  else if(staged>0)transition(&s,slot,TAC_PRX_REJECTED,1,"Module slot was not published; game callback may be busy or its ownership changed");
+  else if(staged>0)transition(&s,slot,TAC_PRX_REJECTED,1,staged==2?
+    "Game callback is still busy; module was not loaded. Wait for the game to finish loading, then try again.":
+    "Module slot was not published; game callback ownership changed");
   else transition(&s,slot,TAC_PRX_ARMED,0,"Module staged; waiting for the game's module initializer");
   goto done;
 rejected:
@@ -170,8 +213,7 @@ static int start(const char *request,const char *upload,const char *hash,int pid
   if(!identity(&s)){errno=ESRCH;goto done;}
   TacModuleReceipt *r=&s.slots[slot];strcpy(r->request,request);strcpy(r->upload,upload);strcpy(r->sha256,hash);strcpy(r->extension,extension);
   r->stage=TAC_PRX_QUEUED;r->clean=1;if(save(&s))goto done;
-  current=s;currentSlot=(unsigned)slot;running=1;pthread_t thread;pthread_attr_t attr;int err=pthread_attr_init(&attr);
-  if(!err){err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);if(!err)err=pthread_create(&thread,&attr,worker,NULL);pthread_attr_destroy(&attr);}
+  current=s;currentSlot=(unsigned)slot;running=1;pthread_t thread;int err=tac_module_thread_start(&thread,worker,NULL);
   if(err){running=0;r->stage=TAC_PRX_REJECTED;snprintf(r->message,sizeof r->message,"Module worker could not start");save(&s);current=s;errno=err;goto done;}
   result=0;
 done:
@@ -199,10 +241,36 @@ static void inspect(TacModuleSession *s,unsigned slot){
     !identity(s)||!tac_module_gate_valid(s,&a)||!tac_module_gate_valid(s,&b))return;
   TacGameModule *m=&b.modules[slot];char expected[256];tac_module_path(r,expected);
   if(memcmp(&a.modules[slot],m,sizeof *m)||m->path[255]||strcmp(m->path,expected)||!m->enabled)return;
+  if(m->state==TAC_MODULE_STARTING){
+    const char *phase=m->phase==TAC_MODULE_PHASE_THREAD?"Waiting for game module worker":
+      m->phase==TAC_MODULE_PHASE_LOAD?"Running module_start on game worker":
+      m->phase==TAC_MODULE_PHASE_EXPORTS?"Checking optional plugin entry points":
+      m->phase==TAC_MODULE_PHASE_ACTIVATE?"Running plugin_load on game worker":"Game module worker is finishing";
+    if(strcmp(r->message,phase)){
+      transition(s,slot,TAC_PRX_ARMED,0,phase);
+      printf("TacHen game module progress: phase=%u thread=0x%08x handle=0x%08x start=0x%08x activation=%u\n",
+        m->phase,(unsigned)m->threadResult,(unsigned)m->handle,(unsigned)m->startResult,m->activation);fflush(stdout);
+    }
+  }
   if(m->state==TAC_MODULE_STARTED||m->state==TAC_MODULE_FAILED||m->state==TAC_MODULE_REJECTED){
     r->handle=m->handle;r->startResult=m->startResult;
-    if(m->state==TAC_MODULE_STARTED&&m->handle>=0&&m->startResult>=0)transition(s,slot,TAC_PRX_STARTED,0,"Game module initializer completed successfully");
-    else transition(s,slot,TAC_PRX_FAILED,0,"Game module initialization failed; a module may remain resident until this game closes");
+    if(m->state==TAC_MODULE_STARTED&&m->handle>=0&&m->startResult>=0)
+      transition(s,slot,TAC_PRX_STARTED,0,m->activation?"Module initializer and plugin_load completed successfully":"Module initializer completed; no paired plugin activation exports");
+    else {
+      char message[192];
+      if(m->state==TAC_MODULE_REJECTED){
+        if(m->phase==TAC_MODULE_PHASE_THREAD)snprintf(message,sizeof message,"Game worker could not start (0x%08x); module was not loaded.",(unsigned)m->threadResult);
+        else snprintf(message,sizeof message,"Game worker rejected the staged module path; module was not loaded.");
+        transition(s,slot,TAC_PRX_REJECTED,1,message);
+      }else {
+        if(m->activation)snprintf(message,sizeof message,"plugin_load failed: 0x%08x (handle %d); close this game before retrying.",(unsigned)m->activationResult,m->handle);
+        else tac_module_failure_message(m->handle,m->startResult,message,sizeof message);
+        transition(s,slot,TAC_PRX_FAILED,0,message);
+      }
+    }
+    printf("TacHen game module: stage=%u phase=%u thread=0x%08x detach=0x%08x handle=0x%08x startResult=0x%08x activation=%u activationResult=0x%08x loadSymbol=0x%08x unloadSymbol=0x%08x\n",
+      r->stage,m->phase,(unsigned)m->threadResult,(unsigned)m->detachResult,(unsigned)r->handle,(unsigned)r->startResult,
+      m->activation,(unsigned)m->activationResult,(unsigned)m->loadSymbolResult,(unsigned)m->unloadSymbolResult);fflush(stdout);
   }
 }
 static JSValue poll_js(JSContext *c,JSValueConst self,int argc,JSValueConst *argv){
@@ -240,10 +308,17 @@ static void *arena_worker(void *ignored){
   if(!profile||!tac_kstuff_snapshot_equal(&a,&b)||!tac_kstuff_injection_ready(base,&b)||!identity(&s)||!metadata_matches(&s,reason)){
     arena_outcome(&s,3,reason,1);goto done;
   }
-  if(s.phase==TAC_ARENA_READY){arena_outcome(&s,2,"Existing game callback adopted; input capture remains disabled",1);goto done;}
+  if(s.phase==TAC_ARENA_READY){
+    TacPadBridge pad={0};
+    int compatible=!kernel_proc_copyout(s.pid,s.arena+0x5000,&pad,sizeof pad)&&identity(&s)&&
+      pad.magic==TAC_PAD_MAGIC&&pad.cookie==s.cookie&&pad.version==1&&pad.bytes==sizeof pad&&
+      pad.moduleEntry==s.arena&&pad.moduleControl==s.control;
+    arena_outcome(&s,compatible?2:3,compatible?"Existing game callback adopted; input capture remains disabled":
+      "This game uses the independent plugin loader. In-game menu preparation was not applied.",1);goto done;
+  }
   arc4random_buf(&s.cookie,sizeof s.cookie);if(!s.cookie)s.cookie=1;s.phase=TAC_ARENA_INTENT;
   if(arena_outcome(&s,1,"Preparing the shared game input callback",1))goto done;
-  TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,identity,&s,&injected);
+  TacGameInjection injected;int result=tac_game_inject(s.pid,s.cookie,1,identity,&s,&injected);
   s.arena=injected.arena;s.control=injected.control;
   s.phase=result<0?TAC_ARENA_UNKNOWN:result>0?TAC_ARENA_EMPTY:TAC_ARENA_READY;
   if(!injected.resumed){s.phase=TAC_ARENA_UNKNOWN;arena_outcome(&s,4,"Game resume is unconfirmed; original input intent retained",0);}
@@ -264,12 +339,12 @@ static int arena_start(const char *request,int pid,const char *generation,const 
   if(claim>0){current=s;result=0;goto done;}
   if(!identity(&s)){errno=ESRCH;goto done;}
   if(save(&s))goto done;
-  current=s;running=1;pthread_t thread;int err=pthread_create(&thread,NULL,arena_worker,NULL);
+  current=s;running=1;pthread_t thread;int err=tac_module_thread_start(&thread,arena_worker,NULL);
   if(err){running=0;s.arenaStage=3;snprintf(s.arenaMessage,sizeof s.arenaMessage,"Game input worker could not start");
     if(save(&s)){s.arenaStage=4;snprintf(s.arenaMessage,sizeof s.arenaMessage,"Worker startup receipt is unconfirmed");}
     current=s;errno=err;goto done;
   }
-  pthread_detach(thread);result=0;
+  result=0;
 done:
   if(!running)tac_native_release();pthread_mutex_unlock(&mutex);return result;
 }

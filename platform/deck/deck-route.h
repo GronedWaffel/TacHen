@@ -8,5 +8,6 @@ typedef struct {
 } TacDeckRoute;
 void tac_deck_route_receive(TacDeck*,TacDeckRoute*,const TacDeckInput*,uint64_t now);
 void tac_deck_route_tick(TacDeck*,TacDeckRoute*,uint64_t now);
+void tac_deck_route_focus(TacDeckInput*,int gameFocused);
 int tac_deck_route_visible(const TacDeck*,const TacDeckRoute*);
 TacDeckFeedback tac_deck_route_feedback(const TacDeck*,const TacDeckRoute*,int ready,uint64_t renderedAt);

@@ -26,18 +26,23 @@
  F(void*,mono_class_get_field_from_name,(void*,const char*)) \
  F(uint32_t,mono_field_get_offset,(void*)) \
  F(void*,mono_field_get_type,(void*)) \
+ F(void*,mono_field_get_value_object,(void*,void*,void*)) \
  F(void*,mono_class_get_property_from_name,(void*,const char*)) \
  F(void*,mono_property_get_get_method,(void*)) \
  F(void*,mono_property_get_set_method,(void*)) \
  F(void*,mono_runtime_invoke,(void*,void*,void**,void**)) \
  F(void*,mono_string_new,(void*,const char*)) \
  F(void*,mono_object_new,(void*,void*)) \
+ F(void*,mono_object_get_class,(void*)) \
  F(void*,mono_object_unbox,(void*)) \
  F(uint32_t,mono_gchandle_new,(void*,int)) \
  F(void*,mono_gchandle_get_target,(uint32_t)) \
  F(void,mono_gchandle_free,(uint32_t)) \
  F(void*,mono_compile_method,(void*))
 #define DECLARE(ret,name,args) ret (*name) args;
-typedef struct { TAC_MONO_API(DECLARE) } TacMono;
+#define TAC_MONO_OPTIONAL_API(F) \
+ F(int,mono_string_length,(void*)) \
+ F(const uint16_t*,mono_string_chars,(void*))
+typedef struct { TAC_MONO_API(DECLARE) TAC_MONO_OPTIONAL_API(DECLARE) } TacMono;
 #undef DECLARE
 int tac_mono_load(TacMono* api);

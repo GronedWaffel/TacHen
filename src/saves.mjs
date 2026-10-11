@@ -77,7 +77,7 @@ export function installSaves(runtime, native, { delay = sleep, now = Date.now, r
     const selected = catalog.entries.find(item => item.user === input?.user && item.titleId === input.titleId && item.slot === input.slot && item.stamp === input.stamp);
     invariant(selected, 'SAVE_CHANGED', 'The chosen save changed. Refresh and select it again.');
     invariant(!runtime.game || runtime.game.titleId !== selected.titleId, 'SAVE_GAME_RUNNING', 'Close this game before exporting its save.');
-    invariant(integer(input.destination) && input.destination <= 8, 'SAVE_DESTINATION', 'Choose the FTP share or a listed USB drive.');
+    invariant(integer(input.destination) && input.destination <= 8, 'SAVE_DESTINATION', 'Choose console storage or a listed USB drive.');
     const volume = input.destination ? catalog.volumes.find(v => v.destination === input.destination && v.stamp === input.volume) : null;
     invariant(!input.destination || volume, 'SAVE_VOLUME_CHANGED', 'USB selection changed. Refresh the save list.');
     return { mode: 2, ...selected, destination: input.destination, volume: volume?.stamp || '' };
@@ -104,7 +104,7 @@ export function installSaves(runtime, native, { delay = sleep, now = Date.now, r
     }
     return { completed: true, request: r.request, mode: 2, titleId: input.titleId, slot: input.slot,
       output, ftpPath: input.destination ? null : `/saves/${r.request}/save.tar`, sha256: r.sha256, bytes: r.archiveBytes,
-      files: r.files, message: 'Decrypted save exported and verified.' };
+      files: r.files, message: 'Save backup created and verified.' };
   }
   for (const [kind, mode] of [['save.refresh', 1], ['save.export', 2]]) runtime.jobs.register(kind, {
     validate: input => validate(input, mode), resources: () => ['save-export', 'native-payload-dispatch'], timeout: 12 * 60 * 60 * 1000, cancellable: false,
@@ -117,7 +117,19 @@ export function installSaves(runtime, native, { delay = sleep, now = Date.now, r
         if (!probe.busy) {
           if (probe.kstuff?.state !== 'installed' || !probe.kstuff.injectionReady) throw clean('SAVE_DEPENDENCY', 'Verified kstuff must be ready before save export.');
           try { native.saveStart(context.id, mode, input.user, input.titleId, input.slot, input.stamp, input.destination, input.volume, input.platform); break; }
-          catch (error) { if (error.code !== 'NATIVE_BUSY' || error.noSideEffects !== true) throw error; }
+          catch (error) {
+            if (error.code !== 'NATIVE_BUSY' || error.noSideEffects !== true) {
+              // Native errors are ordinary Error objects, not TacError. Retain
+              // this bounded adapter's explanation instead of a generic failure.
+              if (['SAVE_NATIVE', 'SAVE_UNRESOLVED'].includes(error.code)) {
+                const detail = new TacError(error.code, error.message, { action: error.code === 'SAVE_UNRESOLVED'
+                  ? 'Open Transfers and check the previous save operation.'
+                  : 'Refresh saves again. If this repeats, keep the console on for diagnostics.' });
+                detail.noSideEffects = error.noSideEffects === true; throw detail;
+              }
+              throw error;
+            }
+          }
         }
         if (now() >= deadline || context.signal.aborted) throw clean('NATIVE_BUSY', 'Another native operation is active; no save helper was started.');
         await delay(250);

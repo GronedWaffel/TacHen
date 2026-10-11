@@ -30,6 +30,7 @@ typedef struct {
 } Receipt;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static Receipt current;static char secret[33];static int running;
+static int input_trace_pid;static TacDeckBoot input_trace;
 static const char* start_check="arguments";
 static int hex(const char* s){if(!s||strlen(s)!=32)return 0;for(unsigned i=0;i<32;i++)if(!((s[i]>='a'&&s[i]<='f')||(s[i]>='0'&&s[i]<='9')))return 0;return 1;}
 static uint64_t millis(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return (uint64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
@@ -144,8 +145,32 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
  if(!live&&(r.stage==1||r.stage==2))r.stage=5;
  if(!tac_native_busy()&&r.stage==3&&r.control&&identity(&r)){
   TacDeckBoot status;uint64_t now=millis();
-  if(!kernel_proc_copyout(r.pid,r.control,&status,sizeof status)&&status.magic==TAC_DECK_BOOT_MAGIC&&status.version==TAC_DECK_BOOT_VERSION&&status.state==4&&
-    status.renderedAt&&now>=status.renderedAt&&now-status.renderedAt<=3000)ready=1;
+  if(!kernel_proc_copyout(r.pid,r.control,&status,sizeof status)&&status.magic==TAC_DECK_BOOT_MAGIC&&status.version==TAC_DECK_BOOT_VERSION&&status.state==4){
+   if(status.renderedAt&&now>=status.renderedAt&&now-status.renderedAt<=3000)ready=1;
+   if(input_trace.menuUpdateWaits!=status.menuUpdateWaits||input_trace.menuUpdateExpired!=status.menuUpdateExpired){
+    fprintf(stderr,"TacHen menu updates: waits=%u expired=%u\n",status.menuUpdateWaits,status.menuUpdateExpired);
+    input_trace.menuUpdateWaits=status.menuUpdateWaits;input_trace.menuUpdateExpired=status.menuUpdateExpired;
+   }
+   if(input_trace.cheatsStage!=status.cheatsStage||input_trace.cheatsError!=status.cheatsError||input_trace.cheatsActions!=status.cheatsActions||input_trace.dashboardRefreshes!=status.dashboardRefreshes){
+    fprintf(stderr,"TacHen native cheats: stage=%u error=%u actions=%u; homeRefresh=%u error=%u\n",status.cheatsStage,status.cheatsError,status.cheatsActions,status.dashboardRefreshes,status.dashboardRefreshError);
+    input_trace.cheatsStage=status.cheatsStage;input_trace.cheatsError=status.cheatsError;input_trace.cheatsActions=status.cheatsActions;input_trace.dashboardRefreshes=status.dashboardRefreshes;
+   }
+   if(input_trace.dashboardVersionCalls!=status.dashboardVersionCalls||input_trace.dashboardVersionError!=status.dashboardVersionError){
+    fprintf(stderr,"TacHen dashboard version: labels=%u decorated=%u preparationError=%u\n",status.dashboardVersionCalls,status.dashboardVersionDecorated,status.dashboardVersionError);
+    input_trace.dashboardVersionCalls=status.dashboardVersionCalls;input_trace.dashboardVersionError=status.dashboardVersionError;
+   }
+   if(input_trace_pid!=r.pid||input_trace.dashboardTitleCalls!=status.dashboardTitleCalls||input_trace.dashboardOptionCalls!=status.dashboardOptionCalls||input_trace.dashboardUrlCalls!=status.dashboardUrlCalls){
+    fprintf(stderr,"TacHen dashboard callbacks: titles=%u decorated=%u options=%u added=%u urls=%u\n",status.dashboardTitleCalls,status.dashboardTitleDecorated,status.dashboardOptionCalls,status.dashboardOptionAdded,status.dashboardUrlCalls);
+    input_trace.dashboardTitleCalls=status.dashboardTitleCalls;input_trace.dashboardOptionCalls=status.dashboardOptionCalls;input_trace.dashboardUrlCalls=status.dashboardUrlCalls;
+   }
+   if(input_trace_pid!=r.pid||input_trace.inputDevice!=status.inputDevice||input_trace.inputButtonsSeen!=status.inputButtonsSeen||
+      input_trace.inputRoute!=status.inputRoute||input_trace.inputReady!=status.inputReady||input_trace.inputOpen!=status.inputOpen||input_trace.reservedTrace!=status.reservedTrace||
+      input_trace.inputFocus!=status.inputFocus||input_trace.inputRequestedRoute!=status.inputRequestedRoute){
+    fprintf(stderr,"TacHen deck input: calls=%u device=%d seen=0x%x skipped=%u route=%u ready=%u open=%u scene=%u focus=%d requestedRoute=%u\n",
+      status.inputCalls,status.inputDevice,status.inputButtonsSeen,status.inputSkipped,status.inputRoute,status.inputReady,status.inputOpen,status.reservedTrace,status.inputFocus,status.inputRequestedRoute);
+    input_trace_pid=r.pid;input_trace=status;
+   }
+  }
  }
  JSValue out=JS_NewObject(c);JS_SetPropertyStr(c,out,"request",JS_NewString(c,r.request));JS_SetPropertyStr(c,out,"stage",JS_NewInt32(c,r.stage));
  char boot[80];snprintf(boot,sizeof boot,"%lld:%lld",(long long)r.bootSec,(long long)r.bootUsec);JS_SetPropertyStr(c,out,"boot",JS_NewString(c,boot));

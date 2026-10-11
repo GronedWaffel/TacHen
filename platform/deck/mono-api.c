@@ -10,5 +10,10 @@ int tac_mono_load(TacMono* api){
 #define RESOLVE(ret,name,args) api->name=(ret (*) args)kernel_dynlib_dlsym(getpid(),handle,#name);if(!api->name)return 0;
  TAC_MONO_API(RESOLVE)
 #undef RESOLVE
+ // Resolve optional dashboard exports from the same actual Mono module.
+ // Missing extras must never prevent the menu renderer from loading.
+#define RESOLVE_OPTIONAL(ret,name,args) api->name=(ret (*) args)kernel_dynlib_dlsym(getpid(),handle,#name);
+ TAC_MONO_OPTIONAL_API(RESOLVE_OPTIONAL)
+#undef RESOLVE_OPTIONAL
  return 1;
 }

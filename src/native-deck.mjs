@@ -28,8 +28,8 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
       'DECK_DEPENDENCY', 'Verified kstuff must be ready before the native deck starts.');
     const shells = state.processes.filter(p => p.name === 'SceShellUI');
     invariant(shells.length === 1 && shells[0].generation, 'SHELLUI_IDENTITY', 'ShellUI process identity could not be verified.');
-    invariant(!state.processes.some(p => /etahen.*(?:critical|utility)|(?:critical|utility).*etahen/i.test(p.name + ' ' + p.thread)),
-      'OTHER_HEN_RUNNING', 'Another HEN owns ShellUI. Start TacHen in a separate clean session.');
+    // A process name does not establish ownership of our hook sites.
+    // The native preparer checks their actual instructions before publication.
     if (input?.generation) invariant(input.pid === shells[0].pid && input.generation === shells[0].generation,
       'SHELLUI_CHANGED', 'ShellUI restarted after the native deck was requested.');
     return { pid: shells[0].pid, generation: shells[0].generation, ...(state.boot ? { boot: state.boot } : {}) };
@@ -72,7 +72,9 @@ export function installConsoleDeck(runtime, native, { delay = sleep, timeout = 3
     },
     verifyExpired: (outcome, job) => sameExpiry(outcome, expiredStartup(native, job, native.deckPoll(job.id)))
   });
-  runtime.graph.register({ id: 'native-deck', dependencies: ['coordinator', 'kstuff'], optional: true, timeout: timeout + 35000,
+  // kstuff is an injection precondition, checked by target() and the native
+  // worker. Its monitoring state must not invalidate a healthy resident menu.
+  runtime.graph.register({ id: 'native-deck', dependencies: ['coordinator'], optional: true, timeout: timeout + 35000,
     inspect, verify: evidence => evidence?.request === inspect().request && inspect().ready,
     async start({ signal }) {
       const current = inspect(); if (current.ready) { enable(true); return current; }

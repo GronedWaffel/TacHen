@@ -5,7 +5,7 @@ const terminal = new Set(['completed', 'failed', 'cancelled']);
 // These records are not native residency/once-per-boot or reversible-state guards.
 // Unknown kinds stay resident until their consumers explicitly support archival.
 const eligible = new Set(['memory.inspect', 'save.refresh', 'save.export', 'package.install',
-  'package.verify', 'payload.dispatch', 'library.storage', 'update.stage']);
+  'package.verify', 'package.download', 'package.receive', 'payload.dispatch', 'payload.startup', 'payload.download', 'library.storage', 'update.stage']);
 const bytes = text => new TextEncoder().encode(text).length;
 const file = (bucket, slot) => `jobs-${bucket}-${slot}.json`;
 
@@ -65,6 +65,7 @@ export class JobArchive {
     // Retain the latest successful package verification: the installer binds to it.
     const latest = new Map();
     for (const job of state.jobs) if (job.kind === 'package.verify' && job.status === 'completed') latest.set(job.args.id, job.id);
+    for (const job of state.jobs) if (job.kind === 'package.download' && job.status === 'completed') latest.set(job.result.id, job.id);
     const protectedIds = new Set(latest.values());
     // Keep referenced child/undo receipts even if their own kind is archival-safe.
     const referenced = new Set();

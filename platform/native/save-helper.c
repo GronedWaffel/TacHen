@@ -83,9 +83,14 @@ static int auth_end(Context* c){
 static int fresh_file(int parent,const char* name){return openat(parent,name,O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);}
 static int prepare(void* context){
  Context* c=context;TacSaveRequest* r=&c->receipt.input;
- c->appId=dlsym(RTLD_DEFAULT,"sceLncUtilGetAppId");
- c->initMount=dlsym(RTLD_DEFAULT,"sceFsInitMountSaveDataOpt");c->mount=dlsym(RTLD_DEFAULT,"sceFsMountSaveData");
- c->initUnmount=dlsym(RTLD_DEFAULT,"sceFsInitUmountSaveDataOpt");c->unmount=dlsym(RTLD_DEFAULT,"sceFsUmountSaveData");
+ // The ELF process does not inherit ShellUI's service modules. Resolve each
+ // function from its own loaded module, keeping handles alive until exit.
+ void* system=dlopen("libSceSystemService.sprx",RTLD_LAZY);
+ void* files=dlopen("libSceFsInternalForVsh.sprx",RTLD_LAZY);
+ if(!system||!files)return reason(c,"Save-service modules could not be loaded");
+ c->appId=dlsym(system,"sceLncUtilGetAppId");
+ c->initMount=dlsym(files,"sceFsInitMountSaveDataOpt");c->mount=dlsym(files,"sceFsMountSaveData");
+ c->initUnmount=dlsym(files,"sceFsInitUmountSaveDataOpt");c->unmount=dlsym(files,"sceFsUmountSaveData");
  if(!c->appId||!c->initMount||!c->mount||!c->initUnmount||!c->unmount)return reason(c,"Console save-service symbols are unavailable");
  if(!target_closed(c))return reason(c,"Close the game before exporting its save");
  if(tac_save_source_open(r,&c->source)||strcmp(r->stamp,c->source.stamp))return reason(c,"Save selection changed; refresh the save list");

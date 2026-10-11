@@ -45,6 +45,31 @@ function row(name, detail, status, available = true) {
 }
 const capability = id => state.capabilities.find(item => item.id === id);
 const requestKey = () => [...crypto.getRandomValues(new Uint8Array(16))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+async function browsePackages() {
+  const dialog=el('dialog','storage-dialog'),heading=el('h2','','Choose a package'),status=el('p','fine'),list=el('div','stack'),close=el('button','','Close');
+  close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());
+  dialog.append(heading,status,list,close);document.body.append(dialog);dialog.showModal();
+  async function show(source=null,autoUsb=false){
+    status.textContent='Reading storage…';list.replaceChildren();
+    try {
+      const {result:view}=await api('/api/command',{command:'files.browse',args:{kind:'package',source}});
+      const usb=view.entries.filter(e=>e.usb);if(autoUsb&&usb.length===1)return show(usb[0].source);
+      status.textContent=view.source|| (view.usbMissing?'No USB connected. Console storage is available.':'Choose a drive.');
+      if(source){const up=el('button','','Up one folder');up.onclick=()=>show(view.parent);list.append(up);}
+      for(const item of view.entries){const button=el('button','',item.directory?'[Folder] '+item.name:item.name+' · '+formatBytes(item.bytes));
+        button.onclick=async()=>{
+          if(item.directory)return show(item.source);
+          button.disabled=true;status.textContent='Starting installation directly from this drive. Keep USB connected.';
+          try{await api('/api/command',{command:'job.enqueue',args:{kind:'package.receive',input:{kind:'package',source:item.source,bytes:item.bytes,modified:item.modified},key:requestKey()}});
+            dialog.close();await refresh();notice('Installation started. Checking and installing happen automatically. Keep USB connected.');}
+          catch(e){status.textContent=e.message;button.disabled=false;}
+        };list.append(button);
+      }
+      if(!view.entries.length)list.append(el('p','empty','No PKG files in this folder.'));
+    }catch(e){status.textContent=e.message;}
+  }
+  await show(null,true);
+}
 async function loadSaves(offset = 0) {
   if (saveBusy) return;saveBusy = true;
   try { ({ result: savePage } = await api('/api/command', { command: 'save.list', args: { query: $('#save-query').value.trim(), offset, limit: 30 } }));drawSaves(); }
@@ -57,18 +82,18 @@ function drawSaves() {
     state.saves?.updatedAt ? `${savePage.total} matching saves · ${state.saves.skipped} unreadable or unsupported entries skipped. Refresh after changing a save or USB drive.` : 'Refresh to read local saves and connected USB drives.';
   const select = $('#save-destination'), signature = JSON.stringify(savePage.volumes);
   if (select.dataset.list !== signature) {
-    const previous = select.value;select.replaceChildren(...[{ destination: 0, path: 'FTP share' }, ...savePage.volumes].map(v => {
+    const previous = select.value;select.replaceChildren(...[{ destination: 0, path: 'Console storage (/data/tachen/share/saves)' }, ...savePage.volumes].map(v => {
       const option = el('option', '', v.destination ? `${v.path} · ${formatBytes(v.freeBytes)} free` : v.path);option.value = String(v.destination);return option;
     }));select.value = [...select.options].some(o => o.value === previous) ? previous : '0';select.dataset.list = signature;
   }
   $('#save-items').replaceChildren(...savePage.entries.map(item => {
     const running = state.game?.titleId === item.titleId;
     const node = row(item.titleId + ' · ' + item.slot.slice(6), `PS${item.platform} · User ${item.user} · ${formatBytes(item.bytes)} encrypted`, running ? 'Close game first' : 'Ready to export', !running);
-    const button = el('button', '', 'Export decrypted save');button.disabled = !available || state.safe || running;
+    const button = el('button', '', 'Back up save');button.disabled = !available || state.safe || running;
     button.onclick = async () => {
       const destination = Number(select.value), volume = savePage.volumes.find(v => v.destination === destination);
       if (destination && !volume) return notice('Refresh and select the USB drive again.');
-      if (!confirm(`Export ${item.titleId} / ${item.slot.slice(6)} to ${volume?.path || 'the FTP share'}? Keep this game closed until the export finishes.`)) return;
+      if (!confirm(`Export ${item.titleId} / ${item.slot.slice(6)} to ${volume?.path || 'console storage (/data/tachen/share/saves)'}? Keep this game closed until the export finishes.`)) return;
       await command('job.enqueue', { kind: 'save.export', input: { ...item, destination, volume: volume?.stamp || '' }, key: requestKey() });
     };node.append(button);return node;
   }));
@@ -118,6 +143,7 @@ function drawCheats() {
     return node;
   }));
 }
+$('#cheat-download').onclick=()=>command('job.enqueue',{kind:'cheat.sync',input:{},key:requestKey()});
 $('#cheat-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy) return; busy = true;
   try {
@@ -168,6 +194,13 @@ async function loadoutEditor(profile) {
     choice(pluginGroup, pluginChoices, plugin.sha256, plugin.name, profile.plugins.includes(plugin.sha256));
   for (const sha256 of profile.plugins) if (!pluginChoices.has(sha256)) choice(pluginGroup, pluginChoices, sha256, 'Unavailable plugin · ' + sha256.slice(0, 12), true);
   if (!pluginChoices.size) pluginGroup.append(el('p', 'fine', 'Register plugins in Payloads first.'));
+  const updateAutomatic = () => {
+    automatic.disabled=[...pluginChoices.values()].some(input=>input.checked);
+    if(automatic.disabled)automatic.checked=false;
+  };
+  for(const input of pluginChoices.values())input.addEventListener('change',updateAutomatic);
+  updateAutomatic();
+  pluginGroup.append(el('p','fine',"Loadouts with plugins are manual. It's recommended to not start plugins until you are in game."));
   for (const [key, label] of [['fps', 'FPS'], ['ram', 'Memory'], ['cpu', 'CPU'], ['ip', 'IP address']]) {
     const select = el('select');for (const [value, text] of [['inherit', 'Use default'], ['on', 'On'], ['off', 'Off']]) { const option = el('option', '', text);option.value = value;select.append(option); }
     select.value = Object.hasOwn(profile.overlay, key) ? profile.overlay[key] ? 'on' : 'off' : 'inherit';overlayChoices.set(key, select);overlayGroup.append(field(label, select));
@@ -225,7 +258,51 @@ async function loadoutReview(profile) {
     };
   } catch (error) { status.textContent = error.message; }
 }
+function drawStartupPayloads() {
+  const startup = state.startupPayloads;
+  $('#payload-startup').hidden = !startup;
+  if (!startup) return;
+  $('#payload-startup-status').textContent = startup.message;
+  const list = startup.items, candidates = [...list, ...(startup.available || []).filter(file => !list.some(item => item.sha256 === file.sha256))];
+  $('#payload-startup-items').replaceChildren(...(candidates.length ? candidates.map(item => {
+    const index = list.findIndex(entry => entry.id === item.id);
+    const position = list.filter(entry => entry.enabled).findIndex(entry => entry.id === item.id) + 1;
+    const node = row(item.name, item.enabled ? `Order ${position} · ${item.delayMs / 1000}s wait after loading` : 'Not selected for automatic loading', item.enabled ? 'On' : 'Off');
+    const actions = el('div', 'actions'), edit = el('button', '', 'Configure startup');
+    edit.onclick = () => startupPayloadEditor(item);actions.append(edit);
+    if (index >= 0) for (const [move, label] of [[-1, 'Move earlier'], [1, 'Move later']]) {
+      const button = el('button', 'quiet', label);button.disabled = index + move < 0 || index + move >= list.length;
+      button.onclick = () => command('payload.startup.configure', { id: item.id, move, revision: state.revision });actions.append(button);
+    }
+    node.append(actions);return node;
+  }) : [el('p', 'empty', 'Add an ELF using Choose a payload above, or from storage on the console.')]));
+}
+function startupPayloadEditor(item) {
+  const revision = state.revision, dialog = el('dialog', 'storage-dialog'), form = el('form');
+  const heading = el('h2', '', 'Startup payload');heading.id = 'payload-startup-heading';dialog.setAttribute('aria-labelledby', heading.id);
+  const enabled = el('input');enabled.type = 'checkbox';enabled.checked = Boolean(item.enabled);
+  const enabledLabel = el('label', 'setting', 'Load when TacHen starts');enabledLabel.append(enabled);
+  const delay = el('select');for (const ms of [0, 2000, 5000, 10000]) { const option = el('option', '', ms ? `${ms / 1000} seconds` : 'No delay');option.value = String(ms);delay.append(option); }
+  delay.value = String(item.delayMs ?? 2000);
+  const delayLabel = el('label', 'setting', 'Wait after loading');delayLabel.append(delay);
+  const status = el('p', 'fine', 'Changes apply the next time TacHen starts. Saving does not run this payload now.');status.setAttribute('role', 'status');
+  const save = el('button', '', 'Save'), cancel = el('button', 'quiet', 'Cancel'), remove = el('button', 'quiet', 'Remove from startup list');
+  save.type = 'submit';cancel.type = remove.type = 'button';cancel.onclick = () => dialog.close();
+  const actions = el('div', 'actions');actions.append(save, cancel);
+  if (state.startupPayloads.items.some(entry => entry.id === item.id)) actions.append(remove);
+  async function submit(args) {
+    save.disabled = remove.disabled = true;
+    try { await api('/api/command', { command: 'payload.startup.configure', args: { id: item.id, revision, ...args } });dialog.close();await refresh();notice('Startup selection saved. Payload files are kept.'); }
+    catch (error) { status.textContent = error.message;save.disabled = remove.disabled = false; }
+  }
+  form.onsubmit = event => { event.preventDefault();submit({ enabled: enabled.checked, delayMs: Number(delay.value) }); };
+  remove.onclick = () => submit({ remove: true });
+  form.append(enabledLabel, delayLabel, status, actions);dialog.append(heading, el('p', 'fine', item.name), form);
+  dialog.onclose = () => dialog.remove();document.body.append(dialog);dialog.showModal();
+}
 function draw() {
+  drawStartupPayloads();
+  $('#payload-download').hidden = !state.downloads?.available;
   drawAdaptive();
   drawCheats();
   drawLoadouts();
@@ -310,8 +387,15 @@ function draw() {
   $('#package-install-status').textContent = capability('packages')?.available
     ? 'Verified packages can be queued for background installation.'
     : capability('packages')?.reason || 'Native installation is still being integrated.';
-  $('#package-items').replaceChildren(...(state.packages?.length ? state.packages.map(item => {
-    const node = row(item.name, `${formatBytes(item.offset)} / ${formatBytes(item.bytes)}`, item.status, item.status === 'verified');
+  const receiver=state.packageReceiver;
+  $('#package-receiver-toggle').disabled=!receiver||receiver.closing;
+  $('#package-receiver-toggle').textContent=receiver?.enabled?'Stop receiving packages':'Receive packages · DPI v2';
+  $('#package-receiver-toggle').onclick=()=>command('package.receiver.set',{enabled:!receiver.enabled});
+  $('#package-receiver-status').textContent=receiver?.enabled?'Send PKGs or download links to '+receiver.address+'. Accepted requests install in the background.':receiver?.closing?'Finishing the current upload.':receiver?'Receiving is off. Turn it on to use a compatible sender or the receiver page.':'Package receiver unavailable.';
+  $('#package-storage').onclick=()=>browsePackages();
+  $('#package-installations').replaceChildren(...state.jobs.filter(j=>j.kind==='package.receive').slice(-4).reverse().map(j=>row('Package installation',j.error?.message||j.result?.message||(j.progress?.total>0?Math.floor(j.progress.completed*100/j.progress.total)+'% � ':'')+(j.progress?.phase||'Starting installation'),j.status,j.status==='completed')));
+  const packageRow = item => {
+    const node = row(item.name, item.external ? `${formatBytes(item.bytes)} · ${item.source}` : `${formatBytes(item.offset)} / ${formatBytes(item.bytes)}`, item.status, item.status === 'verified');
     const active = state.jobs.some(job => job.resources.includes('package-file:' + item.id) && !['completed', 'cancelled', 'failed'].includes(job.status));
     if (item.status === 'uploading' && item.offset < item.bytes) {
       const resume = el('button', '', 'Resume upload'); resume.disabled = packageUploading;
@@ -325,8 +409,18 @@ function draw() {
       const install = el('button', '', active ? 'Installation in Activity' : 'Install package'); install.disabled = active;
       install.onclick = () => command('job.enqueue', { kind: 'package.install', input: { id: item.id }, key: requestKey() }); node.append(install);
     }
+    const recent=state.jobs.filter(j=>j.resources.includes('package-file:'+item.id)).at(-1);
+    if(recent)node.append(el('p','fine',recent.error?.message||recent.result?.message||((recent.progress?.total>0?Math.floor(recent.progress.completed*100/recent.progress.total)+'% · ':'')+(recent.progress?.phase||recent.status))));
+    if(recent?.status==='held'){const resume=el('button','','Resume installation');resume.onclick=()=>command('job.resume',{id:recent.id});node.append(resume);}
+    if(recent?.status==='interrupted'){const check=el('button','','Check result');check.onclick=()=>command('job.reconcile',{id:recent.id});node.append(check);}
+    const remove=el('button','',item.external?'Remove from list':'Delete download');remove.disabled=active;
+    remove.onclick=()=>{if(confirm(item.external?'Remove this entry? The original PKG stays on its drive.':'Delete this PKG download? The installed application stays installed.'))command('download.delete',{kind:'package',id:item.id});};node.append(remove);
     return node;
-  }) : [el('p', 'empty', 'Package uploads will appear here.') ]));
+  };
+  for(const [selector,external] of [['#package-items',false],['#package-storage-items',true]]){
+    const entries=(state.packages||[]).filter(p=>Boolean(p.external)===external);
+    $(selector).replaceChildren(...(entries.length?entries.map(packageRow):[el('p','empty',external?'No storage files selected.':'No downloads yet.')]));
+  }
   $('#library-refresh').disabled = libraryBusy || !capability('shadowmount')?.available;
   $('#library-find').disabled = libraryBusy || !state.library?.available;
   $('#library-previous').disabled = libraryBusy || libraryPage.offset === 0;
@@ -355,26 +449,26 @@ function draw() {
     const node = row(item.name, detail, item.observation.phase, ['process-active', 'module-started'].includes(item.observation.phase));
     node.classList.add('plugin-row');
     node.append(el('p', 'fine', item.observation.message));
-    const start = el('button', '', item.controls.startLabel), automatic = el('button', '', item.autostart ? 'Disable autostart' : 'Enable autostart');
+    const start = el('button', '', item.controls.startLabel);
+    node.append(el('p','fine',"It's recommended to not start plugins until you are in game."));
     start.disabled = !item.controls.canStart;start.title=item.controls.startReason||'';
     if(item.controls.startReason&&item.controls.startReason!==item.observation.message)node.append(el('p','fine',item.controls.startReason));
     start.onclick = () => command('job.enqueue', { kind: item.controls.jobKind, input: { sha256: item.sha256, source: 'manual' }, key: requestKey() });
-    automatic.onclick = () => command('plugin.configure', { sha256: item.sha256, autostart: !item.autostart, revision: state.revision });
-    const actions = el('div', 'actions'); actions.append(start, automatic); node.append(actions); return node;
+    const actions = el('div', 'actions'); actions.append(start); node.append(actions); return node;
   }) : [el('p', 'empty', Array.isArray(state.plugins) ? 'No plugins registered yet.' : 'Plugin loading requires the console runtime.') ]));
   const active = state.jobs.filter(job => !['completed', 'cancelled', 'failed'].includes(job.status)); $('#job-count').textContent = active.length;
   $('#jobs').replaceChildren(...(state.jobs.length ? [...state.jobs].reverse().map(job => {
     const title = { 'package.verify': 'Verify package', 'package.install': 'Install package', 'library.storage': 'Game file operation', 'library.mount': 'Game mount',
-      'payload.dispatch': 'Load payload', 'plugin.start': 'Start plugin', 'game.module.start': 'Load game module', 'deck.start': 'Start command deck', 'loadout.apply': 'Apply game loadout' }[job.kind] || job.kind;
+      'payload.dispatch': 'Load payload', 'payload.download': 'Download payload', 'payload.startup': 'Load startup payload', 'plugin.start': 'Start plugin', 'game.module.start': 'Load game module', 'deck.start': 'Start command deck', 'loadout.apply': 'Apply game loadout' }[job.kind] || job.kind;
     const partial = job.kind === 'loadout.apply' && job.result?.phase === 'loadout-stopped';
     const node = row(title, job.error?.message || job.result?.message || job.progress?.phase || 'Waiting for execution',
       partial ? 'Stopped · review steps' : job.result?.phase === 'dispatched' && job.status === 'completed' ? 'Dispatched' : job.status, job.status === 'completed' && !partial);
     node.classList.add('job-row');
     const actions = el('div', 'actions');
     if (job.progress?.total > 0) {
-      const progress = el('progress'); progress.max = job.progress.total; progress.value = job.progress.completed;
+      const progress = el('progress'); progress.max = job.progress.total;if (!job.progress.indeterminate) progress.value = job.progress.completed;
       progress.setAttribute('aria-label', 'Operation progress'); node.append(progress,
-        el('small', '', job.kind === 'loadout.apply' ? `${job.progress.completed} / ${job.progress.total} steps recorded` : `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
+        el('small', '', job.progress.indeterminate ? `${formatBytes(job.progress.completed)} downloaded · total size unknown` : job.kind === 'loadout.apply' ? `${job.progress.completed} / ${job.progress.total} steps recorded` : `${Math.floor(job.progress.completed / job.progress.total * 100)}% · ${formatBytes(job.progress.completed)} / ${formatBytes(job.progress.total)}`));
     }
     if (job.kind === 'loadout.apply' && job.result?.steps?.length) {
       const list = el('ul', 'fine');for (const step of job.result.steps) {
@@ -394,6 +488,7 @@ function draw() {
       button.onclick = () => historyDialog(item.id);actions.append(button);node.append(actions);
     } else node.append(el('small', '', item.undo.reason));return node;
   }) : [el('p', 'empty', 'Changes made during this session will appear here.') ]));
+  $('#game-card-details').checked = state.settings.appearance.gameCardDetails;
   $('#accent').value = state.settings.appearance.accent; $('#reduced-motion').checked = state.settings.appearance.reducedMotion;
   for (const input of document.querySelectorAll('[data-overlay]')) {
     const key = input.dataset.overlay; input.checked = state.settings.overlay[key];
@@ -435,14 +530,14 @@ function pluginDialog(item) {
   start.type = 'submit'; cancel.type = 'button'; cancel.onclick = () => dialog.close();
   const actions = el('div', 'actions'); actions.append(start, cancel);
   form.append(scopeLabel, titleLabel, versionLabel, el('p', 'fine', module ?
-    'This module loads inside the exact target game. Enable autostart to arm it before opening that game. It remains resident until the game closes.' :
+    'This module loads inside the exact target game. It is recommended to not start plugins until you are in game. It remains resident until the game closes.' :
     'Game targeting controls when TacHen starts a plugin. The plugin itself must support your game and firmware.'), status, actions);
   form.onsubmit = async event => {
     event.preventDefault(); start.disabled = true;
     try {
       await api('/api/command', { command: 'plugin.register', args: { upload: item.id, scope: scope.value, revision,
         target: scope.value === 'game' ? { titleId: title.value.trim(), version: version.value.trim() } : null } });
-      dialog.close(); await refresh(); notice('Plugin registered. Open Plugins to start it or enable autostart.');
+      dialog.close(); await refresh(); notice('Plugin registered. Open Plugins to load it manually once you are in game.');
     } catch (error) { status.textContent = error.message; start.disabled = false; }
   };
   dialog.append(el('h2', '', 'Register ' + item.name), form); dialog.onclose = () => dialog.remove(); document.body.append(dialog); dialog.showModal();
@@ -456,6 +551,7 @@ async function loadLibrary(rescan = false, offset = 0) {
     libraryPage = result;
     $('#library-games').replaceChildren(...(result.games.length ? result.games.map(game => {
       const node = row(game.name, `${game.titleId} · ${game.platform.toUpperCase()} · ${game.sourceType}`, game.installedPackage ? 'Installed package' : game.mounted ? 'Mounted' : 'Unmounted');
+      const play=el('button','',game.canMount&&!game.mounted?'Mount and play':'Play game');play.onclick=()=>command('job.enqueue',{kind:'library.launch',input:{titleId:game.titleId},key:requestKey()});play.disabled=state.safe;node.append(play);
       if (game.canMount && game.sourceAvailable && result.available) {
         const button = el('button', '', game.mounted ? 'Unmount' : 'Mount');
         button.onclick = async () => { await command('job.enqueue', { kind: 'library.mount', input: { titleId: game.titleId, path: game.path, contentId: game.contentId, mounted: !game.mounted }, key: requestKey() });
@@ -630,6 +726,16 @@ async function uploadPayload(event, plugin = false) {
   finally { busy = false; event.target.value = ''; }
 }
 $('#payload-file').onchange = event => uploadPayload(event);
+$('#payload-download-form').onsubmit = async event => {
+  event.preventDefault();const button = $('#payload-download-submit');button.disabled = true;
+  try {
+    await api('/api/command', { command: 'job.enqueue', args: { kind: 'payload.download', input: {
+      url: $('#payload-download-url').value.trim(), name: $('#payload-download-name').value.trim() }, key: requestKey() } });
+    $('#payload-download-result').textContent = 'Download queued. Follow progress in Activity; the verified file will appear under Your files.';await refresh();
+  } catch (error) { $('#payload-download-result').textContent = error.message; }
+  finally { button.disabled = false; }
+};
+
 $('#plugin-file').onchange = event => uploadPayload(event, true);
 $('#plugin-add').onclick = () => { if (!busy) $('#plugin-file').click(); };
 $('#package-stop').onclick = () => { packageStop = true; $('#package-progress').textContent = 'Stopping after the current chunk…'; };
@@ -675,3 +781,5 @@ async function refresh() {
 async function poll() { if (!connected) return; if (!document.hidden && !busy) await refresh(); timer = setTimeout(poll, document.hidden ? 15000 : 2500); }
 try { const session = await api('/api/session', {}); csrf = session.csrf; state = session.state; draw(); timer = setTimeout(poll, 2500); }
 catch (error) { $('#connection').textContent = 'Connection unavailable'; notice(error.message); }
+
+$('#game-card-details').onchange = () => command('settings.update', { patch: { appearance: { gameCardDetails: $('#game-card-details').checked } }, revision: state.revision });

@@ -18,7 +18,7 @@ export function validatePlugin(item) {
     'PLUGIN_TARGET', 'A native module needs the exact target game, platform and version.');
   return { sha256: item.sha256, upload: item.upload, name: item.name, pluginId: item.pluginId, format,
     platform: module ? item.platform : null,
-    pluginVersion: item.pluginVersion, scope: item.scope, autostart: item.autostart,
+    pluginVersion: item.pluginVersion, scope: item.scope, autostart: false,
     target: item.scope === 'system' ? null : { titleId: item.target.titleId, version: item.target.version } };
 }
 export function validatePlugins(items) {

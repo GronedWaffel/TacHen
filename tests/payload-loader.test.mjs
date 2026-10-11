@@ -25,6 +25,24 @@ test('native dispatch completes with a durable identity but never claims initial
   assert.equal(result.request, job.id); assert.equal(result.phase, 'dispatched'); assert.equal(result.initialized, false);
   await runtime.jobs.enqueue('payload.dispatch', { id: upload }, 'dispatch-one'); assert.equal(calls, 1);
 });
+
+test('a short native busy response waits and dispatches an ELF once when the worker is free', async () => {
+  let receipt,calls=0,delays=0;
+  const runtime=await setup({loaderStart(request,file,sha256){
+    if(++calls===1)throw Object.assign(Error('Native operation in progress'),{code:'LOADER_BUSY'});
+    receipt={request,sha256,stage:3,pid:42};
+  },loaderPoll:()=>receipt},{delay:async()=>{delays++;}});
+  await runtime.jobs.enqueue('payload.dispatch',{id:upload},'busy-payload');
+  await until(()=>runtime.jobs.snapshot()[0].status==='completed');
+  assert.equal(calls,2);assert.equal(delays,1);assert.equal(runtime.jobs.snapshot()[0].error,null);
+});
+
+test('native start failure keeps its real code and an uncertain outcome is never silently retried', async () => {
+  let calls=0;const runtime=await setup({loaderStart(){calls++;throw Object.assign(Error('Native payload preparation failed'),{code:'LOADER_NATIVE'});}});
+  await runtime.jobs.enqueue('payload.dispatch',{id:upload},'native-failure');
+  await until(()=>runtime.jobs.snapshot()[0].status==='interrupted');
+  assert.equal(runtime.jobs.snapshot()[0].error.code,'LOADER_NATIVE');assert.equal(calls,1);
+});
 test('native preflight rejection is terminal without claiming a launch', async () => {
   let receipt;
   const runtime = await setup({ loaderStart(request, file, sha256) {

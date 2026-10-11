@@ -141,10 +141,9 @@ test('verified rollback is a clean failure; unknown rollback cannot be retried i
 test('controller cheats use the same job and Circle returns to its pack list', async t => {
   const f = await fixture(t), deck = new ConsoleDeck(f.runtime);
   const action = (kind, row = 0) => deck.action({ kind, row, request: f.runtime.id(), sequence: deck.frame().sequence });
-  await action('previous');assert.equal(deck.frame().page, 5);assert.equal(deck.frame().rows[0].label, 'Test game');
-  await action('select');assert.equal(deck.frame().rows[1].label, 'Test option');
+  await action('previous');assert.equal(deck.frame().page, 5);assert.equal(deck.frame().rows[1].label, 'Test option');
   await action('select', 1);const job = f.runtime.jobs.snapshot().at(-1);assert.equal((await f.settled(job.id)).status, 'completed');
-  assert.equal(deck.frame().rows[1].on, true);await action('back');assert.equal(deck.frame().page, 5);assert.equal(deck.frame().rows[0].label, 'Test game');
+  assert.equal(deck.frame().rows[1].on, true);await action('back');assert.equal(deck.frame().page, 5);assert.equal(deck.frame().rows[1].label, 'Test game');
 });
 test('phone imports require same-origin session and write token, and never apply a cheat', async t => {
   const f = await fixture(t), server = await serve(f.runtime, { uiRoot: path.resolve('ui'), host: '127.0.0.1', port: 0, id: f.runtime.id });
@@ -168,4 +167,31 @@ test('unequal patches remain loadable but never promise exact history undo',asyn
   const reverse=f.runtime.changes.preview(job);assert.equal(reverse.available,false);assert.match(reverse.reason,/different On\/Off lengths/);
   const disabled=await f.runtime.jobs.enqueue('cheat.set',{sha256:entry.sha256,cheatId:'0',enabled:false},f.runtime.id());
   assert.equal((await f.settled(disabled.id)).status,'completed');
+});
+
+test('opening Cheats selects the running exact-version pack without applying anything; Back stays in library',async t=>{
+ const f=await fixture(t),deck=new ConsoleDeck(f.runtime);
+ await f.runtime.cheats.packs.import({source:doc(),...game,version:'01.001.000'});
+ const select=async label=>{const frame=deck.frame();return deck.action({kind:'select',row:frame.rows.findIndex(r=>r.label===label),sequence:frame.sequence,request:f.runtime.id()});};
+ await select('Cheats');assert.equal(deck.cheatPack.sha256,f.entry.sha256);assert.ok(deck.frame().rows.some(r=>r.label==='Test option'));
+ assert.equal(f.calls.length,0);assert.equal(f.runtime.jobs.snapshot().filter(j=>j.kind==='cheat.set').length,0);
+ await select('Other cheat packs');assert.equal(deck.cheatPack,null);deck.frame();assert.equal(deck.cheatPack,null);
+});
+
+test('Cheats falls back to the default library when the game closes or has no exact version match',async t=>{
+ const f=await fixture(t),deck=new ConsoleDeck(f.runtime);
+ await deck.openCheats();assert.ok(deck.cheatPack);
+ for(const running of [null,{...game,version:'01.999.000'},{...game,titleId:'PPSA00001'},{...game,version:null}]){
+  f.runtime.game=running;deck.cheatTitle=game.titleId;await deck.openCheats();
+  assert.equal(deck.cheatPack,null);assert.equal(deck.cheatTitle,null);assert.ok(deck.frame().rows.some(r=>r.label==='Import cheat file'));
+ }
+ assert.equal(f.calls.length,0);
+});
+
+test('automatic cheat selection falls back if its file is missing or the running process changes during inspection',async t=>{
+ const f=await fixture(t),deck=new ConsoleDeck(f.runtime),inspect=f.runtime.cheats.inspect.bind(f.runtime.cheats);
+ f.runtime.cheats.inspect=async sha=>{const pack=await inspect(sha);f.runtime.game={...game,generation:'restarted'};return pack;};
+ await deck.openCheats();assert.equal(deck.cheatPack,null);
+ f.runtime.game={...game};f.files.files.set(f.entry.sha256+'.json','{}');await deck.openCheats();assert.equal(deck.cheatPack,null);
+ assert.equal(f.calls.length,0);
 });

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "deck-layout.h"
+#include "deck-motion.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 static void quoted(const char* s){
  putchar('"');for(const unsigned char* p=(const unsigned char*)s;*p;p++){
   if(*p=='"'||*p=='\\')putchar('\\');
@@ -9,12 +11,18 @@ static void quoted(const char* s){
  }putchar('"');
 }
 int main(int argc,char** argv){
- if(argc!=4&&argc!=5)return 1;FILE* file=fopen(argv[1],"rb");if(!file)return 2;
+ if(argc<4||argc>6)return 1;FILE* file=fopen(argv[1],"rb");if(!file)return 2;
  unsigned char bytes[sizeof(TacDeckFrame)];size_t got=fread(bytes,1,sizeof bytes,file);
  int tail=fgetc(file);fclose(file);TacDeckFrame frame;
  if(got!=sizeof bytes||tail!=EOF||!tac_deck_decode(bytes,got,&frame))return 3;
  TacDeckLayout layout;tac_deck_layout(&frame,atoi(argv[2]),(unsigned)strtoul(argv[3],NULL,10),&layout);
- if(argc==5){
+ if(argc==6){
+  TacDeckMotion motion={0};unsigned selected=(unsigned)strtoul(argv[3],NULL,10);
+  tac_deck_motion(&motion,&layout,selected,0);
+  tac_deck_layout(&frame,atoi(argv[2]),selected,&layout);
+  tac_deck_motion(&motion,&layout,selected,strtoull(argv[5],NULL,10));
+ }
+ if(argc>=5&&!strcmp(argv[4],"panels")){
   putchar('[');for(unsigned i=0;i<TAC_DECK_PANELS;i++){
    const TacDeckPanel* p=&layout.panels[i];const float* c=tac_deck_background[p->ink];
    printf("%s{\"x\":%.0f,\"y\":%.0f,\"width\":%.0f,\"height\":%.0f,\"visible\":%u,\"color\":[%.3f,%.3f,%.3f,%.3f]}",

@@ -4,17 +4,18 @@ import { validatePlugins } from './plugin-schema.mjs';
 import { validateCheatRegistry } from './cheat-packs.mjs';
 import { validateProfiles } from './profiles.mjs';
 import { validateJobArchive } from './job-archive.mjs';
+import { validateStartupPayloads } from './startup-payloads.mjs';
 export const defaults = Object.freeze({
   overlay: { fps: false, ram: false, cpu: false, ip: false, adaptive: true },
   services: { ftp: true, inboxAutoRun: false, shadowmount: true, payloadManager: true },
   developer: { enabled: false, memoryWrites: false, diagnostics: false },
-  appearance: { accent: 'mint', reducedMotion: false }
+  appearance: { accent: 'mint', reducedMotion: false, gameCardDetails: false }
 });
 const fields = {
   overlay: { fps: 'boolean', ram: 'boolean', cpu: 'boolean', ip: 'boolean', adaptive: 'boolean' },
   services: { ftp: 'boolean', inboxAutoRun: 'boolean', shadowmount: 'boolean', payloadManager: 'boolean' },
   developer: { enabled: 'boolean', memoryWrites: 'boolean', diagnostics: 'boolean' },
-  appearance: { accent: ['mint', 'amber', 'ice'], reducedMotion: 'boolean' }
+  appearance: { accent: ['mint', 'amber', 'ice'], reducedMotion: 'boolean', gameCardDetails: 'boolean' }
 };
 export function mergeSettings(current, patch) {
   invariant(patch && typeof patch === 'object' && !Array.isArray(patch), 'BAD_SETTINGS', 'Invalid settings.', { status: 400 });
@@ -50,6 +51,8 @@ export function validateState(state) {
   invariant(typeof state.startup.safe === 'boolean' && (state.startup.session === null || id(state.startup.session)), 'STATE_INVALID', 'Saved startup identity is invalid.');
   if (state.startup.native != null) {
     const n = state.startup.native;
+    invariant(n.boot == null || typeof n.boot === 'string' && n.boot.length > 0 && n.boot.length <= 80,
+      'STATE_INVALID', 'Saved console boot identity is invalid.');
     invariant(id(n.id) && ['starting', 'ready', 'failed'].includes(n.status) && Number.isSafeInteger(n.at) && n.at >= 0 && services(n.services) &&
       (n.service === null || n.services.includes(n.service)) && (n.error === null || typeof n.error.code === 'string' && n.error.code.length <= 80 &&
       typeof n.error.message === 'string' && n.error.message.length <= 4096), 'STATE_INVALID', 'Saved native startup evidence is invalid.');
@@ -60,6 +63,7 @@ export function validateState(state) {
       (good.firmware === null || /^\d{2}\.\d{2}$/.test(good.firmware)), 'STATE_INVALID', 'Saved verified-startup receipt is invalid.');
   }
   state.plugins = validatePlugins(state.plugins ?? []);
+  state.startupPayloads = validateStartupPayloads(state.startupPayloads ?? []);
   state.cheats = validateCheatRegistry(state.cheats ?? []);
   state.profiles = validateProfiles(state.profiles);
   state.jobArchive = validateJobArchive(state.jobArchive);

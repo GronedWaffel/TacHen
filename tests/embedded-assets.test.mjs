@@ -59,7 +59,7 @@ test('every final runtime helper and launcher fallback matches the current build
   const runtime = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
   const checks = [];
   for (const [symbol, file] of [['assets', 'components.bin'], ['deck', 'tachen-deck.elf'],
-    ['package', 'tachen-package-helper.elf'], ['save', 'tachen-save-helper.elf']]) {
+    ['launch', 'tachen-launch-helper.elf'], ['package', 'tachen-package-helper.elf'], ['save', 'tachen-save-helper.elf']]) {
     checks.push(verifyEmbeddedAsset(runtime, 'tachen_' + symbol, await fs.readFile(path.join(root, 'build', file))));
   }
   assert.deepEqual(checks, manifest.embeddedAssets.runtime);

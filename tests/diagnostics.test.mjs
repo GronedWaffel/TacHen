@@ -4,8 +4,12 @@ import { TacRuntime } from '../src/runtime.mjs';
 import { StateStore } from '../src/store.mjs';
 import { TacError } from '../src/errors.mjs';
 import { payloadDispatchHandler } from '../src/payload-loader.mjs';
+import { diagnosticEvidence } from '../src/diagnostics.mjs';
 import { checksum, ids, memoryStorage, until, deferred } from './helpers.mjs';
 const id = ids();
+test('module diagnostics retain loader and initializer codes without exporting module paths',()=>{
+ assert.deepEqual(diagnosticEvidence({handle:-2147352563,startResult:0,path:'/private/module.prx',request:'private'}),{handle:-2147352563,startResult:0});
+});
 async function make(storage = memoryStorage(), configure = null, install = () => {}) {
   const saved = await new StateStore(storage, checksum).open();
   if (configure) await saved.transaction(configure);

@@ -74,3 +74,5 @@ long tac_pt_call2(pid_t pid, intptr_t addr, const uint64_t args[6]);
 
 intptr_t pt_sceKernelGetProcParam(pid_t pid);
 int pt_wait_stop(pid_t pid, int expected_signal, unsigned timeout_ms);
+int pt_stop_info(pid_t pid,int* thread,int* signal,int* code,uintptr_t* address);
+int pt_wait_signal(pid_t pid,unsigned timeout_ms,int* signal);

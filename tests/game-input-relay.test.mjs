@@ -66,7 +66,7 @@ test('unsafe and busy work never starts an exchange; controller reconnect cannot
 test('game input packets use independent wire fields without changing menu identity', () => {
   const f = fixture();prepared(f);f.feedback();f.events([f.event(0x4000)]);f.step();f.step();
   const bytes = encodeDeck({ sequence: 7, page: 0, rows: [], title: 'TacHen', ready: true, input: f.relay.frame() });
-  assert.equal(bytes.length, 6424);assert.equal(bytes.readUInt32LE(8), 7);assert.equal(bytes.readUInt32LE(3000), f.relay.epoch);
+  assert.equal(bytes.length, 11760);assert.equal(bytes.readUInt32LE(8), 7);assert.equal(bytes.readUInt32LE(3000), f.relay.epoch);
   assert.equal(bytes.readUInt32LE(3024), 1);assert.equal(bytes.readUInt32LE(3048), 0x4000);assert.equal(bytes.readInt32LE(3052), 17);
   assert.equal(Number(bytes.readBigUInt64LE(3064)), f.relay.frame().events[0].time);
 });

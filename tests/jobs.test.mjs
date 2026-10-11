@@ -1,9 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JobQueue } from '../src/jobs.mjs';
+import { TacError } from '../src/errors.mjs';
 import { deferred, store, ids, until } from './helpers.mjs';
 
 const handler = run => ({ validate: value => value, resources: value => [value.resource || 'installer'], run, verify: result => result.receipt === 42 });
+
+test('receipt polling coalesces unknown totals and repeated completion without losing phase changes', async () => {
+  let now=10000;const queue=new JobQueue(await store(),{id:ids(),now:()=>now});
+  const writes=[],patch=queue.patch.bind(queue);
+  queue.patch=async(id,update)=>{if(update.progress)writes.push({...update.progress});return patch(id,update);};
+  queue.register('install',handler(async(_,context)=>{
+    for(let i=0;i<12;i++){await context.progress({completed:0,total:0,phase:'Installing'});now+=250;}
+    await context.progress({completed:1,total:10,phase:'Installing'});
+    now+=100;await context.progress({completed:2,total:10,phase:'Installing'});
+    await context.progress({completed:0,total:0,phase:'Finishing'});
+    for(let i=0;i<8;i++){await context.progress({completed:10,total:10,phase:'Finishing'});now+=250;}
+    return {completed:true,receipt:42};
+  }));
+  await queue.enqueue('install',{},'receipt-polling');await until(()=>queue.snapshot()[0]?.status==='completed');
+  assert.deepEqual(writes,[{completed:0,total:0,phase:'Installing'},
+    {completed:1,total:10,phase:'Installing'},{completed:0,total:0,phase:'Finishing'},
+    {completed:10,total:10,phase:'Finishing'}]);
+});
+
+test('loader reports include rejected requests and outcomes without copying full request arguments', async () => {
+  const events=[],queue=new JobQueue(await store(),{id:ids(),report:event=>events.push(event)});
+  queue.register('payload.dispatch',{...handler(async()=>({completed:true,receipt:42})),validate:value=>{
+    if(value.reject)throw new TacError('PAYLOAD_FORMAT','Unsupported payload format');return value;
+  }});
+  await assert.rejects(queue.enqueue('payload.dispatch',{reject:true,token:'secret'},'reject-payload'),{code:'PAYLOAD_FORMAT'});
+  assert.equal(events[0].code,'PAYLOAD_FORMAT');assert.equal(events[0].status,'rejected');
+  await queue.enqueue('payload.dispatch',{token:'secret',url:'private-url',sha256:'a'.repeat(64)},'accept-payload');
+  await until(()=>queue.snapshot()[0]?.status==='completed');
+  assert(events.some(e=>e.status==='queued'));assert(events.some(e=>e.status==='completed'));
+  assert(!JSON.stringify(events).includes('secret'));assert(!JSON.stringify(events).includes('private-url'));
+  queue.reporter=()=>{throw Error('logging unavailable');};
+  await queue.enqueue('payload.dispatch',{},'logging-failure');await until(()=>queue.snapshot()[1]?.status==='completed');
+});
 test('repeated phone submission is idempotent and mismatched reuse is rejected', async () => {
   const state = await store(), queue = new JobQueue(state, { id: ids() }); let executions = 0;
   queue.register('install', handler(async () => { executions++; return { completed: true, receipt: 42 }; }));

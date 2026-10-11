@@ -53,12 +53,22 @@ test('changed process identity before dispatch cannot redirect the injected modu
   await assert.rejects(handler.run(input, { id: runtime.id() }), error => error.code === 'SHELLUI_CHANGED' && error.noSideEffects);
   assert.equal(calls.length, 0);
 });
-test('foreign HEN ownership and transitional kernel hooks prevent native deck injection', async t => {
+test('other payload names do not block the menu; actual injection prerequisites still apply', async t => {
   const { runtime, state, calls } = await fixture(t);
   state.processes.push({ name: 'etaHEN critical', thread: '', pid: 90, generation: 'another-hen' });
-  await assert.rejects(runtime.jobs.enqueue('deck.start', {}, 'foreign-hen'), { code: 'OTHER_HEN_RUNNING' });
+  await runtime.graph.start('native-deck');assert.equal(calls.length,1);assert(runtime.capabilities.get('deck').available);
   state.processes.pop(); state.kstuff.injectionReady = false;
-  await assert.rejects(runtime.jobs.enqueue('deck.start', {}, 'unsafe-hooks'), { code: 'DECK_DEPENDENCY' });assert.equal(calls.length, 0);
+  await assert.rejects(runtime.jobs.enqueue('deck.start', {}, 'unsafe-hooks'), { code: 'DECK_DEPENDENCY' });assert.equal(calls.length, 1);
+});
+
+test('an unrelated service or kstuff monitoring failure cannot invalidate a healthy resident menu',async t=>{
+ const {runtime,receipts,calls}=await fixture(t);
+ await runtime.graph.start('native-deck');await until(()=>!runtime.jobs.running.size);
+ runtime.graph.invalidate('kstuff',new Error('readiness probe failed'));
+ await runtime.nativeDeck.check();
+ assert.equal(runtime.graph.ready('native-deck'),true);assert.equal(runtime.capabilities.get('deck').available,true);assert.equal(calls.length,1);
+ receipts.values().next().value.ready=false;await runtime.nativeDeck.check();
+ assert.equal(runtime.capabilities.get('deck').available,false);
 });
 test('readiness loss and scene recovery reuse the existing module instead of reinjection', async t => {
   const { runtime, receipts, calls } = await fixture(t);

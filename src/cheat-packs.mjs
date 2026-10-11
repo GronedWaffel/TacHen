@@ -22,9 +22,10 @@ const hash = text => createHash('sha256').update(text).digest('hex');
 export class CheatPacks {
   constructor(runtime, storage) { this.runtime = runtime; this.storage = storage; this.tail = Promise.resolve(); }
   list() { return clone(this.runtime.store.snapshot().cheats || []); }
-  import({ source, titleId, version }) {
+  import({ source, titleId, version, fallback }) {
     const work = this.tail.then(async () => {
-      const pack = await importCheatFile(source, { titleId, version });
+      const pack = await importCheatFile(source, { titleId, version, fallback });
+      titleId = pack.titleId; version = pack.version;
       const text = canonical({ id: titleId, version, name: pack.name, process: pack.process, credits: pack.credits,
         mods: pack.cheats.map(cheat => ({ name: cheat.name, description: cheat.description, memory: cheat.memory })) });
       invariant(Buffer.byteLength(text) <= 4 * 1024 * 1024, 'CHEAT_SIZE', 'The normalized cheat pack is too large.');

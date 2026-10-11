@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "deck-core.h"
+void tac_deck_metrics_focus(TacDeckFrame* frame,int gameFocused){
+ // Focus changes invalidate the HUD even when the sampled numbers did not.
+ frame->metricsSequence=(frame->metricsSequence<<1)|(gameFocused==1);
+ if(gameFocused!=1)frame->metrics[0]=0;
+}
 #include <string.h>
 static int text_valid(const char* text,size_t n){
  const unsigned char* p=(const unsigned char*)text;size_t i=0;
@@ -20,13 +25,19 @@ static int text_valid(const char* text,size_t n){
 int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
  if(!bytes||!out||length!=sizeof(*out))return 0;
  TacDeckFrame f;memcpy(&f,bytes,sizeof f);
- if(f.magic!=TAC_DECK_MAGIC||f.version!=6||(f.flags&~31u)||((f.flags>>3)==3)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
+ if(f.magic!=TAC_DECK_MAGIC||f.version!=8||(f.flags&~511u)||(((f.flags>>3)&3)==3)||!f.sequence||f.page>=6||f.count>8||!f.metricsSequence||!text_valid(f.metrics,sizeof f.metrics)||
    !text_valid(f.title,sizeof f.title)||!text_valid(f.subtitle,sizeof f.subtitle)||
    !text_valid(f.footer,sizeof f.footer)||!text_valid(f.ip,sizeof f.ip))return 0;
  if(!f.notice.sequence||f.notice.kind>2||f.notice.remainingMs>9000||f.notice.count>999||
     !text_valid(f.notice.title,sizeof f.notice.title)||!text_valid(f.notice.detail,sizeof f.notice.detail)||
     (!f.notice.kind&&(f.notice.remainingMs||f.notice.count||f.notice.title[0]||f.notice.detail[0]))||
     (f.notice.kind&&(!f.notice.remainingMs||!f.notice.count||!f.notice.title[0])))return 0;
+ if((f.flags&128)&&((f.flags&32)||f.count!=1||strlen(f.rows[0].label)!=36))return 0;
+ if(f.flags&256){
+  if((f.flags&(32|128))||f.count!=8||f.browser.active>1||f.browser.reserved||!text_valid(f.browser.status,sizeof f.browser.status))return 0;
+  for(unsigned i=0;i<2;i++)if(!text_valid(f.browser.paths[i],160))return 0;
+  for(unsigned i=0;i<24;i++)if((f.browser.entries[i].flags&~7u)||!text_valid(f.browser.entries[i].label,96)||!text_valid(f.browser.entries[i].detail,64))return 0;
+ }
  for(unsigned i=0;i<f.count;i++){
   const TacDeckRow* row=&f.rows[i];
   for(unsigned j=0;j<32;j++)if(!((row->token[j]>='0'&&row->token[j]<='9')||(row->token[j]>='a'&&row->token[j]<='f')))return 0;
@@ -37,6 +48,8 @@ int tac_deck_decode(const void* bytes,size_t length,TacDeckFrame* out){
   (f.input.captured&&(f.input.active!=1||f.input.owner<0||!f.input.captureAt||f.input.captureAt>=f.input.deadline))||
   (f.input.count&&(!f.input.serial||f.input.active!=1)))return 0;
  for(unsigned i=0;i<f.input.count;i++)if(f.input.events[i].handle<0||f.input.events[i].connection>255||!f.input.events[i].at)return 0;
+ if(f.dashboard.enabled>1||f.dashboard.count>32)return 0;
+ for(unsigned i=0;i<f.dashboard.count;i++){const TacDashboardRecord*r=&f.dashboard.records[i];if(r->reserved||!text_valid(r->title,10)||!text_valid(r->version,16))return 0;}
  *out=f;return 1;
 }
 void tac_deck_init(TacDeck* d){memset(d,0,sizeof(*d));}
@@ -44,6 +57,7 @@ int tac_deck_receive(TacDeck* d,const void* bytes,size_t length,uint64_t now){
  TacDeckFrame f;if(!tac_deck_decode(bytes,length,&f))return 0;
  if(d->valid&&(int32_t)(f.sequence-d->frame.sequence)<0)return 0;
  if(d->valid&&f.sequence==d->frame.sequence&&memcmp(&f,&d->frame,offsetof(TacDeckFrame,metricsSequence)))return 0;
+ if(d->valid&&f.sequence==d->frame.sequence&&memcmp(&f.browser,&d->frame.browser,sizeof f.browser))return 0;
  if(d->valid&&((int32_t)(f.metricsSequence-d->frame.metricsSequence)<0||
     (f.metricsSequence==d->frame.metricsSequence&&memcmp(f.metrics,d->frame.metrics,sizeof f.metrics))))return 0;
  if(d->frame.notice.sequence){
@@ -54,11 +68,18 @@ int tac_deck_receive(TacDeck* d,const void* bytes,size_t length,uint64_t now){
  if(f.notice.sequence!=d->frame.notice.sequence)d->noticeDeadline=expires;
  else if(expires<d->noticeDeadline)d->noticeDeadline=expires;
  if(!d->valid||f.page!=d->frame.page||strcmp(f.title,d->frame.title))d->selected=0;
- if(d->selected>=f.count)d->selected=f.count?f.count-1:0;
+ unsigned count=(f.flags&128)?40:(f.flags&256)?32:f.count;
+ if(d->selected>=count)d->selected=count?count-1:0;
  d->frame=f;d->received=now;d->valid=1;return 1;
 }
+int tac_deck_stalled(const TacDeck* d,uint64_t now){
+ return d->valid&&(now<d->received||now-d->received>TAC_DECK_STALE_MS);
+}
 void tac_deck_tick(TacDeck* d,uint64_t now){
- if(d->valid&&(now<d->received||now-d->received>TAC_DECK_STALE_MS||!(d->frame.flags&1))){
+ // A slow coordinator is not a failed renderer. Retain an already open menu
+ // briefly, with actions paused and a local exit, while its worker reconnects.
+ uint64_t deadline=d->open?TAC_DECK_DISCONNECTED_MS:TAC_DECK_STALE_MS;
+ if(d->valid&&(now<d->received||now-d->received>deadline||!(d->frame.flags&1))){
   if(d->open)d->drain[d->owner]=1;d->open=0;d->valid=0;
  }
 }
@@ -84,27 +105,68 @@ int tac_deck_input_at(TacDeck* d,unsigned device,uint32_t buttons,uint64_t now,u
   if(!d->chordActive[device]){d->chordActive[device]=1;d->chordAt[device]=now;}
   if(now>=d->chordAt[device]&&now-d->chordAt[device]>=350){
    d->chordLatched[device]=1;
-   if(d->valid){d->open=!d->open;d->owner=device;d->drain[device]=1;d->repeatDirection=0;}
+   if(d->valid&&(d->open||!tac_deck_stalled(d,receivedNow))){d->open=!d->open;d->owner=device;d->drain[device]=1;d->repeatDirection=0;}
   }
  }
  if(d->drain[device]){if(!buttons)d->drain[device]=0;return 1;}
  if(!d->open)return 0;if(d->owner!=device)return 1;
+ if(tac_deck_stalled(d,receivedNow)){
+  // Never execute stale rows or strand the user behind a pending HTTP action.
+  if(pressed&TAC_CIRCLE){d->open=0;d->drain[device]=1;}
+  return 1;
+ }
  // The worker may receive a replacement frame between two render ticks.
  // Never activate a row whose text/highlight the user has not actually seen.
  if(d->presentedSequence!=d->frame.sequence||!d->presentedOpen||d->presentedSelected!=d->selected)return 1;
  if(pressed&TAC_CIRCLE){
+  if(d->pending)return 1;
   if(d->frame.page==0&&!(d->frame.flags&4)&&!d->pending){d->open=0;d->drain[device]=1;}
-  else action(d,TAC_DECK_BACK);return 1;
+ else {action(d,TAC_DECK_BACK);if((d->frame.flags&256)&&d->selected>=24)d->event.row+=32*d->browserPane;}return 1;
  }
  if(d->pending)return 1;
+ if(d->frame.flags&256){
+  unsigned n=d->selected;
+  if(pressed&TAC_L1)d->selected=n<24?n%12:0;
+  else if(pressed&TAC_R1)d->selected=12+(n<24?n%12:0);
+  else if(pressed&TAC_CROSS){if(n<24?(d->frame.browser.entries[n].flags&1):(d->frame.rows[n-24].flags&1)){action(d,TAC_DECK_SELECT);if(n>=24)d->event.row+=32*d->browserPane;}}
+  else{
+   unsigned direction=buttons&(TAC_UP|TAC_DOWN|TAC_LEFT|TAC_RIGHT);
+   if(direction==TAC_UP||direction==TAC_DOWN||direction==TAC_LEFT||direction==TAC_RIGHT){
+    if(direction!=d->repeatDirection||now>=d->repeatAt){
+     if(n<24){unsigned side=n/12,row=n%12;
+      if(direction==TAC_LEFT)d->selected=row;
+      else if(direction==TAC_RIGHT)d->selected=12+row;
+      else {int step=direction==TAC_UP?-1:1,next=(int)row+step;
+       while(next>=0&&next<12&&!(d->frame.browser.entries[side*12+next].flags&1))next+=step;
+       d->selected=next>=0&&next<12?side*12+next:24+side*4;
+      }
+     }else if(direction==TAC_LEFT)d->selected=24+(n-24+7)%8;
+     else if(direction==TAC_RIGHT)d->selected=24+(n-24+1)%8;
+     else d->selected=(n>=28?12:0)+(direction==TAC_UP?11:0);
+     d->repeatAt=now+(direction!=d->repeatDirection?350:120);
+    }
+   }d->repeatDirection=direction;
+  }if(d->selected<24){
+   unsigned side=d->selected/12,row=d->selected%12;
+   if(!(d->frame.browser.entries[d->selected].flags&1)){
+    unsigned found=24;for(unsigned distance=1;distance<12;distance++){
+     if(row+distance<12&&(d->frame.browser.entries[side*12+row+distance].flags&1)){found=side*12+row+distance;break;}
+     if(row>=distance&&(d->frame.browser.entries[side*12+row-distance].flags&1)){found=side*12+row-distance;break;}
+    }if(found<24)d->selected=found;
+   }d->browserPane=side;
+  }return 1;
+ }
  if(pressed&TAC_R1)action(d,TAC_DECK_NEXT);
  else if(pressed&TAC_L1)action(d,TAC_DECK_PREVIOUS);
- else if(pressed&TAC_CROSS){if(d->frame.count&&(d->frame.rows[d->selected].flags&1))action(d,TAC_DECK_SELECT);}
+ else if(pressed&TAC_CROSS){if((d->frame.flags&128)||(d->frame.count&&(d->frame.rows[d->selected].flags&1)))action(d,TAC_DECK_SELECT);}
  else {
-  unsigned direction=buttons&(TAC_UP|TAC_DOWN);
-  if(direction==TAC_UP||direction==TAC_DOWN){
+  unsigned keyboard=!!(d->frame.flags&128),grid=keyboard||!!(d->frame.flags&32);
+  unsigned direction=buttons&(TAC_UP|TAC_DOWN|(grid?(TAC_LEFT|TAC_RIGHT):0));
+  if(direction==TAC_UP||direction==TAC_DOWN||(grid&&(direction==TAC_LEFT||direction==TAC_RIGHT))){
    if(direction!=d->repeatDirection||now>=d->repeatAt){
-    if(d->frame.count)d->selected=(d->selected+(direction==TAC_DOWN?1:d->frame.count-1))%d->frame.count;
+    unsigned count=keyboard?40:d->frame.count;
+    if(count){unsigned step=grid&&(direction==TAC_UP||direction==TAC_DOWN)?(keyboard?10:4):1;
+     d->selected=(d->selected+((direction==TAC_DOWN||direction==TAC_RIGHT)?step:count-step%count))%count;}
     d->repeatAt=now+(direction!=d->repeatDirection?350:120);
    }
   }

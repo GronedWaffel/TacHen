@@ -69,27 +69,25 @@ test('saved loadout create/remove reversals preserve applied native state and va
   await undo(r, saved);assert.deepEqual(r.store.snapshot().profiles, {});assert.equal(r.jobs.snapshot().length, 0);
 });
 
-test('plugin autostart undo restores its choice without unloading or starting code', async t => {
-  const r = await fixture(t), hash = 'a'.repeat(64), upload = 'b'.repeat(32);
-  r.inbox = { verify: async () => ({ id: upload, name: 'test.plugin', format: 'plugin', sha256: hash, pluginId: 'TACP00001', pluginVersion: '1.00' }) };
-  installPlugins(r, {});await r.plugins.register({ upload, scope: 'system', revision: r.snapshot().revision });
-  assert.equal(r.changes.preview(latest(r)).available, false);
-  await r.plugins.configure({ sha256: hash, autostart: true, revision: r.snapshot().revision });const entry = latest(r);
-  r.plugins.observations.set(hash, { phase: 'running', pid: 90 });await undo(r, entry);
-  assert.equal(r.plugins.list()[0].autostart, false);assert.equal(r.plugins.list()[0].observation.phase, 'running');assert.equal(r.jobs.snapshot().length, 0);
+test('history cannot reenable retired plugin autostart', async t => {
+ const r=await fixture(t),hash='a'.repeat(64),upload='b'.repeat(32);
+ r.inbox={verify:async()=>({id:upload,name:'test.plugin',format:'plugin',sha256:hash,pluginId:'TACP00001',pluginVersion:'1.00'})};
+ installPlugins(r,{});await r.plugins.register({upload,scope:'system',revision:r.snapshot().revision});
+ await r.store.transaction(state=>r.changes.record(state,{change:'plugin-config',target:hash,before:true,after:false,message:'Old setting'}));
+ assert.equal(r.changes.preview(latest(r)).available,false);assert.equal(r.jobs.snapshot().length,0);
 });
 
 test('controller reviews and confirms history; Circle unwinds to Activity and concurrent changes reject stale undo', async t => {
   const r = await fixture(t), deck = new ConsoleDeck(r);
   const action = (kind, row = 0) => deck.action({ kind, row, request: r.id(), sequence: deck.frame().sequence });
   await update(r, { appearance: { reducedMotion: true } });
-  await action('next');await action('next');await action('next');await action('select');await action('select');
+  deck.page=4;deck.offset=6;await action('select',deck.frame().rows.findIndex(r=>r.label==='Session history'));await action('select');
   assert.match(deck.frame().title, /Session history/);
   await action('select', 2);assert.match(deck.frame().title, /Confirm action/);
   await action('back');assert.match(deck.frame().title, /Session history/);assert.equal(r.snapshot().settings.appearance.reducedMotion, true);
   await action('select', 2);await action('select');assert.equal(r.snapshot().settings.appearance.reducedMotion, false);
-  await action('back');await action('back');assert.match(deck.frame().title, /Activity/);
-  await update(r, { appearance: { reducedMotion: true } });await action('select');await action('select');await action('select', 2);
+  await action('back');await action('back');assert.match(deck.frame().title, /Settings/);deck.offset=6;
+  await update(r, { appearance: { reducedMotion: true } });await action('select',deck.frame().rows.findIndex(r=>r.label==='Session history'));await action('select');await action('select', 2);
   await update(r, { appearance: { reducedMotion: false } });
   await assert.rejects(action('select'), { code: 'HISTORY_CONFLICT' });assert.equal(r.snapshot().settings.appearance.reducedMotion, false);
 });

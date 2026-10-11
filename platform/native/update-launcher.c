@@ -27,19 +27,33 @@ int main(void){
      tac_update_save_image(tachen_fallback_start,fallback_size,fw,&fallback)){
     close(lock);notify("TacHen launcher: saved selection or bundled fallback could not be verified. Nothing launched.");return 1;
   }
-  if(tac_update_plan(&state,sec,usec,&fallback)){close(lock);notify("TacHen already has a launch attempt in this boot. Restart before another attempt.");return 1;}
+#ifdef TACHEN_BUNDLED_RUNTIME
+  int planned=tac_update_plan_bundled(&state,sec,usec,&fallback);
+  if(planned==-2){close(lock);notify("TacHen bundled test: a different update is pending. Discard or finish that update first.");return 1;}
+#else
+  int planned=tac_update_plan(&state,sec,usec,&fallback);
+#endif
+  if(planned){close(lock);notify("TacHen already has a launch attempt in this boot. Restart before another attempt.");return 1;}
   uint8_t *image=NULL;size_t size=0;
   if(tac_update_read_image(&state.attempt,fw,&image,&size)){
+#ifdef TACHEN_BUNDLED_RUNTIME
+    close(lock);notify("TacHen bundled test: embedded build could not be read. Nothing launched.");return 1;
+#else
     TacUpdateHeader good=state.good;
     if(tac_update_header(&good,sizeof good,&good)||tac_update_read_image(&good,fw,&image,&size)){
       good=fallback;if(tac_update_read_image(&good,fw,&image,&size)){close(lock);notify("TacHen launcher: no verified fallback image is readable.");return 1;}
     }
     if(tac_update_fallback(&state,&good)){free(image);close(lock);return 1;}
+#endif
   }
   const SnipersFirmwareProfile *profile=snipers_firmware_profile(fw);uint64_t base=KERNEL_ADDRESS_DATA_BASE;
   TacKstuffSnapshot first=tac_kstuff_read(base,profile),second=tac_kstuff_read(base,profile);
   if(!tac_kstuff_snapshot_equal(&first,&second)||!tac_kstuff_injection_ready(base,&second)){free(image);close(lock);notify("TacHen launcher: kernel state is not ready for payload dispatch.");return 1;}
   if(tac_update_write(&state)){free(image);close(lock);notify("TacHen launcher: could not save the launch intent. Nothing launched.");return 1;}
+#ifdef TACHEN_BUNDLED_RUNTIME
+  char source[65],message[128];tac_update_hex(state.attempt.source_hash,source);
+  snprintf(message,sizeof message,"TacHen loading bundled build %.12s",source);notify(message);
+#endif
   int pid=elfldr_spawn("/data/tachen",-1,image+sizeof(TacUpdateHeader),"TacHen",size-sizeof(TacUpdateHeader));free(image);
   if(pid<=0){close(lock);notify("TacHen launch was not confirmed. Restart before trying again.");return 1;}
   state.pid=pid;int saved=tac_update_write(&state);close(lock);

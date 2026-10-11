@@ -31,9 +31,11 @@ int tac_module_arena_claim(TacModuleSession *session,const char *request);
 // ownership; never loads a disk receipt or adopts another game implicitly.
 int tac_module_live_session(int pid,const char *generation,const char *metadata,TacModuleSession*);
 void tac_module_path(const TacModuleReceipt *receipt,char path[256]);
+void tac_module_failure_message(int32_t handle,int32_t startResult,char *message,size_t size);
 // Identity of the in-game control block; no pointer obtained from it is used.
 int tac_module_gate_valid(const TacModuleSession *session,const TacGameGate *gate);
 // Pure publication primitive. Caller must hold a stopped process lease through
-// both writes, readback and rollback. 0=armed, 1=not applied, -1=uncertain.
+// both writes, readback and rollback. 0=armed, 1=not applied, -1=uncertain,
+// 2=callback busy with an untouched slot (resume the game before waiting).
 typedef struct {void *context;int(*read)(void*,TacGameGate*);int(*write)(void*,size_t,const void*,size_t);} TacModuleOps;
 int tac_module_stage(const TacModuleSession *session,unsigned slot,const TacModuleOps *ops);

@@ -60,6 +60,7 @@ export class SessionHistory {
     else if (entry.undone) reason = 'This change has already been reversed.';
     else if (entry.reversalOf) reason = 'This records a reversal. Use the ordinary controls to make a new change.';
     else if (!['settings', 'plugin-config', 'profile'].includes(entry.change)) reason = 'This change has no automatic reversal.';
+    else if (entry.change === 'plugin-config' && entry.before === true) reason = 'Plugin autostart has been removed. Load plugins manually once you are in game.';
     else if (entry.change === 'settings' && Object.hasOwn(entry.after, 'developer')) reason = 'Developer grants must be enabled explicitly; undo does not restore access.';
     else if (!equal(this.current(entry, state), entry.after)) reason = 'These choices changed afterward. Undo would overwrite a newer change.';
     else {

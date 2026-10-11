@@ -14,9 +14,8 @@ abort-controller and noble-hashes retain their package licenses and locked versi
 The build uses esbuild (MIT), Zig, and the PS5 payload SDK v0.43 by John Törnblom
 and the PS5-Payload-dev contributors. The SDK is an external GPL dependency.
 
-Future integration of etaHEN, OnionHEN FPS
-work, save tools or other projects must preserve their own notices and source
-requirements. Listing an intended integration here does not imply it is finished.
+Integration of upstream work preserves its original notices and source provenance.
+Detailed component and interface credits follow below.
 
 The .plugin container interpretation follows etaHEN/etaHEN-Plugins
 `lib/make_plugin.py` (commit 6339554e4e3c92c0a655a37194c1152d6b82ad88), as
@@ -40,6 +39,12 @@ That inspector credits flatz's `ps4_remote_pkg_installer/pkg.h` for the PS4 head
 layout. TacHen adds its own bounded reader, shared reservations, background
 verification and phone workflow; these do not establish signature or license validity.
 
+The DPI v2 HTTP form contract (port 12800, `url` and multipart `file` fields) was
+checked against etaHEN's `DirectPKGInstaller.cpp` by LightningMods and etaHEN
+contributors, through the existing GronedWaffel port. TacHen's streaming parser,
+receiver, queue workflow and staging code are original GPL-3.0-or-later work.
+Receiving an HTTP success response means acceptance, not installation completion.
+
 The loader's treatment of runtime imports was checked against the SDK v0.43
 [payload dynamic linker](https://github.com/ps5-payload-dev/sdk/blob/v0.43/crt/rtld_payload.c):
 the payload CRT resolves library/symbol imports. TacHen validates referenced data
@@ -50,10 +55,9 @@ Embedded raw component release files are independently pinned in
 by EchoStretch and the kstuff contributors, [ShadowMountPlus 1.7beta4](https://github.com/drakmor/ShadowMountPlus/tree/1.7beta4)
 by Drakmor and contributors, and [Payload Manager 0.5.2](https://github.com/itsPLK/ps5-payload-manager/tree/v0.5.2)
 by PLK and contributors. These are GPL components, not TacHen inventions. The
-development build embeds their unmodified upstream ELFs; it does not embed the
-older etaHEN-dependent Snipers supervisor wrappers. Corresponding source archives
-and licenses must accompany any eventual binary distribution; this project has
-not published a binary release.
+beta build embeds their unmodified upstream ELFs; it does not embed the
+older etaHEN-dependent Snipers supervisor wrappers. Pinned corresponding source archives, submodules and licenses accompany the
+beta release in TacHen-third-party-sources.zip.
 
 `platform/native/firmware-profiles.h` preserves the unified GronedWaffel port's
 public DATA-relative tables. Immutable source references and values are retained
@@ -219,3 +223,40 @@ alongside the credited Neighborhood 13.60 layout. Pinned links and the limits of
 this evidence are recorded in `docs/PACKAGE-ABI-REVIEW.md`. TacHen's bounded
 decoder, status-tail selection and synthetic fixtures are new code. Historical
 declarations do not establish TacHen's per-firmware hardware compatibility.
+
+
+The native download worker links PS5 builds of curl (Daniel Stenberg and
+contributors), wolfSSL, zlib, Zstandard and libpsl, using the same local archives
+recorded in the etaHEN build inputs. `vendor/download/inputs.json` pins those
+archives. The beta release supplies upstream source archives and licenses for
+curl 8.10.1, wolfSSL 5.7.2, zlib 1.3.1, Zstandard 1.5.6 and libpsl 0.21.5,
+plus PS5 build recipes. Exact static inputs are supplied separately, with checksums.
+No claim of bit-for-bit rebuilding of those upstream archives is made. The curl headers retain
+their notices and the curl 8.10.1 COPYING file is in `vendor/download/`.
+
+HTTPS trust uses the September 25, 2026 Mozilla CA bundle distributed by curl.
+Its exact source URL, SHA-256 and certificate count are in
+`vendor/ca/provenance.json`; the MPL-2.0 license is retained alongside it.
+
+Dashboard system-window integration was informed by etaHEN / LightningMods' XML
+settings-page approach and OnionHEN's legacy settings URI research. TacHen uses
+its own virtual XML resource, scoped native item callbacks, independent cheat
+view state and existing validated jobs. Console metadata and AOT call paths were
+examined to resolve the native interfaces. The home title-display registry key
+was cross-checked against etaHEN's implementation and the console's RegistryUtil
+table. No copied Toolbox XML, persistent registry edits or system-file patches
+are included in this integration.
+
+
+The game-module import-slot strategy was checked against ciss84's
+[Plugin-Loader-v1.13](https://github.com/ciss84/etaHEN-Plugins-v2.1/tree/bb9f45a595eff6c4f9bfda8bfd4d154f5856ea41/Plugin_samples/Plugin-Loader-v1.13).
+TacHen's bounded metadata reader, original-first import thunk, transactional
+pointer publication and asynchronous module worker are separate implementations.
+Runtime metadata field locations follow the credited etaHEN port's `rtld.hpp`.
+The paired `plugin_load` / `plugin_unload` activation convention follows the
+[GoldHEN Plugins SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK/tree/bcea3c7ef01dac6d7f9f49ebf9e90fe66d86f5f7)
+and its example loader. This entry-point support does not implement GoldHEN's
+syscall-500 services or imply compatibility with every GoldHEN plugin. No private
+third-party game module is included in TacHen's source or release artifacts.
+
+SQLite 3.46.1 is by D. Richard Hipp and SQLite contributors, dedicated to the public domain. Its amalgamation and the PS5 package recipe are included in the third-party source bundle.

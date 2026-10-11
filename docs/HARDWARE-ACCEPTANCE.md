@@ -1,7 +1,7 @@
-# Deferred console acceptance
+# Console acceptance checklist
 
-**Status: not run.** These are instructions for the final attended test phase,
-not recorded results or permission to contact a console while the owner is away.
+This checklist was written during development. It is not a complete per-firmware
+results matrix; see the current README and release notes for reported beta status.
 A local review ZIP, green host tests or a source fingerprint does not establish
 that TacHen works on hardware.
 

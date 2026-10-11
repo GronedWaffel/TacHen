@@ -60,7 +60,9 @@ export class GameLifecycle {
       this.state('idle', 'No running game detected.'); if (previous) await this.emit('exit', null, previous); return;
     }
     const mounted = this.native.gameMetadata(process.pid, process.generation, process.titleId);
-    invariant(mounted?.scope === 'running-sandbox', 'GAME_METADATA_SOURCE', 'Game actions require the running application’s metadata.');
+    const registered = mounted?.scope === 'registered-running-title' && mounted.format === 'sfo' && /^CUSA\d{5}$/.test(process.titleId) &&
+      mounted.generation === process.generation && mounted.titleId === process.titleId;
+    invariant(mounted?.scope === 'running-sandbox' || registered, 'GAME_METADATA_SOURCE', 'Game actions require the running application’s metadata.');
     const game = { ...process, ...inspectGameMetadata(mounted.format, mounted.bytes, process.titleId) };
     if (!same(this.candidate, game)) {
       const wasAvailable = Boolean(this.runtime.game); this.lease?.abort();
@@ -81,7 +83,8 @@ export class GameLifecycle {
   }
   start() {
     if (!this.stopped) return; this.stopped = false;
-    const tick = async () => { if (this.stopped) return; await this.refresh(); if (!this.stopped) this.timer = setTimeout(tick, this.deferred ? 25 : this.runtime.gameStatus.phase === 'idle' ? 5000 : this.interval); };
+    const tick = async () => { if (this.stopped) return; await this.refresh(); if (!this.stopped) this.timer = setTimeout(tick,
+      this.deferred ? 25 : this.runtime.gameStatus.phase === 'discovering' ? 150 : this.runtime.gameStatus.phase === 'idle' ? 1000 : this.interval); };
     tick();
   }
   stop() { this.stopped = true; this.lease?.abort(); clearTimeout(this.timer); this.timer = null; }

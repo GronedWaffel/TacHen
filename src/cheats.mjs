@@ -13,12 +13,13 @@ function hex(value, field) {
   invariant(typeof value === 'string' && /^(?:[a-fA-F0-9]{2})+$/.test(value) && value.length <= 8192,
     'CHEAT_BYTES', `Invalid ${field} patch bytes.`); return value.toLowerCase();
 }
-export function importCheatJson(source, { titleId, version }) {
-  invariant(titlePattern.test(titleId) && versionPattern.test(version), 'CHEAT_IDENTITY', 'Cheats require an exact title ID and version.');
+export function importCheatJson(source, identity = {}) {
   invariant(typeof source === 'string' && source.length <= 4 * 1024 * 1024, 'CHEAT_SIZE', 'Cheat document is too large.');
   let document;
   try { document = JSON.parse(source); } catch { throw new TacError('CHEAT_JSON', 'The cheat file is not valid JSON.'); }
   invariant(document && !Array.isArray(document), 'CHEAT_FORMAT', 'Cheat document must be an object.');
+  const titleId = identity.titleId ?? document.id ?? identity.fallback?.titleId, version = identity.version ?? document.version ?? identity.fallback?.version;
+  invariant(titlePattern.test(titleId) && versionPattern.test(version), 'CHEAT_IDENTITY', 'This file needs a title ID and version. Start its target game if the file does not include them.');
   if (document.id != null) invariant(document.id === titleId, 'CHEAT_IDENTITY', 'Cheat title ID differs from the selected game.');
   if (document.version != null) invariant(document.version === version, 'CHEAT_IDENTITY', 'Cheat version differs from the selected game.');
   const name = text(document.name, 200, 'name'), process = text(document.process, 128, 'process');

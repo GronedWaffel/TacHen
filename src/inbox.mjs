@@ -36,6 +36,11 @@ export class PayloadInbox {
     try { await directory.sync(); } finally { await directory.close(); }
   }
   async begin({ name, bytes, sha256 }) {
+    return this.allocate({ name, bytes, sha256 }, 0);
+  }
+  // Only trusted staging code can credit a file already on this same volume.
+  // Public upload arguments cannot reduce the storage reservation.
+  async allocate({ name, bytes, sha256 }, existingBytes = 0) {
     const operation = this.reservations.tail.catch(() => {}).then(async () => {
     invariant(typeof name === 'string' && this.policy.names.test(name), 'PAYLOAD_NAME', this.policy.nameMessage);
     invariant(Number.isSafeInteger(bytes) && bytes >= this.policy.minimum && bytes <= this.policy.maximum, 'PAYLOAD_SIZE', this.policy.sizeMessage);
@@ -49,7 +54,8 @@ export class PayloadInbox {
       invariant(!entries.some(entry => entry.status === 'unreadable'), 'RESERVATION_UNKNOWN', 'An unreadable upload must be reviewed before reserving more space.');
       reserved += entries.filter(entry => entry.status === 'uploading').reduce((sum, entry) => sum + Math.max(0, entry.bytes - entry.offset), 0);
     }
-    invariant(Number.isSafeInteger(free) && free >= reserved + bytes + 16 * 1024 * 1024, 'NO_SPACE', 'Insufficient free space for this file, existing uploads and the safety reserve.');
+    invariant(Number.isSafeInteger(existingBytes) && existingBytes >= 0 && existingBytes <= bytes, 'UPLOAD_RESERVATION', 'Invalid staged file reservation.');
+    invariant(Number.isSafeInteger(free) && free >= reserved + bytes - existingBytes + 16 * 1024 * 1024, 'NO_SPACE', 'Insufficient free space for this file, existing uploads and the safety reserve.');
     const id = this.id(), meta = { id, name, bytes, expectedSha256: sha256 ?? null };
     const part = await fs.open(this.file(id, '.part'), 'wx', 0o600);
     try { await part.sync(); } finally { await part.close(); }
@@ -81,6 +87,9 @@ export class PayloadInbox {
     }
     invariant(false, 'UPLOAD_MISSING', 'The upload file is missing.', { status: 404 });
   }
+  async dataFile(id, status) {
+    return this.file(id, status.status === 'verified' ? '.payload' : '.part');
+  }
   async append(id, offset, data) {
     invariant(Number.isSafeInteger(offset) && offset >= 0 && data.length > 0 && data.length <= 1024 * 1024,
       'UPLOAD_RANGE', 'Invalid upload chunk.', { status: 400 });
@@ -104,7 +113,7 @@ export class PayloadInbox {
     return this.exclusive(id, async () => {
       const status = await this.status(id);
       invariant(status.offset === status.bytes, 'UPLOAD_INCOMPLETE', 'Finish uploading the file first.');
-      const file = await fs.open(this.file(id, status.status === 'verified' ? '.payload' : '.part'), 'r');
+      const file = await fs.open(await this.dataFile(id, status), 'r');
       const hash = createHash('sha256'), prefix = Buffer.alloc(Math.min(status.bytes, 16384));
       let info;
       try {
@@ -112,13 +121,18 @@ export class PayloadInbox {
         invariant(first.bytesRead === prefix.length, 'SHORT_READ', 'Could not inspect the complete file header.');
         const before = await file.stat();
         info = await this.policy.inspect(file, prefix, status);
-        const chunk = Buffer.alloc(1024 * 1024);
-        let yieldAt = Date.now();
+        // QuickJS hashes on the coordinator thread. Bound each synchronous
+        // update so renderer heartbeats can run between verification chunks.
+        const chunk = Buffer.alloc(64 * 1024);
+        let yieldAt = Date.now(), progressAt = -Infinity;
         for (let position = 0; position < status.bytes;) {
           invariant(!signal?.aborted, 'UPLOAD_CANCELLED', 'File verification was cancelled; uploaded bytes were retained.');
           const { bytesRead } = await file.read(chunk, 0, Math.min(chunk.length, status.bytes - position), position);
           invariant(bytesRead > 0, 'SHORT_READ', 'File verification ended early.'); hash.update(chunk.subarray(0, bytesRead)); position += bytesRead;
-          await progress({ completed: position, total: status.bytes, phase: 'Verifying file checksum' });
+          if (position === status.bytes || Date.now() - progressAt >= 250) {
+            await progress({ completed: position, total: status.bytes, phase: 'Verifying file checksum' });
+            progressAt = Date.now();
+          }
           if (Date.now() - yieldAt >= 25) { await new Promise(resolve => setTimeout(resolve, 0)); yieldAt = Date.now(); }
         }
         const after = await file.stat();
@@ -141,7 +155,7 @@ export class PayloadInbox {
     }
     return result;
   }
-  async importFile(source, name) {
+  async importFile(source, name, context = {}) {
     const stat = await fs.lstat(source);
     invariant(stat.isFile() && !stat.isSymbolicLink(), 'IMPORT_FILE', 'Only regular payload files can enter the inbox.');
     const input = await fs.open(source, 'r'); let entry;
@@ -150,14 +164,17 @@ export class PayloadInbox {
       entry = await this.begin({ name, bytes: before.size });
       const chunk = Buffer.alloc(1024 * 1024);
       for (let offset = 0; offset < before.size;) {
+        invariant(!context.signal?.aborted, 'UPLOAD_CANCELLED', 'Copy cancelled. The original file was not changed.');
         const { bytesRead } = await input.read(chunk, 0, Math.min(chunk.length, before.size - offset), offset);
         invariant(bytesRead > 0, 'IMPORT_TRUNCATED', 'The source file changed while importing.');
         await this.append(entry.id, offset, chunk.subarray(0, bytesRead)); offset += bytesRead;
+        await context.progress?.({ completed: offset, total: before.size, phase: 'Copying file to console storage' });
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
       const after = await input.stat();
       invariant(after.size === before.size && after.mtimeMs === before.mtimeMs,
         'IMPORT_CHANGED', 'The source file changed while importing.');
-      return await this.verify(entry.id);
+      return await this.verify(entry.id, context);
     } catch (error) {
       // Only this new, unexposed import is removed. The FTP source is preserved.
       if (entry) for (const suffix of ['.part', '.payload', '.json']) {

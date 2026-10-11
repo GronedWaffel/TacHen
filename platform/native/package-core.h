@@ -9,7 +9,7 @@ enum { TAC_PKG_QUEUED=1,TAC_PKG_HASHING,TAC_PKG_PREFLIGHT,TAC_PKG_SUBMITTING,
        TAC_PKG_INSTALLING,TAC_PKG_COMPLETED,TAC_PKG_REJECTED,TAC_PKG_UNKNOWN };
 typedef struct {
  uint32_t magic,version;uint64_t bytes;int64_t bootSec,bootUsec;
- uint32_t type,platform,patch,reserved;
+ uint32_t type,platform,patch,reserved; // v1: 0/full file digest; v2: 1/inspected header digest
  char request[33],upload[33],sha256[65],content[37],name[128];
  unsigned char checksum[32];
 } TacPackageRequest;
@@ -18,11 +18,16 @@ typedef struct {
  int32_t error,pid;uint64_t updated,downloaded,total;char state[16],message[192];
  unsigned char checksum[32];
 } TacPackageReceipt;
+static inline int tac_package_ended_preflight(const TacPackageReceipt*r,const TacPackageRequest*current){
+ return current->bootSec>0 && r->input.bootSec>0 && (r->input.bootSec!=current->bootSec||r->input.bootUsec!=current->bootUsec) &&
+  r->stage>=TAC_PKG_QUEUED && r->stage<=TAC_PKG_PREFLIGHT && r->clean && !r->accepted && !r->observed;
+}
 typedef struct { uint64_t bytes;uint32_t type,platform,patch;char content[37]; } TacPackageInfo;
 typedef int (*TacPackageRead)(void*,uint64_t,void*,size_t);
 int tac_package_inspect(TacPackageRead read,void* context,uint64_t bytes,TacPackageInfo* out);
 int tac_package_request_valid(const TacPackageRequest* request);
 int tac_package_hex(const char* value,size_t length);
+int tac_package_source_path_valid(const char* path);
 typedef struct {char state[16];uint64_t downloaded,total;int32_t error;} TacPackageProgress;
 // A successful API return alone is not completion. Require progress belonging
 // to this submission and two terminal observations. Prior playable installs

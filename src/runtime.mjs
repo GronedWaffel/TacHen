@@ -24,9 +24,9 @@ export class TacRuntime {
     this.inboxItems = [];
     const changed = () => { this.sequence++;this.notices?.observe();this.diagnostics?.observe(); };
     this.graph = new ServiceGraph({ changed, allowOptional: id => this.recovery?.permits(id) === true });
-    this.jobs = new JobQueue(store, { id, now, session: this.session, changed,
+    this.jobs = new JobQueue(store, { id, now, session: this.session, changed, report: event => platform.operationLog?.(event),
       evidence: (job, value) => this.diagnostics?.receipt(job, value), admit: (kind, args) => {
-        if (kind === 'package.verify' || kind === 'update.stage') return;
+        if (kind === 'package.verify' || kind === 'update.stage' || kind === 'file.import') return;
         const permitted = this.recovery?.permitsJob(kind, args);
         invariant(!this.recovery?.pending || permitted, 'STARTUP_BUSY', 'Native startup is in progress. Wait for it to finish.');
         invariant(!this.graph.safe || permitted, kind === 'component.start' ? 'SAFE_START' : 'SAFE_STARTUP',
@@ -64,6 +64,7 @@ export class TacRuntime {
       this.diagnostics.observe();
       this.diagnostics.record('startup', { status: 'installing-adapters' }); await this.diagnostics.flush();
       await this.platform.install(this);
+      await this.packageRecovery?.();
       this.graph.validate(); this.started = true;
       // 'ready' here covers this coordinator only, never unstarted native services.
       await this.store.transaction(state => { state.startup.pending = false; });
@@ -77,27 +78,30 @@ export class TacRuntime {
       this.diagnostics.finish('startup-failed'); await this.diagnostics.flush(); throw error;
     }
   }
-  overlaySettings() { return { ...this.store.snapshot().settings.overlay, ...this.loadouts?.overlay() }; }
-  snapshot() {
+  overlaySettings(overlay = this.store.snapshot().settings.overlay) { return { ...overlay, ...this.loadouts?.overlay() }; }
+  snapshot({ internal = false } = {}) {
     const state = this.store.snapshot(), services = this.graph.snapshot();
     return { name: 'TacHen', version: '0.1.0-dev', sequence: this.sequence, revision: state.revision,
       session: this.session, identity: this.identity, safe: this.graph.safe, game: this.game,
       gameStatus: this.gameStatus ? clone(this.gameStatus) : null,
       telemetry: this.telemetry ? this.telemetry.snapshot() : null,
       gameInput: this.gameInput?.observation ? clone(this.gameInput.observation) : null,
-      settings: { ...state.settings, overlay: this.overlaySettings() }, services, capabilities: [...this.capabilities.values()].map(clone),
+      settings: { ...state.settings, overlay: this.overlaySettings(state.settings.overlay) }, services, capabilities: [...this.capabilities.values()].map(clone),
       notices: this.notices.snapshot(state, services),
       diagnostics: this.diagnostics.snapshot(state),
       recovery: this.recovery?.snapshot(state) || null,
       updates: this.updates?.snapshot() || null,
       loadouts: this.loadouts ? this.loadouts.snapshot() : null,
       saves: this.saves ? this.saves.snapshot() : null,
+      startupPayloads: this.startupPayloads?.snapshot() || null,
+      downloads: { available: Boolean(this.downloads) },
+      packageReceiver: this.packageReceiver?.snapshot() || null,
       inbox: clone(this.inboxItems), packages: this.packageInbox ? clone(this.packageItems || []) : null,
       plugins: this.plugins ? this.plugins.list(state) : null,
       cheats: this.cheats ? this.cheats.list() : null,
       library: this.libraryState ? { count: this.libraryState.games.length,
         updatedAt: this.libraryState.updatedAt, error: clone(this.libraryState.error), available: this.libraryState.available } : null,
-      jobs: state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
+      jobs: internal ? this.jobs.snapshot(state.jobs) : state.jobs.map(({ key, signature, requestSignature, args, checkpoint, ...job }) => job),
       history: this.changes.snapshot(state),
       queue: { halted: this.jobs.halted, error: this.jobs.fault,
         archived: Object.values(state.jobArchive || {}).reduce((sum, ref) => sum + ref.count, 0) } };
@@ -139,6 +143,14 @@ export class TacRuntime {
   async execute(command, args) {
     invariant(this.started, 'NOT_READY', 'TacHen startup is incomplete.');
     switch (command) {
+      case 'package.receiver.set':
+        invariant(this.packageReceiver, 'FEATURE_UNAVAILABLE', 'Package receiving is unavailable.');return this.packageReceiver.setEnabled(args.enabled);
+      case 'payload.startup.configure':
+        invariant(this.startupPayloads, 'FEATURE_UNAVAILABLE', 'Startup payload options are not installed.');return this.startupPayloads.configure(args);
+      case 'files.list': return this.fileManager.browse(args);
+      case 'download.delete': return this.downloadLibrary.remove(args);
+      case 'files.browse':
+        invariant(this.localFiles, 'FEATURE_UNAVAILABLE', 'Local storage browsing is not installed.');return this.localFiles.browse(args);
       case 'settings.update': return this.settings(args.patch, args.revision);
       case 'history.preview': return this.changes.preview(args);
       case 'history.undo': return this.changes.undo(args);
@@ -231,5 +243,5 @@ export class TacRuntime {
     }
     return this.snapshot();
   }
-  async close() { this.mcp?.revoke(); this.saves?.stop(); this.loadouts?.stop();this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; await this.diagnostics.close(); }
+  async close() { this.consoleDeck?.stop(); this.packageReceiver?.close(); this.startupPayloads?.stop(); this.mcp?.revoke(); this.saves?.stop(); this.loadouts?.stop();this.telemetry?.stop(); this.ps4Fps?.stop(); this.gameInputRelay?.stop(); this.gameInput?.stop(); this.gameLifecycle?.stop(); this.plugins?.stop(); this.nativeServices?.stopMonitoring(); this.nativeDeck?.stopMonitoring(); this.jobs.stopDispatch(); await this.store.tail; await this.diagnostics.close(); }
 }

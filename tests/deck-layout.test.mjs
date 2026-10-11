@@ -5,6 +5,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { encodeDeck } from '../src/deck.mjs';
+import {fileManagerFrame} from '../src/deck-file-browser.mjs';
 const root=path.resolve(import.meta.dirname,'..'), exe=path.join(root,'build/deck-layout-test.exe');
 before(()=>{
   const zig=process.env.ZIG||path.join(root,'../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
@@ -21,6 +22,15 @@ function frame(extra={}){
       {token:'2'.repeat(32),label:'Enable game autostart',detail:'Wait for the exact target game and version. Disabling autostart does not unload code.',enabled:true,on:true},
       {token:'3'.repeat(32),label:'Load into game',detail:'Startup recovery is holding native operations.',enabled:false}],...extra};
 }
+test('file browser renders both file tables, paths, selection and action toolbar in their own regions',async t=>{
+ const listing=source=>({source,parent:null,entries:[{name:'example.elf',source:source+'/example.elf',bytes:2048,directory:false}]});
+ const browser=fileManagerFrame({active:0,panes:[{listing:listing('/data'),offset:0},{listing:listing('/mnt/usb0'),offset:0}]});
+ const f=frame({browser,rows:browser.rows.map((r,i)=>({...r,token:String(i).repeat(32)})),title:'TacHen / File browser'});
+ const l=await render(t,f,1,13),p=await render(t,f,1,13,true);
+ assert.equal(l[1].text,'/data');assert.equal(l[2].text,'/mnt/usb0');assert.equal(l[9].text,'example.elf');assert.equal(l[21].text,'example.elf');assert.equal(l[45].text,'2.0 KiB');
+ assert(l[9].x<960&&l[21].x>960);assert.equal(l[56].text,'Copy');assert.equal(l[63].text,'Close');assert.equal(p[5].x,974);
+ assert(l.slice(56).every(x=>x.y>=840));const closed=await render(t,f,0,13,true);assert(closed.slice(16).every(x=>!x.visible));
+});
 async function render(t,frame,open=1,selected=0,panels=false){
   const file=path.join(root,'build','layout-'+crypto.randomUUID()+'.bin');
   await fs.writeFile(file,encodeDeck(frame));t.after(()=>fs.unlink(file));
@@ -30,7 +40,8 @@ async function render(t,frame,open=1,selected=0,panels=false){
 test('native focus layout keeps section navigation, selection details and live metrics in separate areas',async t=>{
   const view=await render(t,frame(),1,1);
   assert.equal(view[0].text,'TacHen');assert.equal(view[1].text,'Plugins');
-  assert.equal(view[6].text,'> Payloads');assert.equal(view[13].ink,0);assert.equal(view[21].text,'ON');
+  assert.ok(view.slice(4,12).every(item=>!item.text),'submenus do not repeat the navigation rail');
+  assert.equal(view[13].ink,7);assert.equal(view[21].text,'ON');
   assert.equal(view[29].text,'Enable game autostart');
   assert.match(view.slice(33,39).map(x=>x.text).join(' '),/does not unload code/);
   assert.equal(view[39].text,'X  Select');assert.equal(view[41].text,frame().ip);assert.match(view[42].text,/60 FPS/);
@@ -41,9 +52,10 @@ test('native focus layout keeps section navigation, selection details and live m
 
 test('native panels follow selection and are hidden with stale UI while independent overlays retain their opt-ins',async t=>{
   const panels=await render(t,frame(),1,1,true);
-  assert.equal(panels.length,12);assert(panels.slice(0,9).every(p=>p.visible));
-  assert.equal(panels[5].y,334);assert.equal(panels[6].y,344);assert.equal(panels[9].visible,0);
+  assert.equal(panels.length,24);assert(panels.slice(0,9).every(p=>p.visible));
+  assert.equal(panels[5].y,386);assert.equal(panels[6].y,876);assert.equal(panels[9].visible,0);
   for(const p of panels)assert(p.x>=0&&p.y>=0&&p.width>0&&p.height>0&&p.x+p.width<=1920&&p.y+p.height<=1080);
+  for(const p of panels.filter(p=>p.visible))assert(p.x>=255&&p.x+p.width<=1665,'menu stays in the centered rectangle');
   const empty=await render(t,frame({rows:[]}),1,999,true);assert.equal(empty[5].visible,0);assert.equal(empty[8].visible,0);
   const closed=await render(t,frame(),0,0,true);assert(closed.slice(0,10).every(p=>!p.visible));assert(closed[10].visible&&closed[11].visible);
   const notice=await render(t,frame({notices:{sequence:1,current:{level:'attention',remainingMs:1200,count:1,title:'Check Activity',detail:'Review before retrying.'}}}),0,0,true);
@@ -52,7 +64,7 @@ test('native panels follow selection and are hidden with stale UI while independ
 });
 test('disabled and empty native views explain their state without inventing actions',async t=>{
   const held=await render(t,frame(),1,2);
-  assert.equal(held[39].text,'Currently unavailable');assert.equal(held[39].ink,4);
+  assert.equal(held[39].text,'');assert.equal(held[39].ink,4);
   assert.match(held.slice(33,39).map(x=>x.text).join(' '),/Startup recovery/);
   const empty=await render(t,frame({rows:[]}),1,999);
   assert.equal(empty[29].text,'No actions here yet');assert.equal(empty[39].text,'');
@@ -99,17 +111,36 @@ test('native metadata selects Widget overload and rejects mismatched or ambiguou
 });
 
 
-test('all native accents match phone colors without recoloring warnings or changing geometry',async t=>{
-  const expected={mint:[0.722,0.953,0.545,1],amber:[1,0.827,0.565,1],ice:[0.584,0.851,1,1]};
+test('native chrome stays black and white across accent preferences without recoloring warnings',async t=>{
+  const expected={mint:[1,1,1,1],amber:[1,1,1,1],ice:[1,1,1,1]};
   let base;
   for(const [accent,color] of Object.entries(expected)){
     const data=frame({accent}),view=await render(t,data,1,2),panels=await render(t,data,1,2,true);
-    assert.deepEqual(view[0].color,color);assert.deepEqual(view[41].color,color);
-    assert.deepEqual(panels[6].color,color);assert.deepEqual(panels[8].color,color);
+    assert.deepEqual(view[0].color,[0.97,0.97,0.97,1]);assert.deepEqual(view[41].color,[0.7,0.7,0.7,1]);
+    assert.deepEqual(panels[6].color,[0.68,0.68,0.68,0.28]);assert.deepEqual(panels[5].color,color);assert.deepEqual(panels[8].color,color);
     assert.equal(view[39].ink,4);assert.deepEqual(view[39].color,[1,0.76,0.38,1]);
     const geometry={labels:view.map(({x,y,size,text})=>({x,y,size,text})),panels:panels.map(({color,...p})=>p)};
     if(base)assert.deepEqual(geometry,base);else base=geometry;
     const closed=await render(t,{...data,notices:{sequence:1,current:{level:'attention',count:1,remainingMs:1000,title:'Attention',detail:'Check Activity'}}},0,0);
-    assert.equal(closed[43].ink,4);assert.deepEqual(closed[41].color,color);
+    assert.equal(closed[43].ink,4);assert.deepEqual(closed[41].color,[0.97,0.97,0.97,1]);
   }
+});
+
+test('home tiles use a centered translucent surface and retain every action label',async t=>{
+ const names=['Packages','Payloads','Plugins','Games','Saved games','Cheats','Transfers','Settings'];
+ const data=frame({page:0,title:'TacHen / Home',grid:true,rows:names.map((label,i)=>({token:String(i).repeat(32),label,detail:'Choose files and configure this feature.',enabled:true}))});
+ const view=await render(t,data,1,4),panels=await render(t,data,1,4,true);
+ assert.deepEqual(view.slice(12,20).map(row=>row.text),names);
+ assert(panels[1].color[3]>0&&panels[1].color[3]<1);
+ assert(panels.slice(16,24).every(p=>p.visible&&p.width>=300&&p.height>=200));
+ assert.equal(panels[20].color[3],1);assert.equal(view[16].ink,7);
+ assert(!panels[4].visible,'home does not duplicate selection into a detail pane');
+});
+
+test('controller keyboard draws forty keys inside the accepted glass panel and vanishes on close',async t=>{
+ const f=frame({keyboard:true,rows:[{token:'a'.repeat(32),label:'abcdefghijklmnopqrstuvwxyz0123456789',detail:'https://example.com/payload.elf',enabled:true}]});
+ const labels=await render(t,f,1,39);assert.equal(labels[39].text,'Done');assert.equal(labels[38].text,'Delete');
+ assert.equal(labels[36].text,'.');assert.equal(labels[37].text,'/');assert.match(labels[41].text,/https:/);
+ const panels=await render(t,f,1,39,true);assert.equal(panels[5].visible,1);assert.equal(panels[5].x,1492);assert.equal(panels[5].y,688);
+ const closed=await render(t,f,0,39);assert.ok(closed.slice(0,40).every(x=>!x.text));
 });

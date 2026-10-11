@@ -11,6 +11,15 @@ static uint32_t buttons(uint32_t raw){
  const uint32_t to[]={TAC_LEFT,TAC_UP,TAC_RIGHT,TAC_DOWN,TAC_CIRCLE,TAC_CROSS,TAC_L1,TAC_R1,TAC_L3,TAC_R3};
  for(unsigned i=0;i<10;i++)if(raw&from[i])out|=to[i];return out;
 }
+void tac_deck_route_focus(TacDeckInput* input,int gameFocused){
+ // A failed game bridge is not evidence that ShellUI lost controller focus.
+ // Only a verified foreground observation may override that bridge's route.
+ if(gameFocused==-2)return;
+ if(gameFocused==1&&input->active==1)return;
+ input->active=gameFocused==0?0:2;
+ input->captured=0;input->captureAt=0;input->owner=-1;
+ input->connection=0;input->count=0;input->serial=0;input->deadline=0;
+}
 void tac_deck_route_tick(TacDeck *d,TacDeckRoute *r,uint64_t now){
  if(r->active==1&&(!r->deadline||now>=r->deadline)){reset(d);r->active=2;r->captured=0;}
 }
@@ -20,7 +29,9 @@ int tac_deck_route_visible(const TacDeck *d,const TacDeckRoute *r){
  const TacDeckController *c=&r->controllers[d->owner];return c->used&&c->handle==r->owner&&c->connection==r->connection;
 }
 void tac_deck_route_receive(TacDeck *d,TacDeckRoute *r,const TacDeckInput *input,uint64_t now){
- if(r->epoch!=input->epoch||r->active!=input->active){reset(d);memset(r,0,sizeof *r);r->epoch=input->epoch;r->active=input->active;}
+ if(r->active!=input->active||(input->active&&r->epoch!=input->epoch)){reset(d);memset(r,0,sizeof *r);r->active=input->active;}
+ // Game capture epochs do not own a dashboard menu or its held shortcut.
+ r->epoch=input->epoch;
  r->deadline=input->deadline;r->captureAt=input->captureAt;r->captured=input->captured;r->owner=input->owner;r->connection=input->connection;
  tac_deck_route_tick(d,r,now);if(r->active!=1)return;
  if(!input->serial||input->serial==r->serial)return;
@@ -48,7 +59,7 @@ void tac_deck_route_receive(TacDeck *d,TacDeckRoute *r,const TacDeckInput *input
  }
 }
 TacDeckFeedback tac_deck_route_feedback(const TacDeck *d,const TacDeckRoute *r,int ready,uint64_t renderedAt){
- TacDeckFeedback f={.epoch=r->epoch,.serial=r->serial,.open=r->active==1&&d->open,.owner=-1,.ready=!!ready,.renderedAt=renderedAt};
+ TacDeckFeedback f={.epoch=r->epoch,.serial=r->serial,.open=r->active==1&&d->open,.owner=-1,.ready=!!ready,.renderedAt=renderedAt,.menuOpen=tac_deck_route_visible(d,r)};
  if(f.open&&d->owner<8&&r->controllers[d->owner].used){f.owner=r->controllers[d->owner].handle;f.connection=r->controllers[d->owner].connection;}
  return f;
 }

@@ -11,6 +11,26 @@
 #include <string.h>
 #include <errno.h>
 static void digest(const void* p,size_t n,unsigned char* out){SHA256_CTX s;sha256_init(&s);sha256_update(&s,p,n);sha256_final(&s,out);}
+int tac_package_open_source(const char* upload,char* path,size_t capacity){
+ if(!tac_package_hex(upload,32)||capacity<1024){errno=EINVAL;return -1;}
+ char reference[160];snprintf(reference,sizeof reference,"/data/tachen/packages/%s.source",upload);
+ int ref=open(reference,O_RDONLY|O_NOFOLLOW);
+ if(ref<0){if(errno!=ENOENT)return -1;snprintf(path,capacity,"/data/tachen/packages/%s.payload",upload);}
+ else {
+  struct stat st;size_t at=0;int bad=fstat(ref,&st)||!S_ISREG(st.st_mode)||st.st_size<=0||st.st_size>=1024;
+  while(!bad&&at<(size_t)st.st_size){ssize_t n=read(ref,path+at,(size_t)st.st_size-at);if(n<0&&errno==EINTR)continue;if(n<=0)bad=1;else at+=(size_t)n;}
+  close(ref);if(bad||memchr(path,0,at)){errno=EINVAL;return -1;}path[at]=0;
+ }
+ if(!tac_package_source_path_valid(path)){errno=EINVAL;return -1;}
+ // Walk from the root using directory descriptors: no symlink traversal or
+ // pathname supplied by an HTTP client. The returned fd stays open throughout.
+ char parts[1024];strcpy(parts,path+1);char* next=parts;int dir=open("/",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+ if(dir<0)return -1;
+ for(;;){char* slash=strchr(next,'/');if(slash)*slash=0;
+  int fd=openat(dir,next,O_RDONLY|O_NOFOLLOW|(slash?O_DIRECTORY:0)),saved=errno;close(dir);
+  if(fd<0){errno=saved;return -1;}if(!slash)return fd;dir=fd;next=slash+1;
+ }
+}
 int tac_package_directory(void){
  struct stat st;
  if(lstat("/data/tachen",&st)||!S_ISDIR(st.st_mode)||S_ISLNK(st.st_mode))return -1;

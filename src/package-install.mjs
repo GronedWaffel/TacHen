@@ -12,11 +12,13 @@ export function installPackageInstaller(runtime, native, { delay = sleep, now = 
     invariant(available, 'PACKAGE_FIRMWARE', 'Native installation requires a supported TacHen firmware profile and installer helper.');
     const item = await runtime.packageInbox.describe(input?.id);
     invariant(item.status === 'verified', 'PACKAGE_NOT_VERIFIED', 'Finish package verification before installing.');
-    const verification = runtime.jobs.snapshot().findLast(job => job.kind === 'package.verify' && job.args.id === item.id && job.status === 'completed');
-    const hash = verification?.result?.sha256;
+    const verification = runtime.jobs.snapshot().findLast(job => job.status === 'completed' &&
+      (job.kind === 'package.verify' && job.args.id === item.id || job.kind === 'package.download' && job.result?.id === item.id || job.kind === 'file.import' && job.args.kind === 'package' && job.result?.id === item.id));
+    const headerOnly = item.external === true && verification?.kind === 'file.import' && verification.result?.package?.verification === 'header';
+    const hash = headerOnly ? verification.result.package.headerSha256 : verification?.result?.sha256;
     invariant(typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash), 'PACKAGE_CHECKSUM', 'Run package verification before installing this file.');
     const result = { id: item.id, sha256: hash, bytes: item.bytes, contentId: item.package.contentId,
-      platform: item.package.platform, type: item.package.type, patch: item.package.patch, name: item.package.titleId + '.pkg' };
+      platform: item.package.platform, type: item.package.type, patch: item.package.patch, name: item.package.titleId + '.pkg', verification: headerOnly ? 'header' : 'file' };
     if (input.sha256) invariant(input.sha256 === result.sha256 && input.contentId === result.contentId && input.bytes === result.bytes,
       'PACKAGE_CHANGED', 'The package changed after this install was queued.');
     return result;
@@ -25,6 +27,7 @@ export function installPackageInstaller(runtime, native, { delay = sleep, now = 
     const value = native.packagePoll(id);
     invariant(value && value.request === id && value.upload === input.id && value.sha256 === input.sha256 && value.contentId === input.contentId && value.bytes === input.bytes,
       'PACKAGE_RECEIPT', 'Native installation receipt does not match this package. No resubmission was issued.');
+    invariant((value.verification || 'file') === (input.verification || 'file'), 'PACKAGE_RECEIPT', 'Native package verification mode changed.');
     invariant(Number.isInteger(value.stage) && value.stage >= 1 && value.stage <= 8 && Number.isFinite(value.ageMs) && value.ageMs >= 0,
       'PACKAGE_RECEIPT', 'Native installation receipt is invalid.');
     return value;
@@ -46,7 +49,7 @@ export function installPackageInstaller(runtime, native, { delay = sleep, now = 
         if (!probe.busy) {
           if (probe.kstuff?.state !== 'installed' || !probe.kstuff.injectionReady) throw clean('PACKAGE_DEPENDENCY', 'Verified kstuff must be ready before installation.');
           try { native.packageStart(context.id, input.id, input.sha256, input.contentId, input.type,
-            input.platform === 'ps5' ? 5 : 4, input.patch ? 1 : 0, input.bytes, input.name); break; }
+            input.platform === 'ps5' ? 5 : 4, input.patch ? 1 : 0, input.bytes, input.name, input.verification === 'header' ? 1 : 0); break; }
           catch (error) { if (error.code !== 'NATIVE_BUSY' || error.noSideEffects !== true) throw error; }
         }
         if (now() >= deadline || context.signal.aborted) throw clean('NATIVE_BUSY', 'Another native operation is still active; no package was submitted.');
@@ -66,8 +69,25 @@ export function installPackageInstaller(runtime, native, { delay = sleep, now = 
     verify(result, input) { const status = receipt(result.request, input); return Boolean(outcome(status)) && result.sha256 === input.sha256; },
     reconcile(job) {
       const status = receipt(job.id, job.args);
+      const completed = outcome(status); if (completed) return completed;
       if (status.stage === 7 && status.noSideEffects) return { absent: true };
+      // Submission intent is persisted before calling the OS. A dead boot's
+      // clean preflight cannot still submit; later stages remain uncertain.
+      if (status.sameBoot === false && status.stage <= 3 && status.noSideEffects && !status.accepted && !status.observed)
+        return { absent: true };
+      // The isolated helper and its loopback source cannot survive a reboot.
+      // Preserve the unknown historical outcome, release the old queue lock,
+      // and never replay the old request. New installs still probe OS status.
+      if (status.sameBoot === false) return { expired: true };
       return outcome(status);
-    }
+    },
+    verifyExpired(_result, job) { return receipt(job.id, job.args).sameBoot === false; }
   });
+  runtime.packageRecovery = async () => {
+    for (const kind of ['package.install', 'package.receive']) {
+      for (const job of runtime.jobs.snapshot().filter(j => j.kind === kind && j.status === 'interrupted')) {
+        try { await runtime.jobs.reconcile(job.id); } catch { /* Keep unverifiable or live receipts for manual review. */ }
+      }
+    }
+  };
 }

@@ -79,6 +79,22 @@ test('subscriber faults are contained and do not stop other lifecycle consumers'
   await f.monitor.refresh(); await f.monitor.refresh(); assert.equal(notified, 1); assert.equal(f.runtime.gameStatus.phase, 'ready');
   assert.equal(f.runtime.lifecycleErrors.length, 1);
 });
+
+test('registered PS4 metadata requires the exact native-verified running title and generation', async () => {
+  const runtime = { sequence: 0, game: null };
+  const ps4 = { ...process(), titleId: 'CUSA00265' };
+  let metadata = { format: 'sfo', scope: 'registered-running-title', titleId: ps4.titleId, generation: ps4.generation,
+    bytes: sfo({ TITLE_ID: ps4.titleId, TITLE: 'Minecraft', APP_VER: '01.44' }) };
+  const monitor = new GameLifecycle(runtime, { systemProbe: () => ({ appInfoAvailable: true, processes: [ps4] }), gameMetadata: () => metadata });
+  await monitor.refresh(); await monitor.refresh();
+  assert.equal(runtime.game.version, '01.44'); assert.equal(runtime.game.platform, 'ps4');
+  for (const changed of [{ generation: 'previous-process' }, { titleId: 'CUSA99999' }, { format: 'json' }, { scope: 'appmeta-cache' }]) {
+    const good = metadata; metadata = { ...good, ...changed }; await monitor.refresh();
+    assert.equal(runtime.game, null); assert.equal(runtime.gameStatus.error.code, 'GAME_METADATA_SOURCE'); metadata = good;
+  }
+  metadata = { ...metadata, bytes: sfo({ TITLE_ID: 'CUSA99999', APP_VER: '01.44' }) };
+  await monitor.refresh(); assert.equal(runtime.game, null); assert.equal(runtime.gameStatus.error.code, 'GAME_METADATA_IDENTITY');
+});
 test('slow lifecycle consumers never delay exit detection and their old instance signal is aborted', async () => {
   const f = fixture(); let signal;
   f.monitor.subscribe(event => { if (event.type === 'start') { signal = event.signal; return new Promise(() => {}); } });

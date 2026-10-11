@@ -43,6 +43,17 @@ test('a stale installer receipt retains the job as interrupted and is never resu
   assert.equal(job.status, 'interrupted'); assert.equal(job.error.code, 'PACKAGE_UNCERTAIN'); assert.equal(f.starts(), 1);
   await assert.rejects(f.runtime.jobs.reconcile(job.id), { code: 'OUTCOME_UNKNOWN' }); assert.equal(f.starts(), 1);
 });
+
+test('only a prior boot clean preflight can reconcile as never submitted',async()=>{
+ for(const [stage,sameBoot,clean,accepted,absent] of [[3,false,true,false,true],[3,true,true,false,false],[3,false,false,false,false],[4,false,false,false,false],[5,false,false,true,false]]){
+  const f=await fixture({stages:[stage],mutate:r=>{r.ageMs=61000;r.sameBoot=sameBoot;r.noSideEffects=clean;r.accepted=accepted;}});
+  await f.enqueue();const job=await settled(f);assert.equal(job.status,'interrupted');
+  if(absent){await f.runtime.jobs.reconcile(job.id);assert.equal(f.runtime.jobs.snapshot().at(-1).status,'failed');}
+  else if(!sameBoot){await f.runtime.jobs.reconcile(job.id);const ended=f.runtime.jobs.snapshot().at(-1);assert.equal(ended.status,'failed');assert.equal(ended.error.code,'PREVIOUS_BOOT_ENDED');assert.equal(ended.result.priorOutcome,'unknown');}
+  else await assert.rejects(f.runtime.jobs.reconcile(job.id),{code:'OUTCOME_UNKNOWN'});
+  assert.equal(f.starts(),1);await f.runtime.close();
+ }
+});
 test('an installer receipt for other bytes cannot complete an accepted job', async () => {
   const f = await fixture({ stages: [6], mutate: r => { r.sha256 = 'c'.repeat(64); } }); await f.enqueue(); const job = await settled(f);
   assert.equal(job.status, 'interrupted'); assert.equal(job.error.code, 'PACKAGE_RECEIPT');
@@ -69,4 +80,17 @@ test('interrupted installer can reconcile its own later completion without anoth
 test('kstuff readiness is checked before helper dispatch', async () => {
   const f = await fixture(); f.native.systemProbe = () => ({ kstuff: { state: 'unknown' } });
   await f.enqueue(); const job = await settled(f); assert.equal(job.status, 'failed'); assert.equal(job.error.code, 'PACKAGE_DEPENDENCY'); assert.equal(f.starts(), 0);
+});
+
+test('package recovery releases a previous boot without retrying or claiming success',async()=>{
+ let ended=false;const f=await fixture({stages:[8],mutate:r=>{r.sameBoot=!ended;r.ageMs=61000;}});
+ await f.enqueue();const first=await settled(f);assert.equal(first.status,'interrupted');
+ await f.runtime.packageRecovery();assert.equal((await f.runtime.jobs.get(first.id)).status,'interrupted');
+ ended=true;await f.runtime.packageRecovery();const recovered=await f.runtime.jobs.get(first.id);
+ assert.equal(recovered.status,'failed');assert.equal(recovered.result.priorOutcome,'unknown');assert.equal(f.starts(),1);
+ await f.runtime.close();
+});
+test('unknown boot identity does not release a live installer reservation',async()=>{
+ const f=await fixture({stages:[8],mutate:r=>{r.sameBoot=null;}});await f.enqueue();const job=await settled(f);
+ await f.runtime.packageRecovery();assert.equal((await f.runtime.jobs.get(job.id)).status,'interrupted');assert.equal(f.starts(),1);await f.runtime.close();
 });

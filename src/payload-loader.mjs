@@ -26,7 +26,17 @@ export function payloadDispatchHandler(runtime, native, { delay = sleep, managed
       // native dispatch. The native worker hashes its own private buffer too.
       try { await validate(input); }
       catch (error) { error.noSideEffects = true; throw error; }
-      native.loaderStart(context.id, input.id, input.sha256);
+      // Short controller/native workers share this guard. Busy means nothing
+      // was dispatched, so wait instead of reporting an interrupted launch.
+      for (;;) {
+        if(context.signal.aborted)throw cleanError('DISPATCH_CANCELLED','Payload dispatch ended before the native loader became available.');
+        try { native.loaderStart(context.id, input.id, input.sha256);break; }
+        catch(error) {
+          if(error.code==='LOADER_BUSY'){await delay(100);continue;}
+          if(error.code==='LOADER_NATIVE')throw new TacError(error.code,String(error.message).slice(0,384));
+          throw error;
+        }
+      }
       let phase = 0;
       for (;;) {
         const receipt = native.loaderPoll(context.id);

@@ -10,7 +10,7 @@ export function inspectPayload(input, name, { totalBytes = input.length } = {}) 
   invariant(Number.isSafeInteger(totalBytes) && totalBytes >= 64 && totalBytes <= MAX_PAYLOAD && bytes.length >= 64 && bytes.length <= totalBytes,
     'PAYLOAD_SIZE', 'Payload size must be between 64 bytes and 128 MiB.');
   const extension = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
-  let offset = 0, pluginId = null, pluginVersion = null, platform = null, container = 'elf';
+  let offset = 0, pluginId = null, pluginVersion = null, platform = null, container = 'elf', containerBytes = totalBytes;
   if (extension === 'plugin') {
     const magic = Buffer.from('etaHEN_PLUGIN\0'), titleAt = magic.length, versionAt = titleAt + 10;
     invariant(bytes.subarray(0, magic.length).equals(magic) && bytes[titleAt + 9] === 0 && bytes[versionAt + 4] === 0,
@@ -24,19 +24,29 @@ export function inspectPayload(input, name, { totalBytes = input.length } = {}) 
   if (extension === 'prx' || extension === 'sprx') {
     const magic = bytes.readUInt32LE(0);
     if (magic === 0x1d3d154f || magic === 0xeef51454) {
-      platform = magic === 0x1d3d154f ? 'ps4' : 'ps5'; container = 'self';
+      // Development FSELFs on PS5 also use 0x1d3d154f. That shared wrapper
+      // cannot identify a PS4 target; bind unknown modules to the selected
+      // game, just as with raw PRXs. Keep the PS5-specific wrapper check.
+      platform = magic === 0xeef51454 ? 'ps5' : null; container = 'self';
       const count = bytes.readUInt16LE(24); offset = 32 + count * 32;
-      invariant(count > 0 && count <= 128 && offset <= bytes.length - 64 &&
-        bytes.readBigUInt64LE(16) === BigInt(totalBytes), 'SELF_HEADER', 'Invalid SELF container bounds.');
+      invariant(count > 0 && count <= 128 && offset <= bytes.length - 64,
+        'SELF_HEADER', `SELF entry table is invalid or incomplete (${count} entries).`);
+      const declared = bytes.readBigUInt64LE(16), actual = BigInt(totalBytes);
+      // Some tools declare the final 16-byte alignment without writing padding;
+      // existing PRXs may also retain trailing data outside the SELF image.
+      // Neither permits missing segment bytes or using a trailer as a header.
+      invariant(declared >= BigInt(offset + 64) && (declared <= actual || declared === (actual + 15n) / 16n * 16n),
+        'SELF_HEADER', `SELF size mismatch: header declares ${declared} bytes; file contains ${totalBytes}.`);
+      containerBytes = Number(declared < actual ? declared : actual);
       for (let i = 0; i < count; i++) {
         const at = 32 + i * 32, start = bytes.readBigUInt64LE(at + 8), size = bytes.readBigUInt64LE(at + 16);
-        invariant(start + size <= BigInt(totalBytes), 'SELF_BOUNDS', 'A SELF segment lies outside the file.');
+        invariant(start + size <= BigInt(containerBytes), 'SELF_BOUNDS', 'A SELF segment lies outside the available container data.');
       }
     }
   }
   invariant(bytes.length >= offset + 64 && bytes.subarray(offset, offset + 7).equals(Buffer.from([0x7f, 69, 76, 70, 2, 1, 1])),
     'ELF_HEADER', 'Expected a little-endian 64-bit ELF.');
-  const elf = bytes.subarray(offset), u64 = at => elf.readBigUInt64LE(at);
+  const elf = bytes.subarray(offset, Math.min(bytes.length, containerBytes)), u64 = at => elf.readBigUInt64LE(at);
   const type = elf.readUInt16LE(16), count = elf.readUInt16LE(56), ph = u64(32);
   const module = extension === 'prx' || extension === 'sprx';
   invariant(elf.readUInt16LE(18) === 62 && elf.readUInt16LE(52) === 64 && elf.readUInt16LE(54) === 56 &&

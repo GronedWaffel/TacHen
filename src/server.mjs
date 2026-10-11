@@ -5,6 +5,7 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { invariant, publicError } from './errors.mjs';
 import { encodeDeck } from './deck.mjs';
+import { syncDeck } from './deck-sync.mjs';
 
 export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, now = Date.now } = {}) {
   const sessions = new Map();
@@ -38,7 +39,7 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-      if (req.url === '/native/deck' || req.url === '/native/deck/action' || req.url === '/native/deck/sync') {
+      if (req.url === '/native/deck' || req.url === '/native/deck/action' || req.url === '/native/deck/sync' || req.url === '/native/cheats/sync') {
         // This private bridge is for the injected renderer. A LAN browser never
         // receives its process-session credential and cannot use phone cookies
         // as a substitute. Native credential is not included in snapshots/logs.
@@ -48,16 +49,25 @@ export async function serve(runtime, { uiRoot, assets, host, port = 8780, id, no
           !req.headers.origin && /^[a-f0-9]{32}$/.test(credential) &&
           timingSafeEqual(Buffer.from(credential), Buffer.from(runtime.deckCredential)),
           'NATIVE_SESSION', 'Native renderer session required.', { status: 403 });
-        let frame;
+        let frame, status = 200;
         if (req.method === 'GET' && req.url === '/native/deck') frame = runtime.consoleDeck.frame();
+        else if(req.method==='POST'&&req.url==='/native/cheats/sync'){
+          const input=await json(req),dashboard=runtime.consoleDeck.dashboard;
+          if(input.dashboard)dashboard.open(input.dashboard);
+          invariant(dashboard.cheats,'CHEATS_WINDOW','Choose a game from the dashboard first.');
+          ({frame,status}=await syncDeck(dashboard.cheats,input.action));
+          frame.dashboard={...frame.dashboard,ack:dashboard.ack};
+        }
         else if (req.method === 'POST' && req.url === '/native/deck/sync') {
           const input = await json(req);runtime.gameInputRelay?.receive(input.feedback);
-          frame = input.action ? await runtime.consoleDeck.action(input.action) : runtime.consoleDeck.frame();
+          if(typeof input.menuOpen==='boolean')runtime.consoleDeck.setVisible(input.menuOpen);
+          if(input.dashboard)runtime.consoleDeck.dashboard.open(input.dashboard);
+          ({ frame, status } = await syncDeck(runtime.consoleDeck, input.action));
         }
         else if (req.method === 'POST' && req.url === '/native/deck/action') frame = await runtime.consoleDeck.action(await json(req));
         else return send(res, 405, { error: { code: 'METHOD', message: 'Method not allowed.' } });
         const body = encodeDeck(frame);
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+        res.writeHead(status, { 'Content-Type': 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
         return res.end(body);
       }
       if (req.method === 'GET' && staticFiles.has(req.url)) {

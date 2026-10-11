@@ -20,7 +20,7 @@ export function validateProfile(input) {
   }
   invariant(typeof input.autostart === 'boolean', 'PROFILE_START', 'Choose whether the loadout starts automatically.');
   return { schema: 1, titleId: input.titleId, version: input.version, name: input.name,
-    plugins: [...input.plugins], cheats: input.cheats.map(({ pack, id }) => ({ pack, id })), overlay, autostart: input.autostart };
+    plugins: [...input.plugins], cheats: input.cheats.map(({ pack, id }) => ({ pack, id })), overlay, autostart: !input.plugins.length && input.autostart };
 }
 export function validateProfiles(profiles) {
   invariant(profiles && typeof profiles === 'object' && !Array.isArray(profiles) && Object.keys(profiles).length <= 256, 'PROFILE_LIMIT', 'Invalid saved loadout library.');

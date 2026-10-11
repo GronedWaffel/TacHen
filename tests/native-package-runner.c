@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "package-core.h"
+#include "package-fingerprint.h"
 #include "package-abi.h"
 #include <stdio.h>
 #include <string.h>
@@ -63,9 +64,25 @@ static void tracking(void){
  puts("tracking guards passed");
 }
 static void requests(void){
+ CHECK(tac_package_source_path_valid("/mnt/usb0/Game.pkg"));CHECK(tac_package_source_path_valid("/mnt/usb7/Games/a b.pkg"));
+ CHECK(tac_package_source_path_valid("/data/homebrew/Game.pkg"));
+ CHECK(!tac_package_source_path_valid("/mnt/usb8/a.pkg"));CHECK(!tac_package_source_path_valid("/data/../system/a.pkg"));
+ CHECK(!tac_package_source_path_valid("/data//a.pkg"));CHECK(!tac_package_source_path_valid("/mnt/usb0/./a.pkg"));
+ CHECK(!tac_package_source_path_valid("/system/a.pkg"));CHECK(!tac_package_source_path_valid("/data/a\n.pkg"));
+ TacPackageRequest current={.bootSec=200,.bootUsec=1};
+ TacPackageReceipt old={.input={.bootSec=100,.bootUsec=1},.stage=TAC_PKG_PREFLIGHT,.clean=1};
+ CHECK(tac_package_ended_preflight(&old,&current));
+ old.input=current;CHECK(!tac_package_ended_preflight(&old,&current));
+ old.input.bootSec=100;old.stage=TAC_PKG_PREFLIGHT+1;CHECK(!tac_package_ended_preflight(&old,&current));
+ old.stage=TAC_PKG_PREFLIGHT;old.accepted=1;CHECK(!tac_package_ended_preflight(&old,&current));
+ old.accepted=0;old.observed=1;CHECK(!tac_package_ended_preflight(&old,&current));
+ old.observed=0;old.clean=0;CHECK(!tac_package_ended_preflight(&old,&current));
+ old.clean=1;current.bootSec=0;CHECK(!tac_package_ended_preflight(&old,&current));
  TacPackageRequest r={.magic=TAC_PACKAGE_MAGIC,.version=1,.bytes=8192,.bootSec=123,.type=0x1a,.platform=4};
  memset(r.request,'a',32);memset(r.upload,'b',32);memset(r.sha256,'c',64);strcpy(r.content,"UP0001-CUSA00001_00-ABCDEFGHIJKLMNOP");strcpy(r.name,"Game.pkg");
  CHECK(tac_package_request_valid(&r));r.bytes=TAC_PACKAGE_MAX+1;CHECK(!tac_package_request_valid(&r));r.bytes=8192;
+ r.reserved=1;CHECK(!tac_package_request_valid(&r));r.version=2;CHECK(tac_package_request_valid(&r));
+ r.reserved=2;CHECK(!tac_package_request_valid(&r));r.reserved=0;CHECK(!tac_package_request_valid(&r));r.version=1;
  r.patch=2;CHECK(!tac_package_request_valid(&r));r.patch=0;r.platform=5;CHECK(!tac_package_request_valid(&r));r.platform=4;
  r.sha256[64]='a';CHECK(!tac_package_request_valid(&r));r.sha256[64]=0;
  r.content[7]='n';CHECK(!tac_package_request_valid(&r));r.content[7]='C';r.name[0]='\n';CHECK(!tac_package_request_valid(&r));
@@ -78,6 +95,6 @@ int main(int argc,char** argv){
  if(argc==2&&!strcmp(argv[1],"--requests")){requests();return 0;}
  if(argc<2)return 2;Reader r={.file=fopen(argv[1],"rb"),.virtual=argc==3};if(!r.file)return 3;
  fseek(r.file,0,SEEK_END);uint64_t bytes=r.virtual?UINT64_C(5)*1024*1024*1024+0x8000:(uint64_t)ftell(r.file);
- TacPackageInfo info;int accepted=!tac_package_inspect(read_at,&r,bytes,&info);fclose(r.file);
- if(!accepted)puts("{\"accepted\":false}");else printf("{\"accepted\":true,\"bytes\":%llu,\"contentId\":\"%s\",\"type\":%u,\"platform\":%u,\"patch\":%u}\n",(unsigned long long)info.bytes,info.content,info.type,info.platform,info.patch);return 0;
+ TacPackageInfo info;unsigned char digest[32];char hash[65];int accepted=!tac_package_header_fingerprint(read_at,&r,bytes,&info,digest);fclose(r.file);
+ if(!accepted)puts("{\"accepted\":false}");else {for(unsigned i=0;i<32;i++)snprintf(hash+i*2,3,"%02x",digest[i]);printf("{\"accepted\":true,\"bytes\":%llu,\"contentId\":\"%s\",\"type\":%u,\"platform\":%u,\"patch\":%u,\"headerSha256\":\"%s\"}\n",(unsigned long long)info.bytes,info.content,info.type,info.platform,info.patch,hash);}return 0;
 }

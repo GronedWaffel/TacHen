@@ -6,11 +6,38 @@
 #include <string.h>
 static void roundtrip(TacUpdateState *s){TacUpdateState restored;s->revision++;tac_update_seal(s);CHECK(!tac_update_decode(s,sizeof *s,&restored));CHECK(!memcmp(s,&restored,sizeof *s));}
 static TacUpdateHeader different(TacUpdateHeader h,unsigned n){h.payload_hash[0]^=(uint8_t)n;h.source_hash[0]^=(uint8_t)n;tac_update_digest(&h,offsetof(TacUpdateHeader,checksum),h.checksum);return h;}
+static void bundled_tests(TacUpdateHeader old){
+  TacUpdateHeader fresh=different(old,11),other=different(old,12);
+  TacUpdateState s;tac_update_init(&s);s.good=old;roundtrip(&s);
+  // Reproduce the delivery issue: the normal launcher chooses saved good.
+  TacUpdateState normal=s;CHECK(!tac_update_plan(&normal,100,0,&fresh));CHECK(!memcmp(&normal.attempt,&old,sizeof old));
+  CHECK(!tac_update_plan_bundled(&s,100,0,&fresh));roundtrip(&s);
+  CHECK(s.phase==TAC_UPDATE_TRIAL);CHECK(s.attempt_kind==TAC_BOOT_TRIAL);CHECK(s.pid==0);
+  CHECK(!memcmp(&s.attempt,&fresh,sizeof fresh));CHECK(!memcmp(&s.candidate,&fresh,sizeof fresh));CHECK(!memcmp(&s.good,&old,sizeof old));
+  TacUpdateState saved=s;CHECK(tac_update_plan_bundled(&s,100,0,&other));CHECK(!memcmp(&s,&saved,sizeof s));
+  CHECK(tac_update_plan_bundled(&s,0,0,&fresh));CHECK(tac_update_plan_bundled(&s,101,1000000,&fresh));CHECK(!memcmp(&s,&saved,sizeof s));
+  TacUpdateHeader invalid=fresh;invalid.payload_hash[0]^=1;CHECK(tac_update_plan_bundled(&s,101,0,&invalid));CHECK(!memcmp(&s,&saved,sizeof s));
+  // A failed embedded trial still rolls back with the regular launcher.
+  normal=s;CHECK(!tac_update_plan(&normal,101,0,&fresh));CHECK(normal.attempt_kind==TAC_BOOT_ROLLBACK);CHECK(!memcmp(&normal.attempt,&old,sizeof old));roundtrip(&normal);
+  // Explicit new-boot retest uses the embedded image without losing good.
+  CHECK(!tac_update_plan_bundled(&s,101,0,&fresh));roundtrip(&s);CHECK(!memcmp(&s.good,&old,sizeof old));
+  s.pid=42;CHECK(tac_update_ack(&s,101,0,42,old.source_hash));CHECK(!tac_update_ack(&s,101,0,42,fresh.source_hash));roundtrip(&s);
+  CHECK(!memcmp(&s.good,&fresh,sizeof fresh));CHECK(!memcmp(&s.previous,&old,sizeof old));CHECK(s.phase==TAC_UPDATE_IDLE);
+  CHECK(!tac_update_plan_bundled(&s,102,0,&fresh));CHECK(s.attempt_kind==TAC_BOOT_BASELINE);roundtrip(&s);
+  CHECK(!tac_update_stage(&s,&other,s.revision));saved=s;
+  CHECK(tac_update_plan_bundled(&s,103,0,&fresh)==-2);CHECK(!memcmp(&s,&saved,sizeof s));
+  CHECK(!tac_update_arm(&s,s.revision));saved=s;
+  CHECK(tac_update_plan_bundled(&s,103,0,&fresh)==-2);CHECK(!memcmp(&s,&saved,sizeof s));
+  CHECK(!tac_update_plan_bundled(&s,103,0,&other));CHECK(!memcmp(&s.attempt,&other,sizeof other));roundtrip(&s);
+  tac_update_init(&s);CHECK(!tac_update_plan_bundled(&s,200,0,&fresh));roundtrip(&s);CHECK(!s.good.bytes);
+  s.pid=43;CHECK(!tac_update_ack(&s,200,0,43,fresh.source_hash));roundtrip(&s);CHECK(!memcmp(&s.good,&fresh,sizeof fresh));CHECK(!s.previous.bytes);
+}
 int main(int argc,char **argv){
   if(argc!=2)return 2;FILE *f=fopen(argv[1],"rb");CHECK(f);CHECK(!fseek(f,0,SEEK_END));long n=ftell(f);CHECK(n>256&&(uint64_t)n<TAC_UPDATE_LIMIT+256);rewind(f);
   uint8_t *bytes=malloc((size_t)n);CHECK(bytes);CHECK(fread(bytes,1,n,f)==(size_t)n);fclose(f);TacUpdateHeader h;
   if(tac_update_image(bytes,(size_t)n,0x13600000,&h)){puts("rejected");free(bytes);return 0;}
   CHECK(!tac_update_supported(&h,0x11400000));CHECK(!tac_update_supported(&h,0x10000000));
+  bundled_tests(h);
   TacUpdateState s;tac_update_init(&s);roundtrip(&s);
   TacUpdateState virgin=s;TacUpdateHeader first_trial=different(h,7);CHECK(!tac_update_stage(&virgin,&first_trial,virgin.revision));CHECK(tac_update_arm(&virgin,virgin.revision));
   CHECK(!tac_update_discard(&virgin,virgin.revision));roundtrip(&virgin);CHECK(virgin.phase==TAC_UPDATE_IDLE);

@@ -40,6 +40,71 @@ export async function fixture({ disk = memoryStorage(), safe = false, fail = nul
 }
 const finish = async r => { await until(() => !r.recovery.pending && !r.jobs.running.size);return r.snapshot().recovery; };
 
+test('reboot automatically recovers prior failed startup; same boot still holds it', async () => {
+  const f=await fixture({fail:'no-ready'});await f.runtime.nativeServices.startConfigured();await finish(f.runtime);await f.runtime.close();
+  const same=await fixture({disk:f.disk,model:f.state});
+  assert.equal((await same.runtime.nativeServices.startConfigured()).held,true);assert.deepEqual(same.calls,[]);await same.runtime.close();
+  f.state.boot='boot-two';f.state.processes[0].generation='boot-two/77/start';
+  const next=await fixture({disk:f.disk,model:f.state});
+  assert.equal((await next.runtime.nativeServices.startConfigured()).completed,true);
+  assert.equal(next.runtime.graph.safe,false);assert.equal(next.runtime.store.snapshot().startup.native.boot,'boot-two');
+  assert.equal(next.calls.filter(x=>x==='kstuff').length,1);await next.runtime.close();
+});
+
+test('a held file operation cannot hide startup and is not automatically resumed', async () => {
+  const f=await fixture(),r=f.runtime;
+  await r.store.transaction(s=>s.jobs.push({id:r.id(),session:'prior',kind:'file.import',status:'held',resources:['local-file-copy'],args:{},key:'held-import'}));
+  assert.equal((await r.nativeServices.startConfigured()).completed,true);
+  assert.equal(r.jobs.snapshot().find(j=>j.key==='held-import').status,'held');await r.close();
+});
+
+test('legacy startup recovers from job boot evidence but ambiguous or damaged state remains held', async () => {
+  for(const blocked of [null,'busy','damaged']){
+    const f=await fixture({fail:'no-ready'});await f.runtime.nativeServices.startConfigured();await finish(f.runtime);
+    await f.runtime.store.transaction(s=>delete s.startup.native.boot);await f.runtime.close();
+    f.state.boot='boot-two';f.state.processes[0].generation='boot-two/77/start';
+    const next=await fixture({disk:f.disk,model:f.state});
+    if(blocked==='busy')f.state.busy=true;
+    if(blocked==='damaged')next.runtime.store.recovered=true;
+    const result=await next.runtime.nativeServices.startConfigured();
+    if(blocked){assert(result.held);assert.deepEqual(next.calls,[]);}
+    else assert(result.completed);
+    await next.runtime.close();
+  }
+});
+
+test('reboot preserves unknown package work and its locks while restoring the menu', async () => {
+  const f=await fixture();await f.runtime.nativeServices.startConfigured();
+  await f.runtime.store.transaction(s=>s.jobs.push({id:f.runtime.id(),session:f.runtime.session,kind:'package.install',status:'interrupted',resources:['package-installer'],args:{},key:'old-install'}));
+  await f.runtime.close();f.state.boot='boot-two';f.state.processes[0].generation='boot-two/77/start';f.state.kstuff={state:'unmodified',injectionReady:false};
+  f.state.processes=f.state.processes.slice(0,1);f.state.ports={shadowmount:0,'payload-manager':0};
+  const next=await fixture({disk:f.disk,model:f.state});
+  next.runtime.jobs.register('package.install',{validate:()=>({}),resources:()=>['package-installer'],run(){assert.fail('Do not replay installation');},verify:()=>false,reconcile:()=>null});
+  assert.equal((await next.runtime.nativeServices.startConfigured()).completed,true);
+  const old=next.runtime.jobs.snapshot().find(j=>j.key==='old-install');assert.equal(old.status,'interrupted');assert.deepEqual(old.resources,['package-installer']);
+  assert(next.calls.includes('native-deck'));await next.runtime.close();
+});
+
+test('startup reconciles clean ended installer work before its receiver parent without replaying either', async () => {
+  for (const ended of [true,false]) {
+    const f=await fixture(),r=f.runtime,order=[];let executions=0;
+    for(const kind of ['package.install','package.receive'])r.jobs.register(kind,{
+      validate:()=>({}),resources:()=>[],run(){executions++;throw Error('Lost worker');},verify:()=>true,
+      reconcile(){order.push(kind);return ended?{absent:true}:null;}
+    });
+    for(const kind of ['package.receive','package.install']){
+      const j=await r.jobs.enqueue(kind,{},r.id());
+      await until(()=>!r.jobs.running.size&&r.jobs.snapshot().find(x=>x.id===j.id)?.status==='interrupted');
+    }
+    await r.nativeServices.startConfigured();await finish(r);
+    assert.deepEqual(order,['package.install','package.receive']);assert.equal(executions,2);
+    assert.equal(r.graph.safe,false);assert(f.calls.includes('native-deck'));
+    if(ended)assert(r.jobs.snapshot().filter(x=>x.kind.startsWith('package.')).every(x=>x.status==='failed'&&x.error.code==='NOT_APPLIED'));
+    else assert(r.jobs.snapshot().filter(x=>x.kind.startsWith('package.')).every(x=>x.status==='interrupted'));
+    await r.close();
+  }
+});
+
 test('ordered native startup promotes known-good preferences only after every configured service passes verification', async () => {
   const f = await fixture(), r = f.runtime;
   await r.settings({ appearance: { accent: 'ice' } }, r.snapshot().revision);
@@ -48,6 +113,30 @@ test('ordered native startup promotes known-good preferences only after every co
   assert.deepEqual(f.calls, ['kstuff','native-deck','shadowmount','config','payload-manager']);
   assert.equal(r.store.snapshot().knownGood.appearance.accent, 'ice');assert.equal(r.store.snapshot().startup.pending, false);
   assert.equal(r.store.snapshot().knownGood.developer.enabled, false);assert.equal(r.snapshot().recovery.last.status, 'ready');await r.close();
+});
+
+test('optional service conflict leaves the menu usable, continues other services, and does not promote an incomplete build',async()=>{
+ const f=await fixture(),r=f.runtime;f.state.ports.shadowmount=1;
+ let promoted=0;r.updates={snapshot:()=>({available:true}),confirmStartup(){promoted++;}};
+ const result=await r.nativeServices.startConfigured();await finish(r);
+ assert.equal(result.degraded,true);assert.equal(result.completed,false);assert.equal(promoted,0);
+ assert.equal(r.graph.ready('native-deck'),true);assert.equal(r.capabilities.get('deck').available,true);
+ assert.equal(r.graph.ready('payload-manager'),true);assert.equal(r.graph.ready('shadowmount'),false);
+ assert.equal(r.graph.safe,false);assert.equal(r.store.snapshot().startup.safe,false);assert.equal(r.store.snapshot().knownGoodReceipt,null);
+ assert.deepEqual(f.calls,['kstuff','native-deck','config','payload-manager']);
+ r.jobs.register('unrelated.read',{validate:()=>({}),resources:()=>['file-reading'],run:()=>({completed:true}),verify:()=>true});
+ const job=await r.jobs.enqueue('unrelated.read',{},r.id());await until(()=>r.jobs.snapshot().find(j=>j.id===job.id).status==='completed');
+ await r.close();
+});
+
+test('an active file transfer does not prevent the menu from starting',async()=>{
+ const f=await fixture(),r=f.runtime,gate=deferred();
+ r.jobs.register('file.test-copy',{validate:()=>({}),resources:()=>['local-file-copy'],run:async()=>{await gate.promise;return{completed:true};},verify:()=>true});
+ await r.jobs.enqueue('file.test-copy',{},r.id());await until(()=>r.jobs.running.size===1);
+ try{
+  const result=await r.nativeServices.startConfigured();assert.equal(result.completed,true);
+  assert.equal(r.capabilities.get('deck').available,true);assert.equal(r.jobs.running.size,1);
+ }finally{gate.resolve();await until(()=>!r.jobs.running.size);await r.close();}
 });
 
 test('binary update acknowledgement follows complete native readiness and the committed startup receipt', async () => {
@@ -141,6 +230,8 @@ test('startup holds unrelated native jobs, while idempotent retries of accepted 
 test('controller recovery review and confirmation use the same guarded startup API as the phone', async () => {
   const f=await fixture({safe:true}), r=f.runtime, deck=new ConsoleDeck(r);
   const select=async row=>deck.action({kind:'select',row,sequence:deck.frame().sequence,request:r.id()});
+  await select(deck.frame().rows.findIndex(row=>row.label==='Settings'));
+  while(!deck.frame().rows.some(row=>row.command==='$startup-review'))await select(deck.frame().rows.findIndex(row=>row.command==='$next'));
   await select(deck.frame().rows.findIndex(row=>row.command==='$startup-review'));
   assert.deepEqual(f.calls,[]);let row=deck.frame().rows.findIndex(row=>row.command==='startup.resume');assert(row>=0);
   await select(row);assert(deck.confirmation);assert.deepEqual(f.calls,[]);
@@ -155,4 +246,21 @@ test('a job validating across startup reservation is rejected before durable acc
   r.graph.definitions.get('kstuff').start=async()=>{entered=true;await startup.promise;return {ready:true};};
   const launch=r.nativeServices.startConfigured();await until(()=>entered);validation.resolve();await rejected;
   assert(!r.jobs.snapshot().some(j=>j.kind==='test.native'));assert.equal(executions,0);startup.resolve();await launch;await r.close();
+});
+
+test('new-boot input work is reconciled before startup while same-boot uncertainty still blocks it', async () => {
+  for (const previousBoot of ['boot-previous','boot-one']) {
+    const f=await fixture(),r=f.runtime;let reconciled=0,executed=0;
+    r.jobs.register('game.input.prepare',{
+      validate:()=>({boot:previousBoot}),resources:()=>['native-payload-dispatch'],
+      async run(){executed++;throw Error('Disconnected during input preparation');},verify:()=>true,
+      reconcile(){reconciled++;assert.notEqual(previousBoot,f.state.boot);return {completed:true,phase:'game-ended'};}
+    });
+    const j=await r.jobs.enqueue('game.input.prepare',{},r.id());await until(()=>!r.jobs.running.size&&r.jobs.snapshot().find(x=>x.id===j.id)?.status==='interrupted');
+    await r.nativeServices.startConfigured();await finish(r);
+    assert.equal(executed,1,'startup must never replay input preparation');
+    if(previousBoot==='boot-one'){assert.equal(reconciled,0);assert.equal(r.graph.safe,true);assert.deepEqual(f.calls,[]);}
+    else{assert.equal(reconciled,1);assert.equal(r.graph.safe,false);assert.equal(r.jobs.snapshot().find(x=>x.id===j.id).result.phase,'game-ended');}
+    await r.close();
+  }
 });

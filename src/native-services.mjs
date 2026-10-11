@@ -35,15 +35,17 @@ export function serviceInspector(native, { get = localRequest } = {}) {
       const response = await get(definitions[id].port, definitions[id].route, id === 'shadowmount' ? { method: 'POST', body: {} } : {});
       if (id === 'shadowmount') {
         api = JSON.parse(response.text);
-        if (api.status !== 0 || api.api_version !== 1 || api.shadowmount_version !== '1.7beta4' ||
+        if (api.status !== 0 || api.api_version !== 1 || typeof api.shadowmount_version !== 'string' || !/^[0-9][A-Za-z0-9.+_-]{0,63}$/.test(api.shadowmount_version) ||
           !Array.isArray(api.capabilities) || !['list_games', 'storage_job_status', 'mount_game'].every(key => api.capabilities.includes(key)))
-          return unknown('ShadowMount returned a different API or component version.', 'SHADOWMOUNT_API_MISMATCH');
+          return unknown('ShadowMount must expose API v1 with list_games, storage_job_status and mount_game.', 'SHADOWMOUNT_API_MISMATCH');
       } else {
-        if (response.text.trim() !== '0.5.2') return unknown('Payload Manager returned an unsupported version.', 'MANAGER_VERSION_MISMATCH');
-        const config = JSON.parse((await get(8084, '/get_config')).text);
-        if (![config.AUTOLOAD_ENABLED, config.AUTO_BROWSER_OPEN, config.KILL_DISC_PLAYER_ON_STARTUP, config.AUTO_INSTALL_APP].every(x => x === false || x === 0))
-          return unknown('Payload Manager has independent startup actions enabled. Review its configuration first.', 'MANAGER_STARTUP_CONFLICT');
-        api = { version: '0.5.2' };
+        const version = response.text.trim();
+        if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(version) || version.length > 64)
+          return unknown('Payload Manager did not return a recognizable version response.', 'MANAGER_VERSION_MISMATCH');
+        // Readiness is process identity + a responding service, not ownership of
+        // user preferences. Adoption neither rewrites config nor starts a copy.
+        // This is not a claim that unprobed APIs in other versions are compatible.
+        api = { version };
       }
     } catch (error) { return unknown(error.message || 'The component API is not ready.', 'COMPONENT_API_UNAVAILABLE'); }
     const second = native.systemProbe();
@@ -63,6 +65,7 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
   const inspect = serviceInspector(native, { get });
   const dispatch = payloadDispatchHandler(runtime, native, { delay, managed: true });
   runtime.componentHashes = new Set(Object.keys(definitions).map(id => assets.get(id).sha256));
+  runtime.componentsByHash = new Map(Object.keys(definitions).map(id => [assets.get(id).sha256, id]));
   runtime.jobs.register('component.start', {
     resources: () => ['native-payload-dispatch'], timeout: timeout + 30000, cancellable: false,
     async validate(input) {
@@ -86,8 +89,9 @@ export function installNativeServices(runtime, native, assets, { delay = sleep, 
         invariant(evidence.absent, 'COMPONENT_CONFLICT', evidence.reason || 'Existing component state is uncertain.');
         if (input.component !== 'kstuff') invariant((await inspect('kstuff')).ready, 'KSTUFF_NOT_READY', 'Wait for verified kstuff initialization.');
         const competing = native.systemProbe();
-        invariant(!competing.busy && !competing.processes.some(p => /etahen.*(?:critical|utility)|(?:critical|utility).*etahen/i.test(p.name + ' ' + p.thread)),
-          'OTHER_HEN_RUNNING', 'Another HEN owns startup. Stop it through its normal lifecycle before starting TacHen components.');
+        invariant(!competing.busy, 'PROBE_BUSY', 'A native operation is still running; component dispatch is deferred.');
+        // Service readiness and real listener conflicts determine coexistence.
+        // ShellUI hook ownership is checked separately by the native deck.
       } catch (error) { error.noSideEffects = true; throw error; }
       // This fixed-path native operation durably backs up any existing config;
       // it disables secondary autoload/browser/app installation before launch.

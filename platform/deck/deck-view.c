@@ -94,8 +94,11 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uin
  preparing(v,102);if((v->domain=v->mono.mono_get_root_domain())==NULL)return 0;
  preparing(v,103);
  void* thread=v->mono.mono_thread_attach(v->domain);if(!thread)return 0;int ok=0;
- void* pui=image(v,"Sce.PlayStation.PUI.dll"),*core=image(v,"Sce.PlayStation.Core.dll"),*app=image(v,"Sce.Vsh.ShellUI.AppSystem.dll");
- preparing(v,104);if(!pui||!core||!app)goto done;
+ void* pui=image(v,"Sce.PlayStation.PUI.dll"),*core=image(v,"Sce.PlayStation.Core.dll");
+ void* appSystem=image(v,"Sce.Vsh.ShellUI.AppSystem.dll");
+ void* layers=appSystem?v->mono.mono_class_from_name(appSystem,"Sce.Vsh.ShellUI.AppSystem","LayerManager"):NULL;
+ v->gameLayerFocused=method(v,layers,"IsGameLayerFullScreenFocused",0,1,2,NULL);
+ preparing(v,104);if(!pui||!core)goto done;
  v->label=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Label");
  v->panel=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Panel");
  v->widget=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Widget");
@@ -103,18 +106,33 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uin
  v->color=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI","UIColor");
  void* application=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI","Application");
  void* gamepad=v->mono.mono_class_from_name(core,"Sce.PlayStation.Core.Input","GamePad");
- void* layer=v->mono.mono_class_from_name(app,"Sce.Vsh.ShellUI.AppSystem","LayerManager");
  void* scene=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","Scene");
- preparing(v,105);if(!v->label||!v->panel||!v->widget||!v->font||!v->color||!application||!gamepad||!layer||!scene)goto done;
+ preparing(v,105);if(!v->label||!v->panel||!v->widget||!v->font||!v->color||!application||!gamepad||!scene)goto done;
  void* parent=v->panel;unsigned depth=0;
  while(parent&&parent!=v->widget&&depth++<12)parent=v->mono.mono_class_get_parent(parent);
  preparing(v,106);if(parent!=v->widget)goto done;
- int i32[]={8},str[]={0x0e},fontTypes[]={8,-2,-2},colorTypes[]={0x0c,0x0c,0x0c,0x0c};
+ int i32[]={8},fontTypes[]={8,-2,-2},colorTypes[]={0x0c,0x0c,0x0c,0x0c};
  void* tick=method(v,application,"Update",0,0,1,NULL);
  void* get=method(v,gamepad,"GetData",1,1,0x11,i32);
  preparing(v,107);if(!tick||!get)goto done;
  preparing(v,108);if(!pad_abi(v,get))goto done;
- v->findScene=method(v,layer,"FindContainerSceneByPath",1,1,-1,str);
+ v->getApplication=method(v,application,"get_Instance",0,1,0x12,NULL);
+ v->findScene=method(v,application,"get_RootScene",0,0,0x12,NULL);
+ v->sceneClass=scene;
+ v->sceneVisible=method(v,scene,"get_ActualVisible",0,0,2,NULL);
+ v->containerClass=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","ContainerScene");
+ void* sceneBase=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI","SceneBase");
+ v->sceneCtor=method(v,scene,".ctor",0,0,1,NULL);
+ v->addScene=object_method(v,v->containerClass,"AddScene",sceneBase);
+ v->removeScene=object_method(v,v->containerClass,"RemoveScene",sceneBase);
+ v->sceneOverlay=setter(v,scene,"ScreenRenderOverlay",2);
+ v->sceneFocusable=setter(v,scene,"Focusable",2);v->sceneFrontable=setter(v,scene,"Frontable",2);
+ v->scenePassFrontActive=setter(v,scene,"PassFrontActiveToNext",2);
+ v->sceneWidth=setter(v,scene,"DesignWidth",0x0c);v->sceneHeight=setter(v,scene,"DesignHeight",0x0c);
+ v->sceneBackground=setter(v,scene,"BackgroundSceneOpacity",0x0c);
+ void* opacityControl=v->mono.mono_class_from_name(pui,"Sce.PlayStation.PUI.UI2","BackgroundOpacityControl");
+ v->sceneBackgroundControl=value_setter(v,scene,"BackgroundOpacityControl",opacityControl);
+ v->sceneBackgroundLimit=setter(v,scene,"BackgroundSceneOpacityUpperLimit",0x0c);
  void* property=v->mono.mono_class_get_property_from_name(scene,"RootWidget");
  v->getRoot=property?v->mono.mono_property_get_get_method(property):NULL;
  v->append=object_method(v,v->widget,"AppendChild",v->widget);
@@ -131,7 +149,7 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uin
  v->textColor=value_setter(v,v->label,"TextColor",v->color);v->labelFont=value_setter(v,v->label,"Font",v->font);
  preparing(v,109);
  if(!managed_styles(v))goto done;
- preparing(v,110);if(!v->findScene)goto done;
+ preparing(v,110);if(!v->getApplication||!v->findScene||!v->sceneVisible)goto done;
  preparing(v,111);if(!v->getRoot)goto done;
  preparing(v,112);if(!v->append)goto done;
  preparing(v,113);if(!v->remove)goto done;
@@ -154,9 +172,21 @@ int tac_deck_view_prepare(TacDeckView* v,void** update,void** input,volatile uin
  void* colorSignature=v->mono.mono_method_signature(v->panelColor),*colorIterator=NULL;
  preparing(v,130);
  if(v->mono.mono_class_from_mono_type(v->mono.mono_signature_get_params(colorSignature,&colorIterator))!=v->color)goto done;
+ preparing(v,132);if(!v->containerClass||!sceneBase||!v->sceneCtor||!v->addScene||!v->removeScene)goto done;
+ preparing(v,133);if(!v->sceneOverlay||!v->sceneFocusable||!v->sceneFrontable||!v->sceneWidth||!v->sceneHeight||!v->sceneBackground)goto done;
+ preparing(v,134);
+ if(!opacityControl||!v->mono.mono_class_is_enum(opacityControl)||!v->sceneBackgroundControl||!v->sceneBackgroundLimit)goto done;
+ int opacityBase=type(v,v->mono.mono_class_enum_basetype(opacityControl));
+ if(opacityBase!=8&&opacityBase!=9)goto done;
+ void* manualField=v->mono.mono_class_get_field_from_name(opacityControl,"Manual");
+ void* manualValue=manualField?v->mono.mono_field_get_value_object(v->domain,manualField,NULL):NULL;
+ if(!manualValue||v->mono.mono_object_get_class(manualValue)!=opacityControl)goto done;
+ void* manualData=v->mono.mono_object_unbox(manualValue);if(!manualData)goto done;
+ memcpy(&v->sceneManualMode,manualData,sizeof v->sceneManualMode);
+ preparing(v,135);if(!v->scenePassFrontActive)goto done;
  preparing(v,131);
  *update=v->mono.mono_compile_method(tick);*input=v->mono.mono_compile_method(get);ok=*update&&*input;
-done:if(ok)preparing(v,0);v->mono.mono_thread_detach(thread);return ok;
+done:if(ok){preparing(v,0);v->animate=1;}v->mono.mono_thread_detach(thread);return ok;
 }
 static void* target(TacDeckView* v,uint32_t h){return h?v->mono.mono_gchandle_get_target(h):NULL;}
 static uint32_t object(TacDeckView* v,void* klass){void* o=v->mono.mono_object_new(v->domain,klass);return o?v->mono.mono_gchandle_new(o,1):0;}
@@ -218,11 +248,49 @@ static int release_labels(TacDeckView* v){
  if(complete&&v->root){v->mono.mono_gchandle_free(v->root);v->root=0;}
  v->paintedValid=0;return complete;
 }
+static int release_scene(TacDeckView* v){
+ if(v->overlayScene&&v->sceneAttached){
+  int ok=1;void* args[]={target(v,v->overlayScene)};
+  call(v,v->removeScene,target(v,v->parentScene),args,&ok);if(!ok)return 0;
+ }
+ if(v->overlayScene)v->mono.mono_gchandle_free(v->overlayScene);
+ if(v->parentScene)v->mono.mono_gchandle_free(v->parentScene);
+ v->overlayScene=v->parentScene=0;v->sceneAttached=0;return 1;
+}
+static int create_scene(TacDeckView* v,void* parent){
+ v->parentScene=v->mono.mono_gchandle_new(parent,1);if(!v->parentScene)return 0;
+ v->overlayScene=object(v,v->sceneClass);void* scene=target(v,v->overlayScene);if(!scene)return 0;
+ int ok=1;call(v,v->sceneCtor,scene,NULL,&ok);
+ uint8_t yes=1,no=0;float width=1920,height=1080,background=0;
+ // Own scene only: do not change the dashboard's visibility, focus or root.
+ // Transparent/non-focusable scene keeps the normal dashboard underneath.
+ set(v,v->sceneOverlay,scene,&yes,&ok);
+ set(v,v->sceneFocusable,scene,&no,&ok);set(v,v->sceneFrontable,scene,&no,&ok);
+ // Front activation is separate from input focus. Pass it to the dashboard.
+ set(v,v->scenePassFrontActive,scene,&yes,&ok);
+ set(v,v->sceneWidth,scene,&width,&ok);set(v,v->sceneHeight,scene,&height,&ok);
+ // PUI accumulates BackgroundSceneOpacity from front to back, then subtracts
+ // ForegroundSceneOpacity in both UI2 and UI3 RenderWidgets. This is occlusion,
+ // not the desired alpha of the dashboard: 1 hides it; 0 leaves it visible.
+ // Manual prevents automatic recomputation; zero upper limit also prevents
+ // this scene from contributing occlusion during transitions.
+ uint32_t manual=v->sceneManualMode;set(v,v->sceneBackgroundControl,scene,&manual,&ok);
+ set(v,v->sceneBackgroundLimit,scene,&background,&ok);
+ set(v,v->sceneBackground,scene,&background,&ok);
+ if(ok){void* args[]={scene};v->sceneAttached=1;call(v,v->addScene,target(v,v->parentScene),args,&ok);}
+ return ok;
+}
 static int hold_cleanup(TacDeckView* v,uint64_t now){v->failed=1;v->cleanupAt=now;return 0;}
 static int fail_view(TacDeckView* v,uint64_t now){
  hold_cleanup(v,now);
- if(release_labels(v))release_styles(v);
+ if(release_labels(v)&&release_scene(v))release_styles(v);
  return 0;
+}
+int tac_deck_view_game_focus(TacDeckView* v){
+ if(!v->gameLayerFocused)return -2;
+ int ok=1;void* boxed=call(v,v->gameLayerFocused,NULL,NULL,&ok);
+ uint8_t* value=ok&&boxed?v->mono.mono_object_unbox(boxed):NULL;
+ return value?!!*value:-1;
 }
 static int labels(TacDeckView* v,uint32_t root){
  v->root=root;if(!v->root)return 0;int ok=1;
@@ -230,6 +298,7 @@ static int labels(TacDeckView* v,uint32_t root){
  // Backgrounds are appended before labels. Create them hidden to avoid a flash
  // of partially constructed UI; visibility is published with the first frame.
  for(unsigned i=0;i<TAC_DECK_PANELS&&ok;i++){
+  if(v->hud&&(i<9||i>11))continue;
   v->panels[i]=object(v,v->panel);void* p=target(v,v->panels[i]);if(!p)return 0;
   call(v,v->panelCtor,p,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenPanel_%u",i);
   set(v,v->name,p,v->mono.mono_string_new(v->domain,name),&ok);uint8_t hidden=0;
@@ -237,6 +306,7 @@ static int labels(TacDeckView* v,uint32_t root){
   if(ok){v->attachedPanels|=1u<<i;call(v,v->append,target(v,v->root),args,&ok);}
  }
  for(unsigned i=0;i<TAC_DECK_LABELS&&ok;i++){
+  if(v->hud&&(i<41||i>44))continue;
   v->labels[i]=object(v,v->label);void* label=target(v,v->labels[i]);if(!label)return 0;
   call(v,v->labelCtor,label,NULL,&ok);char name[48];snprintf(name,sizeof name,"TacHenDeck_%u",i);
   set(v,v->name,label,v->mono.mono_string_new(v->domain,name),&ok);
@@ -254,17 +324,54 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
   // A transient RemoveFromParent failure must not orphan a visible backplate.
   // Keep roots and retry only cleanup at most four times per second. Input
   // remains disabled; do not recreate a scene or resume normal rendering.
-  if(v->root&&(now<v->cleanupAt||now-v->cleanupAt>=250)){
-   v->cleanupAt=now;if(release_labels(v))release_styles(v);
+  if((v->root||v->overlayScene||v->parentScene)&&(now<v->cleanupAt||now-v->cleanupAt>=250)){
+   v->cleanupAt=now;if(release_labels(v)&&release_scene(v))release_styles(v);
   }
   return 0;
  }
+ // A closed full-screen menu must not remain in ShellUI's scene tree. Keep
+ // the controller chord available without presenting an empty scene over the
+ // dashboard. Closed-state HUD rendering needs an independent overlay host.
+ int hudRequested=v->hud&&(f->flags&1)&&((f->flags&2&&f->ip[0])||f->metrics[0]||(f->notice.kind&&f->notice.remainingMs));
+ if(!open&&!hudRequested){
+  if(!release_labels(v)||!release_scene(v))return hold_cleanup(v,now);
+  v->open=0;v->openingAt=0;v->sceneStatus=8;memset(&v->motion,0,sizeof v->motion);v->moving=0;return 1;
+ }
+ if(!v->openingAt)v->openingAt=now;
  int ok=1;
  if(!v->initialized){if(!styles(v))return fail_view(v,now);v->initialized=1;}
  if(!v->root||now-v->checkedAt>=250){
-  v->checkedAt=now;void* arg[]={v->mono.mono_string_new(v->domain,"Game")};
-  void* scene=call(v,v->findScene,NULL,arg,&ok);void* root=scene&&ok?call(v,v->getRoot,scene,NULL,&ok):NULL;
-  if(!ok)return fail_view(v,now);if(!root){if(!release_labels(v))return hold_cleanup(v,now);return 0;}
+  v->checkedAt=now;
+  // UI3 foreground scenes cannot host UI2 widgets. Keep a dedicated UI2 scene
+  // under ShellUI's verified UI2 root container; never borrow the hidden Game
+  // layer or change/replace the application's own root scene.
+  void* app=call(v,v->getApplication,NULL,NULL,&ok);
+  void* scene=app&&ok?call(v,v->findScene,app,NULL,&ok):NULL;
+  void* klass=scene?v->mono.mono_object_get_class(scene):NULL;
+  unsigned depth=0;while(klass&&klass!=v->containerClass&&depth++<32)klass=v->mono.mono_class_get_parent(klass);
+  if(!ok)return fail_view(v,now);
+  if(!scene||klass!=v->containerClass){
+   v->sceneStatus=!app?1:!scene?2:3;
+   if(!release_labels(v)||!release_scene(v))return hold_cleanup(v,now);return 0;
+  }
+  if(scene!=target(v,v->parentScene)){
+   // Pin the replacement across cleanup and the managed calls it can trigger.
+   uint32_t pinned=v->mono.mono_gchandle_new(scene,1);if(!pinned)return 0;
+   if(!release_labels(v)||!release_scene(v)){v->mono.mono_gchandle_free(pinned);return hold_cleanup(v,now);}
+   int created=create_scene(v,target(v,pinned));v->mono.mono_gchandle_free(pinned);
+   if(!created)return fail_view(v,now);v->openingAt=now;
+  }
+  void* visible=call(v,v->sceneVisible,target(v,v->overlayScene),NULL,&ok);
+  void* value=visible&&ok?v->mono.mono_object_unbox(visible):NULL;
+  void* root=value&&*(uint8_t*)value?call(v,v->getRoot,target(v,v->overlayScene),NULL,&ok):NULL;
+  v->sceneStatus=!ok?7:!value||!*(uint8_t*)value?4:!root?5:6;
+  if(!ok)return fail_view(v,now);if(!root){
+   if(!release_labels(v))return hold_cleanup(v,now);
+   // Scene activation can take another UI tick. Do not close the pending menu
+   // immediately, otherwise opening would endlessly create and remove it.
+   if(now<v->openingAt||now-v->openingAt>=2000)return fail_view(v,now);
+   v->sceneStatus=9;return 2;
+  }
   if(root!=target(v,v->root)){
    uint32_t pinned=v->mono.mono_gchandle_new(root,1);if(!pinned)return 0;
    if(!release_labels(v)){v->mono.mono_gchandle_free(pinned);return hold_cleanup(v,now);}
@@ -274,17 +381,25 @@ int tac_deck_view_render(TacDeckView* v,const TacDeckFrame* f,int open,unsigned 
  int menuChanged=!v->paintedValid||v->sequence!=f->sequence||v->selected!=selected||v->open!=open||v->flags!=f->flags;
  int noticeVisible=!open&&(f->flags&1)&&f->notice.kind&&f->notice.remainingMs;
  int noticeChanged=v->noticeSequence!=f->notice.sequence||v->noticeVisible!=!!noticeVisible;
- if(!menuChanged&&v->metricsSequence==f->metricsSequence&&!noticeChanged)return 1;
+ if(!menuChanged&&v->metricsSequence==f->metricsSequence&&!noticeChanged&&!v->moving)return 1;
+ if(v->moving&&!menuChanged&&v->metricsSequence==f->metricsSequence&&!noticeChanged&&now>=v->motion.last&&now-v->motion.last<33)return 1;
  TacDeckLayout layout;tac_deck_layout(f,open,selected,&layout);
+ if(v->animate&&!(f->flags&64))v->moving=tac_deck_motion(&v->motion,&layout,selected,now);
+ else {v->moving=0;memset(&v->motion,0,sizeof v->motion);}
  for(unsigned i=0;i<TAC_DECK_LABELS&&ok;i++){
+  if(v->hud&&(i<41||i>44))continue;
   const TacDeckText* current=&layout.labels[i];const TacDeckText* previous=&v->painted.labels[i];
+  if(!v->paintedValid||current->x!=previous->x){float x=current->x;set(v,v->x,target(v,v->labels[i]),&x,&ok);}
+  if(!v->paintedValid||current->y!=previous->y){float y=current->y;set(v,v->y,target(v,v->labels[i]),&y,&ok);}
   if(!v->paintedValid||strcmp(current->text,previous->text))set_text(v,v->labels[i],current->text,&ok);
+  if(!v->paintedValid||current->font!=previous->font)set(v,v->labelFont,target(v,v->labels[i]),v->mono.mono_object_unbox(target(v,v->fonts[current->font])),&ok);
   if(!v->paintedValid||current->ink!=previous->ink){
    void* color=v->mono.mono_object_unbox(target(v,v->colors[current->ink]));
    set(v,v->textColor,target(v,v->labels[i]),color,&ok);
   }
  }
  for(unsigned i=0;i<TAC_DECK_PANELS&&ok;i++){
+  if(v->hud&&(i<9||i>11))continue;
   const TacDeckPanel* current=&layout.panels[i];const TacDeckPanel* previous=&v->painted.panels[i];void* p=target(v,v->panels[i]);
   if(!p){ok=0;break;}
   if(!v->paintedValid||current->x!=previous->x){float x=current->x;set(v,v->x,p,&x,&ok);}

@@ -5,10 +5,11 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const ACTIVE = new Set(['running', 'cancelling', 'uncertain']);
 
 export class JobQueue {
-  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, evidence = () => {}, admit = () => {}, timeout = 120000 } = {}) {
+  constructor(store, { id, now = Date.now, session = null, concurrency = 2, changed = () => {}, evidence = () => {}, report = () => {}, admit = () => {}, timeout = 120000 } = {}) {
     this.store = store; this.id = id; this.now = now; this.session = session; this.concurrency = concurrency;
     this.changed = changed; this.timeout = timeout; this.handlers = new Map(); this.running = new Map();
     this.evidence = evidence;
+    this.reporter = report;
     this.admit = admit;
     this.pumping = false; this.halted = false; this.fault = null; this.stopped = false;
     this.reconciling = new Map();
@@ -34,7 +35,16 @@ export class JobQueue {
       }
     });
   }
-  snapshot() { return this.store.snapshot().jobs; }
+  snapshot(detachedJobs) { return detachedJobs ?? this.store.snapshot().jobs; }
+  report(job) {
+    // Bounded lifecycle evidence; never copy complete request arguments or
+    // file contents. A diagnostic sink failure cannot change an operation.
+    if (!job || !['plugin.start','game.module.start','game.input.prepare','payload.dispatch','library.mount','library.launch'].includes(job.kind)) return;
+    try { this.reporter({kind:job.kind,status:job.status,operation:job.id?.slice(0,12),
+      title:job.args?.titleId,version:job.args?.version,pid:job.args?.pid,
+      file:job.args?.sha256?.slice(0,12),phase:job.result?.phase,
+      code:job.error?.code,message:job.error?.message?.slice(0,384)}); } catch {}
+  }
   async get(id) {
     invariant(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'JOB_ID', 'Choose a valid operation identity.');
     return this.store.inspect(async state => state.jobs.find(job => job.id === id) || await this.archive.findId(state, id));
@@ -52,8 +62,9 @@ export class JobQueue {
       // same accepted request must return its original intent, not rebind it.
       return clone(accepted);
     }
-    this.admit(kind, input);
-    const args = await handler.validate(clone(input));
+    let args;
+    try { this.admit(kind, input);args = await handler.validate(clone(input)); }
+    catch (error) { this.report({kind,status:'rejected',args:input,error:publicError(error)});throw error; }
     const signature = canonical({ kind, args });
     const { result } = await this.store.transaction(async state => {
       const previous = state.jobs.find(job => job.key === key) || await this.archive.find(state, key);
@@ -75,7 +86,7 @@ export class JobQueue {
         status: 'queued', progress: null, result: null, error: null, createdAt: this.now(), updatedAt: this.now() };
       state.jobs.push(job); return clone(job);
     });
-    this.changed(); this.kick(); return result;
+    this.report(result);this.changed(); this.kick(); return result;
   }
   kick() { if (!this.pumping && !this.halted && !this.stopped) queueMicrotask(() => this.pump().catch(e => this.halt(e))); }
   halt(error) { this.halted = true; this.fault = publicError(error); this.changed(); }
@@ -85,6 +96,7 @@ export class JobQueue {
       invariant(job, 'JOB_MISSING', 'Operation not found.', { status: 404 });
       Object.assign(job, update, { updatedAt: this.now() });
     });
+    if(update.status)this.report(this.snapshot().find(job=>job.id===id));
     this.changed();
   }
   async pump() {
@@ -116,7 +128,7 @@ export class JobQueue {
   }
   async execute(active, handler) {
     const { job, controller } = active;
-    let lastProgress = 0, progressTail = Promise.resolve();
+    let lastProgress = 0, lastValue = null, progressTail = Promise.resolve();
     const timer = setTimeout(() => {
       active.expired = true; controller.abort();
       active.timeoutWrite = this.patch(job.id, { status: 'uncertain', error: {
@@ -140,9 +152,16 @@ export class JobQueue {
           invariant(value && Number.isFinite(value.completed) && value.completed >= 0 &&
             Number.isFinite(value.total) && value.total >= value.completed && typeof value.phase === 'string',
             'BAD_PROGRESS', 'Invalid operation progress.');
-          if (now - lastProgress < 1000 && value.completed !== value.total) return progressTail;
-          lastProgress = now;
-          progressTail = progressTail.then(() => this.patch(job.id, { progress: clone(value) }));
+          // Unknown totals (0/0) are not completion. Polling the same receipt
+          // must not fsync the entire state repeatedly while the menu waits.
+          const same = lastValue && value.phase === lastValue.phase && value.completed === lastValue.completed && value.total === lastValue.total;
+          if (same) return progressTail;
+          const phaseChanged = !lastValue || value.phase !== lastValue.phase;
+          const finished = value.total > 0 && value.completed === value.total;
+          if (!phaseChanged && !finished && now - lastProgress < 1000) return progressTail;
+          lastProgress = now; lastValue = clone(value);
+          const progress = lastValue;
+          progressTail = progressTail.then(() => this.patch(job.id, { progress }));
           return progressTail;
         }
       });
@@ -228,7 +247,7 @@ export class JobQueue {
       await this.patch(id, { status: 'completed', result: outcome, error: null });
     else if (outcome?.expired === true && await handler.verifyExpired?.(outcome, clone(job)))
       await this.patch(id, { status: 'failed', result: { phase: 'boot-ended', priorOutcome: 'unknown' },
-        error: { code: 'PREVIOUS_BOOT_ENDED', message: 'This startup attempt belonged to an earlier console boot. Its earlier outcome is unknown; it is no longer running.' } });
+        error: { code: 'PREVIOUS_BOOT_ENDED', message: 'This operation belonged to an earlier console boot. Its earlier outcome is unknown; its helper is no longer running.' } });
     else if (outcome?.absent === true)
       await this.patch(id, { status: 'failed', result: outcome, error: { code: 'NOT_APPLIED', message:
         typeof outcome.message === 'string' && outcome.message.length <= 191 ? outcome.message : 'The operation was verified as not applied.' } });

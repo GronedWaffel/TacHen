@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { build } from 'esbuild';
 import * as fs from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
+import {verifyLoadPages} from './elf-load-pages.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -13,6 +15,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = path.resolve(process.env.PS5_PAYLOAD_SDK || path.join(root, '../ps-neighbourhood/tools/ps5-sdk-0.43/ps5-payload-sdk'));
 const zig = process.env.ZIG || path.join(root, '../ps-neighbourhood/tools/zig-x86_64-windows-0.14.1/zig.exe');
 await fs.mkdir(path.join(root, 'build'), { recursive: true });
+await import('./build-download-ca.mjs');
+await import('./prepare-download.mjs');
+await import('./prepare-catalog.mjs');
 await import('./build-game-gate.mjs');
 await import('./build-pad-bridge.mjs');
 const assets = {};
@@ -41,69 +46,83 @@ await build({ absWorkingDir: root, entryPoints: ['platform/console-entry.mjs'], 
 const bundle = await fs.readFile(path.join(root, 'build/runtime.js'));
 await fs.writeFile(path.join(root, 'build/bundle.h'), 'static const unsigned char tachen_bundle[]={' + [...bundle, 0].join(',') + '};\n');
 const q = 'vendor/quickjs';
-const sources = ['platform/runtime/host.c', 'build/assets.S', 'platform/deck/publication.c',
+const sources = ['platform/runtime/host.c', 'platform/runtime/hash-bindings.c', 'build/assets.S', 'platform/deck/publication.c',
+    'platform/native/app-launch-worker.c', 'platform/native/app-launch-io.c', 'platform/native/catalog.c', 'platform/native/download-core.c', 'platform/native/download-worker.c',
     'platform/native/update-core.c','platform/native/update-io.c','platform/native/update-bindings.c',
-    ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-worker.c', 'trace-wait.c',
-      'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'save-recovery.c', 'save-recovery-io.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'process-current.c', 'process-info.c',
-      'prx-image.c', 'module-session.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
+    ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-launch.c', 'deck-worker.c', 'trace-wait.c',
+      'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'save-recovery.c', 'save-recovery-io.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'game-imports.c', 'process-current.c', 'process-info.c',
+      'prx-image.c', 'module-session.c', 'module-storage.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
   'platform/native/pad-worker.c', 'platform/native/pad-exchange.c', 'platform/native/user-write.c',
   'platform/game/game-trampoline.cpp', 'platform/game/pad-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
   ...['elfldr.c', 'pt.c', 'sha256.c', 'syscall-shim.S'].map(file => 'platform/loader/' + file),
   ...['quickjs.c', 'dtoa.c', 'libregexp.c', 'libunicode.c', 'cutils.c'].map(file => q + '/' + file)];
-const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild',
+const compile = ['cc', '-Os', '-Wno-unreachable-code-generic-assoc', '-D_GNU_SOURCE', '-DCONFIG_VERSION="2026-06-04"', '-I' + q, '-Ibuild', '-Ivendor/download',
   '-target', 'x86_64-linux-none', '-U__linux__', '-D__FreeBSD__=11', '-D__PS5__', '-DTACHEN_EMBEDDED',
   '-DETAHEN_PORT_1360', '-Iplatform/deck', '-Iplatform/game', '-Ivendor/deck', '-Iplatform/native', '-Iplatform/loader',
   '-isystem', sdk + '/target/include', '-fPIE', '-fno-stack-protector', '-fno-plt', '-femulated-tls',
   '-nostdlib'];
 function run(args) {
+  if(args[0]==='ld.lld'&&!args.includes('--eh-frame-hdr'))args=[args[0],'--eh-frame-hdr',...args.slice(1)];
   const result = spawnSync(zig, args, { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, ZIG_GLOBAL_CACHE_DIR: path.join(root, 'build/zig-cache') } });
   if (result.status !== 0) throw Error(result.error?.message || result.stderr || 'Native build failed');
+  if(args[0]==='ld.lld'&&args.includes('-o'))verifyLoadPages(readFileSync(path.resolve(root,args[args.indexOf('-o')+1])));
 }
 const objects = [];
+// The SDK's fallback *at functions expose raw kernel errors. Link the POSIX
+// adapters in both the coordinator and isolated helpers that use these calls.
+run([...compile, '-c', 'platform/loader/posix-at.S', '-o', 'build/posix-at.o']);
+const posixAt = ['build/posix-at.o', ...['mkdirat', 'openat', 'renameat', 'unlinkat', 'fstatat'].map(name => '--wrap=' + name)];
 const packageObjects = [];
 for (const source of ['platform/native/package-helper.c', 'platform/native/package-core.c', 'platform/native/package-io.c', 'platform/native/package-http.c', 'platform/native/package-source.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
   const object = 'build/pkg_' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-std=c11', '-c', source, '-o', object]); packageObjects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
-  ...packageObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
-  '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-package-helper.elf']);
+  ...packageObjects, ...posixAt, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '--no-as-needed',
+  '-lSceSystemService', '-lSceUserService', '-lSceIpmi', '-lSceAppInstUtil', '-o', 'build/tachen-package-helper.elf']);
 const saveObjects = [];
 for (const source of ['platform/native/save-helper.c', 'platform/native/save-core.c', 'platform/native/save-flow.c', 'platform/native/save-io.c', 'platform/loader/sha256.c', 'platform/native/process-fresh.c']) {
   const object = 'build/save_' + source.replaceAll('/', '_') + '.o';
   run([...compile, '-Wall', '-Wextra', '-Werror', '-std=c11', '-c', source, '-o', object]); saveObjects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
-  ...saveObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  ...saveObjects, ...posixAt, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-o', 'build/tachen-save-helper.elf']);
+const launchObjects=[];
+for(const source of ['platform/native/app-launch-helper.c','platform/native/app-launch-io.c','platform/loader/sha256.c','platform/native/process-fresh.c']){
+ const object='build/launch_'+source.replaceAll('/','_')+'.o';run([...compile,'-std=c11','-c',source,'-o',object]);launchObjects.push(object);
+}
+run(['ld.lld','--no-dependent-libraries','--wrap=kernel_get_proc','-pie','--hash-style=gnu','-z','max-page-size=0x4000','-T',sdk+'/ldscripts/elf_x86_64.x',...launchObjects,...posixAt,sdk+'/target/lib/crt1.o','-L',sdk+'/target/lib','--start-group',sdk+'/target/lib/libc.a','-ldl','--end-group','-lkernel_web','-lSceLibcInternal','-o','build/tachen-launch-helper.elf']);
 const deckObjects = [];
+const bootstrapTrace=process.env.TACHEN_BOOTSTRAP_TRACE==='1'?['-DTACHEN_BOOTSTRAP_TRACE','-DTACHEN_BOOTSTRAP_SCAN']:[];
 for (const source of ['platform/deck/deck-core.c', 'platform/deck/deck-route.c', 'platform/deck/deck-http.c', 'platform/deck/mono-api.c',
-  'platform/deck/deck-view.c', 'platform/deck/deck-layout.c', 'platform/deck/deck-module.c', 'platform/deck/resident-init.c', 'platform/deck/resident-memory.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
+  'platform/deck/deck-view.c', 'platform/deck/dashboard.c', 'platform/deck/cheats-window.c', 'platform/deck/deck-layout.c', 'platform/deck/deck-module.c', 'platform/deck/resident-init.c', 'platform/deck/resident-memory.c', 'platform/deck/trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp', 'platform/native/process-fresh.c']) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
-  run([...compile, '-Iplatform/deck', '-Ivendor/deck', '-DHDE_DECODE_ONLY',
+  run([...compile, ...bootstrapTrace, '-Iplatform/deck', '-Ivendor/deck', '-DHDE_DECODE_ONLY',
     ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti'] : ['-std=c11']), '-c', source, '-o', object]);
   deckObjects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=kernel_get_proc', '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
-  '--wrap=__patch_init', '--wrap=__crt_syscall_init', '--wrap=__kernel_init', '--wrap=__rtld_init', ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '--wrap=__patch_init', '--wrap=__crt_syscall_init', '--wrap=__kernel_init', '--wrap=__rtld_init', '--wrap=kernel_copyout', ...deckObjects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
   '-ldl', '--end-group', '-lkernel_sys', '-lSceLibcInternal', '-o', 'build/tachen-deck.elf']);
 const embeddedAssets = [];
 for (const [symbol, file] of [['assets', 'components.bin'], ['deck', 'tachen-deck.elf'],
-  ['package', 'tachen-package-helper.elf'], ['save', 'tachen-save-helper.elf']]) {
+  ['launch','tachen-launch-helper.elf'], ['package', 'tachen-package-helper.elf'], ['save', 'tachen-save-helper.elf']]) {
   embeddedAssets.push({ symbol: 'tachen_' + symbol, path: 'build/' + file,
     bytes: await fs.readFile(path.join(root, 'build', file)) });
 }
 await fs.writeFile(path.join(root, 'build/assets.S'), embeddingAssembly(embeddedAssets));
 for (const source of sources) {
   const object = 'build/' + source.replaceAll('/', '_') + '.o';
-  run([...compile, ...(source.startsWith('platform/native/save-') || source.startsWith('platform/native/update-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-c', source, '-o', object]); objects.push(object);
+  run([...compile, ...bootstrapTrace, ...(source.startsWith('platform/native/save-') || source.startsWith('platform/native/update-') ? ['-Wall', '-Wextra', '-Werror', '-isystem', q] : []), ...(source.endsWith('.cpp') ? ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-DHDE_DECODE_ONLY'] : []), '-Ibuild/catalog', '-c', source, '-o', object]); objects.push(object);
 }
 run(['ld.lld', '--no-dependent-libraries', '--wrap=syscall', '--wrap=__syscall', '--wrap=ptrace', '--wrap=kernel_get_proc',
   '-pie', '--hash-style=gnu', '-z', 'max-page-size=0x4000', '-T', sdk + '/ldscripts/elf_x86_64.x',
-  ...objects, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
-  '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
+  ...objects, 'build/catalog/libsqlite3.a', ...posixAt, sdk + '/target/lib/crt1.o', '-L', sdk + '/target/lib', '--start-group', sdk + '/target/lib/libc.a',
+  '-Lbuild/download', '-lcurl', '-lwolfssl', '-lpsl', '-lzstd', '-lz', '-ldl', '--end-group', '-lkernel_web', '-lSceLibcInternal', '-lSceNet', '-lSceNetCtl', '-o', 'build/tachen-runtime.elf']);
 const elf = await fs.readFile(path.join(root, 'build/tachen-runtime.elf'));
 const embeddedAssetChecks = embeddedAssets.map(asset => verifyEmbeddedAsset(elf, asset.symbol, asset.bytes));
 const updatePackage=makeUpdatePackage(elf,{source:buildIdentity.source,label:'TacHen development ' + buildIdentity.source.slice(0,12)});
@@ -118,18 +137,28 @@ run(['ld.lld','--no-dependent-libraries','--wrap=syscall','--wrap=__syscall','--
   ...launcherObjects,sdk+'/target/lib/crt1.o','-L',sdk+'/target/lib','--start-group',sdk+'/target/lib/libc.a','-ldl','--end-group','-lkernel_web','-lSceLibcInternal','-o','build/tachen.elf']);
 const launcher=await fs.readFile(path.join(root,'build/tachen.elf'));
 const fallbackCheck = verifyEmbeddedAsset(launcher, 'tachen_fallback', updatePackage);
+// The standard launcher intentionally follows saved update selection. Testers
+// need an explicit artifact that selects the runtime shipped inside this ELF.
+const bundledLauncherObject='build/bundled-update-launcher.o';
+run([...compile,'-Wall','-Wextra','-Werror','-DTACHEN_BUNDLED_RUNTIME','-c','platform/native/update-launcher.c','-o',bundledLauncherObject]);
+const bundledObjects=launcherObjects.map(object=>object==='build/launcher_platform_native_update-launcher.c.o'?bundledLauncherObject:object);
+run(['ld.lld','--no-dependent-libraries','--wrap=syscall','--wrap=__syscall','--wrap=ptrace','--wrap=kernel_get_proc','-pie','--hash-style=gnu','-z','max-page-size=0x4000','-T',sdk+'/ldscripts/elf_x86_64.x',
+  ...bundledObjects,sdk+'/target/lib/crt1.o','-L',sdk+'/target/lib','--start-group',sdk+'/target/lib/libc.a','-ldl','--end-group','-lkernel_web','-lSceLibcInternal','-o','build/tachen-bundled.elf']);
+const bundledLauncher=await fs.readFile(path.join(root,'build/tachen-bundled.elf'));
+const bundledFallbackCheck=verifyEmbeddedAsset(bundledLauncher,'tachen_fallback',updatePackage);
 const deckElf = await fs.readFile(path.join(root, 'build/tachen-deck.elf'));
 const packageElf = await fs.readFile(path.join(root, 'build/tachen-package-helper.elf'));
 const saveElf = await fs.readFile(path.join(root, 'build/tachen-save-helper.elf'));
 const gameCallback = JSON.parse(await fs.readFile(path.join(root, 'build/game/manifest.json'), 'utf8'));
 const padBridge = JSON.parse(await fs.readFile(path.join(root, 'build/pad/manifest.json'), 'utf8'));
 if (elf.subarray(0, 4).toString('hex') !== '7f454c46' || elf[4] !== 2 || elf.readUInt16LE(18) !== 62) throw Error('Output is not an x86-64 ELF');
-await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen runtime development',
-  version: '0.1.0-dev', kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
+await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name: 'TacHen',
+  version: JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version, kind: 'coordinator-and-local-phone-interface', completeHen: false, hardwareVerified: false,
   buildIdentity,
-  embeddedAssets: { runtime: embeddedAssetChecks, launcher: fallbackCheck },
+  embeddedAssets: { runtime: embeddedAssetChecks, launcher: fallbackCheck, bundledLauncher: bundledFallbackCheck },
   updatePackage:{file:'tachen-update.tachen',bytes:updatePackage.length,sha256:createHash('sha256').update(updatePackage).digest('hex'),format:1,stateSchema:1,signed:false},
   launcher:{file:'tachen.elf',bytes:launcher.length,sha256:createHash('sha256').update(launcher).digest('hex'),hardwareVerified:false},
+  bundledLauncher:{file:'tachen-bundled.elf',bytes:bundledLauncher.length,sha256:createHash('sha256').update(bundledLauncher).digest('hex'),selection:'embedded-runtime-trial',hardwareVerified:false},
   sha256: createHash('sha256').update(elf).digest('hex'), bytes: elf.length,
   bundledJavaScriptBytes: bundle.length, sourceEntry: 'platform/console-entry.mjs',
   gameCallback: { ...gameCallback, nativeInjectorCompiled: true, coordinatorWired: true, injectionIntegrated: true },
@@ -143,4 +172,23 @@ await fs.writeFile(path.join(root, 'build/manifest.json'), JSON.stringify({ name
   saveExporter: { file: 'tachen-save-helper.elf', bytes: saveElf.length, sha256: createHash('sha256').update(saveElf).digest('hex'),
     hardwareVerified: false, isolatedProcess: true, coordinatorWired: true },
   components: components.map(({ id, version, sha256, bytes, source }) => ({ id, version, sha256, bytes, source })) }, null, 2) + '\n');
-console.log(`Built TacHen runtime ELF: ${elf.length} bytes. Hardware untested; native HEN feature integrations remain outstanding.`);
+console.log(`Built TacHen runtime ELF: ${elf.length} bytes. Build complete; automated compilation does not establish hardware validation.`);
+// Opt-in local delivery preference, outside the source tree and CI config.
+// Always deliver the embedded-runtime launcher so an older saved update cannot
+// silently replace the build the tester intended to run.
+let localOutput;
+try { localOutput = JSON.parse(await fs.readFile(path.join(root, '.local/build-output.json'), 'utf8')); }
+catch (error) { if (error.code !== 'ENOENT') throw error; }
+if (localOutput?.desktopDirectory) {
+  const directory = path.resolve(localOutput.desktopDirectory);
+  if (!(await fs.stat(directory)).isDirectory()) throw Error('Configured desktop output is not a directory');
+  const destination = path.join(directory, 'TacHen-latest.elf');
+  await fs.writeFile(destination + '.tmp', bundledLauncher);
+  await fs.rename(destination + '.tmp', destination);
+  await fs.writeFile(path.join(directory, 'TacHen-latest-build.json'), JSON.stringify({
+    source: buildIdentity.source, file: 'TacHen-latest.elf', selection: 'embedded-runtime-trial',
+    sha256: createHash('sha256').update(bundledLauncher).digest('hex'), bytes: bundledLauncher.length,
+    hardwareVerified: false
+  }, null, 2) + '\n');
+  console.log(`Copied newest bundled TacHen ELF to ${destination}`);
+}

@@ -87,3 +87,51 @@ test('verification runs as a durable background job and does not claim package i
   assert.equal(runtime.capabilities.get('packages').available, false);
   assert.match(runtime.jobs.snapshot()[0].result.message, /Installation has not started/);
 });
+
+test('multipart staging seals actual length and verifies the streamed checksum without another copy',async t=>{
+ const {inbox}=await fixture(t),bytes=ps4Package();
+ const entry=await inbox.begin({name:'received.pkg',bytes:bytes.length+4096});await inbox.append(entry.id,0,bytes);
+ await assert.rejects(inbox.verify(entry.id),{code:'UPLOAD_INCOMPLETE'});
+ await assert.rejects(inbox.sealReceived(entry.id,bytes.length-1,'a'.repeat(64)),{code:'PACKAGE_RECEIVE'});
+ const hash=createHash('sha256').update(bytes).digest('hex');await inbox.sealReceived(entry.id,bytes.length,hash);
+ assert.equal((await inbox.verify(entry.id)).sha256,hash);await assert.rejects(inbox.discardReceived(entry.id),{code:'PACKAGE_RECEIVE'});
+});
+test('download adoption moves the same inode and rechecks package bytes before verification',async t=>{
+ const {inbox,root}=await fixture(t),source=path.join(root,'native.download'),bytes=ps4Package();await fs.writeFile(source,bytes);
+ const before=await fs.stat(source),result=await inbox.adoptDownload(source,'download.pkg',{});
+ await assert.rejects(fs.stat(source),{code:'ENOENT'});assert.equal((await fs.stat(inbox.file(result.id,'.payload'))).ino,before.ino);
+ assert.equal(result.sha256,createHash('sha256').update(bytes).digest('hex'));
+ const partial=await inbox.begin({name:'partial.pkg',bytes:8192});await inbox.append(partial.id,0,bytes.subarray(0,100));await inbox.discardReceived(partial.id);
+ assert.equal((await inbox.list()).length,1);
+});
+
+// A missing USB must not consume storage reservations or delete original files.
+test('external package references survive reopening and preserve USB sources on removal', async t => {
+ const {inbox,root}=await fixture(t),source=path.join(root,'original.pkg'),bytes=ps4Package();
+ await fs.writeFile(source,bytes);
+ inbox.verify=()=>{throw Error('Local package selection must not scan the whole file');};
+ const result=await inbox.referenceFile(source,'original.pkg');
+ assert.equal(result.sha256,null);assert.equal(result.verification,'header');
+ assert.equal(result.headerSha256,createHash('sha256').update(bytes.subarray(0,0x438)).digest('hex'));
+ assert(!((await fs.readdir(root)).some(n=>/\.(part|payload)$/.test(n))));
+ const reopened=await new PackageInbox(root,{id:inbox.id}).init();
+ assert.equal((await reopened.describe(result.id)).package.titleId,'CUSA00001');
+ await fs.rename(source,source+'.away');
+ await assert.rejects(reopened.describe(result.id),{code:'PACKAGE_SOURCE_MISSING'});
+ assert.equal((await reopened.list())[0].external,true);
+ const upload=await reopened.begin({name:'other.pkg',bytes:8192});assert.equal(upload.status,'uploading');
+ await fs.rename(source+'.away',source);
+ const {installDownloadLibrary}=await import('../src/download-library.mjs');
+ const runtime={packageInbox:reopened,store:await store(),sequence:0};installDownloadLibrary(runtime);
+ await runtime.downloadLibrary.remove({kind:'package',id:result.id});
+ assert.deepEqual(await fs.readFile(source),bytes);
+ await assert.rejects(fs.stat(reopened.file(result.id,'.source')),{code:'ENOENT'});
+});
+test('external package changes and cancellation cannot produce a verified import or copy',async t=>{
+ const {inbox,root}=await fixture(t),source=path.join(root,'original.pkg'),bytes=ps4Package();await fs.writeFile(source,bytes);
+ const abort=new AbortController();abort.abort();
+ await assert.rejects(inbox.referenceFile(source,'original.pkg',{signal:abort.signal}),{code:'UPLOAD_CANCELLED'});
+ assert.deepEqual(await fs.readdir(root),['original.pkg']);
+ const result=await inbox.referenceFile(source,'original.pkg');await fs.writeFile(source,Buffer.alloc(16384));
+ await assert.rejects(inbox.describe(result.id),{code:'PACKAGE_SOURCE_CHANGED'});
+});

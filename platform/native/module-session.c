@@ -41,14 +41,28 @@ int tac_module_arena_claim(TacModuleSession *s,const char *request){
   strcpy(s->arenaRequest,request);s->arenaStage=1;snprintf(s->arenaMessage,sizeof s->arenaMessage,"Game input preparation queued");return 0;
 }
 void tac_module_path(const TacModuleReceipt *r,char path[256]){snprintf(path,256,TAC_GAME_MODULE_PREFIX "%s.%s",r->sha256,r->extension);}
+void tac_module_failure_message(int32_t handle,int32_t startResult,char *message,size_t size){
+  if((uint32_t)handle==UINT32_C(0x80020063)){
+    snprintf(message,size,"Game loader rejected the module's SDK version (0x80020063). Check plugin/game compatibility. Close the game before retrying; other payloads remain available.");return;
+  }
+  if(handle<0)snprintf(message,size,"Game module loader rejected file: 0x%08x%s; start result 0x%08x. Close the game before retrying.",
+    (unsigned)handle,(uint32_t)handle==UINT32_C(0x8002000d)?" (access denied)":"",(unsigned)startResult);
+  else snprintf(message,size,"Game module initializer failed: 0x%08x (handle %d); module may remain resident until this game closes.",(unsigned)startResult,handle);
+}
 int tac_module_gate_valid(const TacModuleSession *s,const TacGameGate *g){
-  return s->phase==TAC_ARENA_READY&&g->magic==TAC_GAME_GATE_MAGIC&&g->version==1&&g->bytes==sizeof *g&&g->cookie==s->cookie&&
-    g->enabled==1&&g->busy<=1&&g->loadStartModule>=0x10000&&g->loadStartModule<UINT64_C(0x7fffffffffff);
+  return s->phase==TAC_ARENA_READY&&g->magic==TAC_GAME_GATE_MAGIC&&g->version==TAC_GAME_GATE_VERSION&&g->bytes==sizeof *g&&g->cookie==s->cookie&&
+    g->enabled==1&&g->busy<=1&&g->loadStartModule>=0x10000&&g->loadStartModule<UINT64_C(0x7fffffffffff)&&
+    g->threadCreate>=0x10000&&g->threadCreate<UINT64_C(0x7fffffffffff)&&
+    g->threadDetach>=0x10000&&g->threadDetach<UINT64_C(0x7fffffffffff)&&
+    g->dlsym>=0x10000&&g->dlsym<UINT64_C(0x7fffffffffff);
 }
 int tac_module_stage(const TacModuleSession *s,unsigned slot,const TacModuleOps *ops){
   if(!s||!ops||!ops->read||!ops->write||slot>=TAC_GAME_MODULE_SLOTS||s->slots[slot].stage!=TAC_PRX_ARMING)return 1;
   TacGameGate g;TacGameModule empty={0},pending={0};
-  if(ops->read(ops->context,&g)||!tac_module_gate_valid(s,&g)||g.busy||memcmp(&g.modules[slot],&empty,sizeof empty))return 1;
+  if(ops->read(ops->context,&g)||!tac_module_gate_valid(s,&g)||memcmp(&g.modules[slot],&empty,sizeof empty))return 1;
+  // The target is stopped, so a callback observed busy cannot finish until
+  // the caller resumes it. Nothing has been written: this is safe to wait on.
+  if(g.busy)return 2;
   tac_module_path(&s->slots[slot],pending.path);size_t at=offsetof(TacGameGate,modules)+slot*sizeof pending;
   if(ops->write(ops->context,at,&pending,sizeof pending)||ops->read(ops->context,&g)||!tac_module_gate_valid(s,&g)||
     memcmp(&g.modules[slot],&pending,sizeof pending))goto rollback;

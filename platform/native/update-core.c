@@ -69,6 +69,21 @@ int tac_update_plan(TacUpdateState *s,int64_t sec,int64_t usec,const TacUpdateHe
   else s->attempt=zero(&s->good,sizeof s->good)?h:s->good;
   s->boot_sec=sec;s->boot_usec=usec;s->pid=0;s->attempt_kind=kind;return 0;
 }
+int tac_update_plan_bundled(TacUpdateState *s,int64_t sec,int64_t usec,const TacUpdateHeader *bundled){
+  TacUpdateHeader h;if(sec<=0||usec<0||usec>=1000000||tac_update_header(bundled,sizeof *bundled,&h)||
+     (s->attempt_kind&&s->boot_sec==sec&&s->boot_usec==usec))return -1;
+  // Do not replace an unrelated update the user has already staged or armed.
+  if((s->phase==TAC_UPDATE_STAGED||s->phase==TAC_UPDATE_ARMED)&&memcmp(&s->candidate,&h,sizeof h))return -2;
+  // An explicit new-boot test may retry/replace an unacknowledged trial, but
+  // good and previous remain intact. The normal launcher still rolls it back.
+  s->attempt=h;s->boot_sec=sec;s->boot_usec=usec;s->pid=0;
+  if(memcmp(&s->good,&h,sizeof h)){
+    s->candidate=h;s->phase=TAC_UPDATE_TRIAL;s->attempt_kind=TAC_BOOT_TRIAL;
+  }else{
+    memset(&s->candidate,0,sizeof s->candidate);s->phase=TAC_UPDATE_IDLE;s->attempt_kind=TAC_BOOT_BASELINE;
+  }
+  return 0;
+}
 int tac_update_fallback(TacUpdateState *s,const TacUpdateHeader *fallback){
   TacUpdateHeader h;if(tac_update_header(fallback,sizeof *fallback,&h)||s->pid)return -1;
   s->attempt=h;s->attempt_kind=TAC_BOOT_ROLLBACK;s->phase=TAC_UPDATE_IDLE;memset(&s->candidate,0,sizeof s->candidate);return 0;

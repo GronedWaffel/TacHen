@@ -15,3 +15,6 @@ typedef struct {
 } TacPublicationOps;
 // 0 published, 1 rejected/restored, -1 uncertain (incl. detach/rollback failure).
 int tac_publish_hooks(const TacDeckPatch* patches,size_t count,const TacPublicationOps* ops);
+
+// Same transaction for aligned 8-byte import slots; original code is untouched.
+int tac_publish_imports(const TacDeckPatch* patches,size_t count,const TacPublicationOps* ops);

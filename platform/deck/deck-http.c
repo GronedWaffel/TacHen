@@ -15,20 +15,25 @@ static int wait_fd(int fd,short events,uint64_t deadline){
   int n=poll(&p,1,(int)(deadline-now));if(n<0&&errno==EINTR)continue;
   return n>0&&(p.revents&(events|POLLHUP))&&!(p.revents&(POLLERR|POLLNVAL));}
 }
-int tac_deck_http(uint16_t port,const char credential[33],const TacDeckEvent* event,const TacDeckFeedback* feedback,TacDeckFrame* frame){
+static int request(int cheats,uint16_t port,const char credential[33],const TacDeckEvent* event,const TacDeckFeedback* feedback,TacDeckFrame* frame){
  if(!port||!credential||!frame||!feedback||credential[32])return -1;
  for(unsigned i=0;i<32;i++)if(!((credential[i]>='a'&&credential[i]<='f')||(credential[i]>='0'&&credential[i]<='9')))return -1;
- char action[192]="null",body[768],request[1200];
+ char action[192]="null",dashboard[128]="null",body[896],request[1328];
+ if(feedback->dashboardSerial){
+  if(feedback->dashboardTitle[9])return -1;
+  for(unsigned i=0;i<9;i++)if(!((feedback->dashboardTitle[i]>='A'&&feedback->dashboardTitle[i]<='Z')||(feedback->dashboardTitle[i]>='0'&&feedback->dashboardTitle[i]<='9')))return -1;
+  snprintf(dashboard,sizeof dashboard,"{\"serial\":%u,\"titleId\":\"%.9s\"}",feedback->dashboardSerial,feedback->dashboardTitle);
+ }
  if(event){const char* kind=event->kind==1?"select":event->kind==2?"next":event->kind==3?"previous":event->kind==4?"back":NULL;
   if(!kind||!event->serial)return -1;
   // Session-specific request prefix + monotonically increasing serial.
   int n=snprintf(action,sizeof action,"{\"kind\":\"%s\",\"sequence\":%u,\"row\":%u,\"request\":\"%.24s%08x\"}",kind,event->sequence,event->row,credential,event->serial);
   if(n<0||(size_t)n>=sizeof action)return -1;
  }
- int n=snprintf(body,sizeof body,"{\"feedback\":{\"epoch\":%u,\"serial\":%u,\"open\":%s,\"owner\":%d,\"connection\":%u,\"ready\":%s,\"renderedAt\":%llu},\"action\":%s}",
-  feedback->epoch,feedback->serial,feedback->open?"true":"false",feedback->owner,feedback->connection,feedback->ready?"true":"false",(unsigned long long)feedback->renderedAt,action);
+ int n=snprintf(body,sizeof body,"{\"feedback\":{\"epoch\":%u,\"serial\":%u,\"open\":%s,\"owner\":%d,\"connection\":%u,\"ready\":%s,\"renderedAt\":%llu},\"menuOpen\":%s,\"dashboard\":%s,\"action\":%s}",
+  feedback->epoch,feedback->serial,feedback->open?"true":"false",feedback->owner,feedback->connection,feedback->ready?"true":"false",(unsigned long long)feedback->renderedAt,feedback->menuOpen?"true":"false",dashboard,action);
  if(n<0||(size_t)n>=sizeof body)return -1;size_t bodylen=(size_t)n;
- n=snprintf(request,sizeof request,"POST /native/deck/sync HTTP/1.0\r\nHost: 127.0.0.1:%u\r\nX-TacHen-Native: %s\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",port,credential,bodylen,body);
+ n=snprintf(request,sizeof request,"POST /native/%s/sync HTTP/1.0\r\nHost: 127.0.0.1:%u\r\nX-TacHen-Native: %s\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",cheats?"cheats":"deck",port,credential,bodylen,body);
  if(n<0||(size_t)n>=sizeof request)return -1;size_t length=(size_t)n;
  int fd=socket(AF_INET,SOCK_STREAM,0);if(fd<0)return -1;int outcome=-1;
  if(fcntl(fd,F_SETFL,O_NONBLOCK)<0)goto done;
@@ -39,7 +44,7 @@ int tac_deck_http(uint16_t port,const char credential[33],const TacDeckEvent* ev
  if(getsockopt(fd,SOL_SOCKET,SO_ERROR,&error,&errorlen)||error)goto done;
  for(size_t off=0;off<length;){if(!wait_fd(fd,POLLOUT,deadline))goto done;ssize_t count=send(fd,request+off,length-off,MSG_NOSIGNAL);
   if(count<0&&(errno==EAGAIN||errno==EINTR))continue;if(count<=0)goto done;off+=(size_t)count;}
- unsigned char response[8192];size_t used=0;
+ unsigned char response[sizeof(TacDeckFrame)+2048];size_t used=0;
  for(;;){if(used==sizeof response)goto done;if(!wait_fd(fd,POLLIN,deadline))goto done;
   ssize_t count=recv(fd,response+used,sizeof response-used,0);
   if(count<0&&(errno==EAGAIN||errno==EINTR))continue;if(count<0)goto done;if(!count)break;used+=(size_t)count;}
@@ -48,7 +53,10 @@ int tac_deck_http(uint16_t port,const char credential[33],const TacDeckEvent* ev
  int status=(response[9]-'0')*100+(response[10]-'0')*10+(response[11]-'0');
  size_t split=0;for(size_t i=12;i+3<used;i++)if(!memcmp(response+i,"\r\n\r\n",4)){split=i+4;break;}
  if(!split||split>4096)goto done;
- if(status==200){if(!tac_deck_decode(response+split,used-split,frame))goto done;}
+ if(tac_deck_http_has_frame(status)){if(!tac_deck_decode(response+split,used-split,frame))goto done;}
  outcome=status;
 done:close(fd);return outcome;
 }
+
+int tac_deck_http(uint16_t p,const char*c,const TacDeckEvent*e,const TacDeckFeedback*f,TacDeckFrame*out){return request(0,p,c,e,f,out);}
+int tac_cheats_http(uint16_t p,const char*c,const TacDeckEvent*e,const TacDeckFeedback*f,TacDeckFrame*out){return request(1,p,c,e,f,out);}

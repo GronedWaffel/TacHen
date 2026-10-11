@@ -4,6 +4,19 @@
 static uint32_t be32(const unsigned char* p){return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3];}
 static uint64_t be64(const unsigned char* p){return (uint64_t)be32(p)<<32|be32(p+4);}
 static uint64_t le64(const unsigned char* p){uint64_t n=0;for(unsigned i=0;i<8;i++)n|=(uint64_t)p[i]<<(8*i);return n;}
+int tac_package_source_path_valid(const char* p){
+ if(!p)return 0;size_t n=strlen(p);if(n<7||n>=1024)return 0;
+ if(strncmp(p,"/data/",6) && !(n>10&&!strncmp(p,"/mnt/usb",8)&&p[8]>='0'&&p[8]<='7'&&p[9]=='/'))return 0;
+ const char* start=p+1;
+ for(const char* at=start;;at++){
+  if(*at && ((unsigned char)*at<32||*at=='\\'))return 0;
+  if(!*at||*at=='/'){
+   size_t size=(size_t)(at-start);if(!size||(size==1&&start[0]=='.')||(size==2&&start[0]=='.'&&start[1]=='.'))return 0;
+   if(!*at)break;start=at+1;
+  }
+ }
+ return 1;
+}
 int tac_package_hex(const char* p,size_t n){if(!p||strlen(p)!=n)return 0;for(size_t i=0;i<n;i++)if(!((p[i]>='0'&&p[i]<='9')||(p[i]>='a'&&p[i]<='f')))return 0;return 1;}
 static int content_valid(const char* p){
  if(strlen(p)!=36||p[6]!='-'||p[16]!='_'||p[17]!='0'||p[18]!='0'||p[19]!='-'||!memcmp(p+7,"NPXS",4))return 0;
@@ -20,7 +33,7 @@ static int type_valid(uint32_t type,uint32_t platform){
 }
 static unsigned platform_for(const char* content){return (!memcmp(content+7,"PPSA",4)||!memcmp(content+7,"MOUU",4))?5:4;}
 int tac_package_request_valid(const TacPackageRequest* r){
- if(r->magic!=TAC_PACKAGE_MAGIC||r->version!=1||r->bytes<8192||r->bytes>TAC_PACKAGE_MAX||r->reserved||
+ if(r->magic!=TAC_PACKAGE_MAGIC||!((r->version==1&&!r->reserved)||(r->version==2&&r->reserved==1))||r->bytes<8192||r->bytes>TAC_PACKAGE_MAX||
    r->bootSec<=0||r->bootUsec<0||r->bootUsec>=1000000||r->patch>1||
    r->request[32]||r->upload[32]||r->sha256[64]||r->content[36]||r->name[127])return 0;
  if(!tac_package_hex(r->request,32)||!tac_package_hex(r->upload,32)||!tac_package_hex(r->sha256,64)||!content_valid(r->content)||

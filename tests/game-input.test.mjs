@@ -28,6 +28,15 @@ test('input callback prepares without any registered module and once per game in
   f.runtime.game.generation = '100:0/91/999:0';await f.runtime.gameInput.refresh();await until(() => f.calls.length === 2 && !f.runtime.jobs.running.size);
   assert.notEqual(f.calls[0].request, f.calls[1].request);
 });
+
+test('plugin-only console mode never automatically injects the game menu bridge', async t => {
+  const f=await fixture(t);f.runtime.gameInput.automatic=false;
+  await f.runtime.gameInput.refresh();await f.runtime.gameInput.refresh();
+  assert.equal(f.calls.length,0);assert.equal(f.runtime.jobs.snapshot().length,0);
+  assert.equal(f.runtime.gameInput.observation.phase,'not-prepared');
+  f.runtime.game={...game,generation:'100:0/91/999:0'};
+  await f.runtime.gameInput.refresh();assert.equal(f.calls.length,0);
+});
 test('missing renderer, unsafe startup, bad metadata or readiness cannot dispatch input hooks', async t => {
   const f = await fixture(t);f.renderer.ready = false;await f.runtime.gameInput.refresh();assert.equal(f.calls.length, 0);
   f.renderer.ready = true;f.runtime.graph.safe = true;await f.runtime.gameInput.refresh();assert.equal(f.calls.length, 0);
@@ -64,4 +73,16 @@ test('input preparation shares exclusion with queued native module loading', asy
   const inputJob = await f.runtime.jobs.enqueue('game.input.prepare', {}, f.runtime.id());
   await new Promise(resolve => setTimeout(resolve, 10));assert.equal(f.calls.length, 0);release();
   await until(() => f.runtime.jobs.snapshot().find(job => job.id === inputJob.id).status === 'completed');assert.equal(f.calls.length, 1);
+});
+
+test('closing a game automatically settles its interrupted input worker before another game starts', async t => {
+  const f=await fixture(t),original=f.native.gameInputStart;
+  f.native.gameInputStart=(...args)=>{original(...args);Object.assign(f.receipts.get(args[0]),{stage:4,phase:3,message:'Uncertain prior game'});};
+  await f.runtime.gameInput.refresh();const old=await f.settled();assert.equal(old.status,'interrupted');
+  f.runtime.game=null;f.probe.processes=[];await f.runtime.gameInput.refresh();
+  assert.equal(f.runtime.jobs.snapshot()[0].result?.phase,'game-ended');
+  f.runtime.game={...game,generation:'100:0/91/202:0'};
+  f.probe.processes=[{pid:game.pid,generation:f.runtime.game.generation}];f.native.gameInputStart=original;
+  await f.runtime.gameInput.refresh();await until(()=>f.calls.length===2&&!f.runtime.jobs.running.size);
+  assert.equal(f.runtime.jobs.snapshot().at(-1).result.phase,'prepared');
 });

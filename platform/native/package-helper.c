@@ -5,6 +5,7 @@
 #include "package-abi.h"
 #include "package-io.h"
 #include "package-http.h"
+#include "package-fingerprint.h"
 #include "firmware-profiles.h"
 #include "sha256.h"
 #include <ps5/kernel.h>
@@ -18,7 +19,14 @@
 #include <string.h>
 #include <errno.h>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <stdatomic.h>
 static TacPackageReceipt receipt;
+static atomic_uint_fast64_t watchdog_deadline;
+static void arm_watchdog(unsigned seconds){atomic_store(&watchdog_deadline,seconds?tac_package_millis()+(uint64_t)seconds*1000:0);}
+static void* watchdog(void* unused){
+ (void)unused;for(;;){uint64_t deadline=atomic_load(&watchdog_deadline);if(deadline&&tac_package_millis()>=deadline)_exit(124);usleep(100000);}return NULL;
+}
 static int (*initialize)(void),(*install)(TacInstallMeta*,TacInstallPackage*,TacInstallPlaygo*);
 static int (*status)(const char*,void*);
 static uint64_t savedAuth;static int elevated;
@@ -30,14 +38,14 @@ static int read_at(void* context,uint64_t at,void* data,size_t bytes){
  while(got<bytes){ssize_t n=pread(fd,(unsigned char*)data+got,bytes-got,(off_t)(at+got));if(n<0&&errno==EINTR)continue;if(n<=0)return -1;got+=(size_t)n;}return 0;
 }
 static int auth_begin(void){
- alarm(12);savedAuth=kernel_get_ucred_authid(getpid());
- if(!savedAuth||savedAuth==UINT64_MAX){alarm(0);return -1;}
+ arm_watchdog(12);savedAuth=kernel_get_ucred_authid(getpid());
+ if(!savedAuth||savedAuth==UINT64_MAX){arm_watchdog(0);return -1;}
  elevated=1;
  return kernel_set_ucred_authid(getpid(),UINT64_C(0x4801000000000013))||kernel_get_ucred_authid(getpid())!=UINT64_C(0x4801000000000013)?-1:0;
 }
 static int auth_end(void){
  if(elevated)for(unsigned i=0;i<3;i++)if(!kernel_set_ucred_authid(getpid(),savedAuth)&&kernel_get_ucred_authid(getpid())==savedAuth){elevated=0;break;}
- alarm(0);return elevated?-1:0;
+ arm_watchdog(0);return elevated?-1:0;
 }
 static int same_file(int fd,const char* path,const struct stat* before){
  struct stat after,named;
@@ -59,16 +67,17 @@ int main(void){
  if(tac_package_request_load(&request)||tac_package_boot(&request,1)||tac_package_receipt_load(request.request,&receipt)||
    memcmp(&request,&receipt.input,sizeof request)||receipt.stage!=TAC_PKG_QUEUED||receipt.clean)return 3;
  receipt.pid=getpid();int fd=-1;unsigned char* chunk=NULL;TacPackageSource* source=NULL;int result=1;const char* reason="Package helper preflight failed";
+ pthread_t guard;if(pthread_create(&guard,NULL,watchdog,NULL)){reason="Installer watchdog could not start";goto rejected;}pthread_detach(guard);
  if(!snipers_firmware_profile(kernel_get_fw_version())){reason="This firmware is outside TacHen's supported profiles";goto rejected;}
- if(publish(TAC_PKG_HASHING,1,"Checking the exact package bytes before installation"))goto done;
+ if(publish(TAC_PKG_HASHING,1,request.reserved?"Checking the selected package headers":"Checking the exact package bytes before installation"))goto done;
  struct stat parent;if(lstat("/data/tachen/packages",&parent)||!S_ISDIR(parent.st_mode)||S_ISLNK(parent.st_mode))goto rejected;
- char path[160];snprintf(path,sizeof path,"/data/tachen/packages/%s.payload",request.upload);
- fd=open(path,O_RDONLY|O_NOFOLLOW);struct stat before;
- if(fd<0||fstat(fd,&before)||!S_ISREG(before.st_mode)||(uint64_t)before.st_size!=request.bytes){reason="Verified package file is missing or changed";goto rejected;}
- TacPackageInfo info;
- if(tac_package_inspect(read_at,&fd,request.bytes,&info)||info.type!=request.type||info.platform!=request.platform||info.patch!=request.patch||strcmp(info.content,request.content)){
+ char path[1024];fd=tac_package_open_source(request.upload,path,sizeof path);struct stat before;
+ if(fd<0||fstat(fd,&before)||!S_ISREG(before.st_mode)||(uint64_t)before.st_size!=request.bytes){reason="Package source is missing or changed. Keep USB connected, or select the file again";goto rejected;}
+ TacPackageInfo info;unsigned char digest[32];
+ if(tac_package_header_fingerprint(read_at,&fd,request.bytes,&info,digest)||info.type!=request.type||info.platform!=request.platform||info.patch!=request.patch||strcmp(info.content,request.content)){
   reason="Native package header differs from the approved upload";goto rejected;
  }
+ if(!request.reserved){
  chunk=malloc(1024*1024);if(!chunk){reason="Not enough memory for package verification";goto rejected;}
  SHA256_CTX hash;sha256_init(&hash);uint64_t last=tac_package_millis();receipt.total=request.bytes;
  for(uint64_t at=0;at<request.bytes;){
@@ -78,21 +87,27 @@ int main(void){
   if(!now||now<last){reason="Monotonic clock unavailable during verification";goto rejected;}
   if(now-last>=2000){if(tac_package_receipt_save(&receipt))goto done;last=now;}
  }
- free(chunk);chunk=NULL;unsigned char digest[32];char actual[65];sha256_final(&hash,digest);
+ free(chunk);chunk=NULL;sha256_final(&hash,digest);
+ }
+ char actual[65];
  for(unsigned i=0;i<32;i++)snprintf(actual+i*2,3,"%02x",digest[i]);
  if(strcmp(actual,request.sha256)||!same_file(fd,path,&before)){reason="Package changed after upload verification";goto rejected;}
  receipt.downloaded=receipt.total=0;if(publish(TAC_PKG_PREFLIGHT,1,"Preparing the console package installer"))goto done;
- alarm(12);
+ // Load the same explicit service dependencies used by the working Neighborhood
+ // receiver during CRT startup. Late dlopen of AppInstUtil stalled on 13.60.
+ arm_watchdog(12);
  initialize=dlsym(RTLD_DEFAULT,"sceAppInstUtilInitialize");install=dlsym(RTLD_DEFAULT,"sceAppInstUtilInstallByPackage");
- if(!initialize||!install){dlopen("/system/common/lib/libSceAppInstUtil.sprx",RTLD_LAZY);initialize=dlsym(RTLD_DEFAULT,"sceAppInstUtilInitialize");install=dlsym(RTLD_DEFAULT,"sceAppInstUtilInstallByPackage");}
- status=dlsym(RTLD_DEFAULT,request.patch?"sceAppInstUtilGetPatchInstallStatus":"sceAppInstUtilGetInstallStatus");alarm(0);
+ status=dlsym(RTLD_DEFAULT,request.patch?"sceAppInstUtilGetPatchInstallStatus":"sceAppInstUtilGetInstallStatus");arm_watchdog(0);
  if(!initialize||!install||!status){reason="Console installer symbols are unavailable";goto rejected;}
+ if(publish(TAC_PKG_PREFLIGHT,1,"Initializing the console package installer"))goto done;
  if(auth_begin()){auth_end();reason="Installer credentials could not be established";goto rejected;}
  int rc=initialize(),restored=auth_end();if(rc||restored){receipt.error=rc;reason="Console installer initialization failed";goto rejected;}
+ if(publish(TAC_PKG_PREFLIGHT,1,"Checking existing installation status"))goto done;
  TacPackageTracker tracker={0};rc=get_status(&tracker.baseline);if(elevated){reason="Installer credentials could not be restored";goto rejected;}tracker.baselineValid=rc==0;
  if(tracker.baselineValid&&tracker.baseline.total&&tracker.baseline.downloaded<tracker.baseline.total){reason="This content already has an unfinished installation";goto rejected;}
  if(!same_file(fd,path,&before)){reason="Package identity changed before submission";goto rejected;}
  char uri[160];
+ if(publish(TAC_PKG_PREFLIGHT,1,"Starting the verified local package source"))goto done;
  if(tac_package_source_start(&source,fd,request.request,request.bytes,uri,sizeof uri)){
   reason="The local package source could not start; nothing was submitted";goto rejected;
  }
@@ -102,7 +117,10 @@ int main(void){
  if(publish(TAC_PKG_SUBMITTING,0,"Submitting this package once to the console installer"))goto done;
  if(auth_begin()){auth_end();reason="Installer credential change failed before submission";goto rejected;}
  rc=install(&meta,&output,&playgo);restored=auth_end();receipt.error=rc;
- if(rc||restored){publish(TAC_PKG_UNKNOWN,0,"Installer call failed or credentials did not restore; its result needs inspection");goto done;}
+ if(rc||restored){
+  char detail[192];snprintf(detail,sizeof detail,"Installer returned 0x%08X; credentials %s. Package retained for inspection.",(unsigned)rc,restored?"could not be restored":"restored");
+  publish(TAC_PKG_UNKNOWN,0,detail);goto done;
+ }
  receipt.accepted=1;
  if(!memchr(output.content,0,sizeof output.content)||strcmp(output.content,request.content)){
   publish(TAC_PKG_UNKNOWN,0,"Installer returned a different content identity; no second submission was issued");goto done;

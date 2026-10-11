@@ -110,6 +110,12 @@ int pt_wait_stop(pid_t pid,int expected,unsigned timeout){
   errno=result==TAC_TRACE_TIMEOUT?ETIMEDOUT:result==TAC_TRACE_GONE?ESRCH:
     result==TAC_TRACE_WRONG_STOP?EINTR:last.error?last.error:EIO;return -1;
 }
+int pt_wait_signal(pid_t pid,unsigned timeout,int* signal){
+ TacTraceEvent last;int result=trace_wait_event(pid,0,timeout,&last);
+ *signal=last.kind==TAC_TRACE_STOPPED?last.signal:0;
+ if(result==TAC_TRACE_OK)return 0;
+ errno=result==TAC_TRACE_TIMEOUT?ETIMEDOUT:result==TAC_TRACE_GONE?ESRCH:last.error?last.error:EIO;return -1;
+}
 int
 pt_attach(pid_t pid) {
   if(sys_ptrace(PT_ATTACH,pid,0,0)==-1)return -1;
@@ -176,6 +182,13 @@ int pt_getlwps(pid_t pid,int* tids,size_t capacity){
  if(count<=0||(size_t)count>capacity)return -1;
  int got=sys_ptrace(PT_GETLWPLIST,pid,(caddr_t)tids,count);
  return got==count?got:-1;
+}
+int pt_stop_info(pid_t pid,int* thread,int* signal,int* code,uintptr_t* address){
+ struct ptrace_lwpinfo info={0};
+ if(sys_ptrace(PT_LWPINFO,pid,(caddr_t)&info,sizeof info))return -1;
+ *thread=info.pl_lwpid;*signal=0;*code=0;*address=0;
+ if(info.pl_flags&PL_FLAG_SI){*signal=info.pl_siginfo.si_signo;*code=info.pl_siginfo.si_code;*address=(uintptr_t)info.pl_siginfo.si_addr;}
+ return 0;
 }
 
 

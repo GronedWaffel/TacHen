@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { canonical, clone, invariant, publicError, TacError } from './errors.mjs';
-const startupJob = j => ['component.start', 'deck.start'].includes(j.kind);
+const startupJob = j => ['component.start', 'deck.start', 'payload.startup'].includes(j.kind);
 const unresolved = j => ['queued', 'held', 'running', 'cancelling', 'uncertain', 'interrupted'].includes(j.status);
+const locksMenu = j => j.resources?.some(resource => ['native-payload-dispatch', 'shellui-hooks'].includes(resource));
+const isolatedService = id => ['shadowmount','payload-manager'].includes(id);
 
 export class StartupRecovery {
   constructor(runtime, native) {
@@ -16,17 +18,17 @@ export class StartupRecovery {
   snapshot(state = this.runtime.store.snapshot()) {
     const last = state.startup.native;
     return { available: true, running: Boolean(this.pending), target: this.target, safe: this.runtime.graph.safe,
-      last: last ? { status: last.status, service: last.service, at: last.at, error: clone(last.error), services: last.services } : null,
+      last: last ? { status: last.status, degraded: last.degraded === true, service: last.service, at: last.at, error: clone(last.error), services: last.services } : null,
       knownGood: state.knownGoodReceipt ? clone(state.knownGoodReceipt) : null };
   }
   async preview() {
     const r = this.runtime;
     invariant(!this.pending, 'STARTUP_BUSY', 'Startup is already being checked.');
     const state = r.store.snapshot(), probe = this.native.systemProbe(), blockers = [];
-    if (probe.busy || r.jobs.running.size || r.graph.pending.size) blockers.push('An operation is still running. Wait for it to settle.');
+    if (probe.busy || [...r.jobs.running.values()].some(active=>locksMenu(active.job)) || r.graph.pending.size) blockers.push('A native operation is still running. Wait for it to settle.');
     if (r.jobs.halted || r.jobs.stopped) blockers.push('The work queue is stopped. Preserve diagnostics before restarting TacHen.');
     if (!probe.boot) blockers.push('The current console boot could not be identified.');
-    for (const job of state.jobs.filter(j => unresolved(j) && !startupJob(j)))
+    for (const job of state.jobs.filter(j => unresolved(j) && j.status !== 'held' && !startupJob(j) && locksMenu(j)))
       blockers.push(`${job.kind}: review its previous ${job.status} operation in Activity first.`);
     const services = [], identities = [], settings = clone(state.settings);
     if (!blockers.length) {
@@ -38,7 +40,7 @@ export class StartupRecovery {
         const status = evidence.ready ? 'adopt' : evidence.absent ? 'start' : 'blocked';
         identities.push(Object.fromEntries(['ready', 'absent', 'boot', 'pid', 'generation', 'version', 'request', 'stage', 'noSideEffects'].map(key => [key, evidence[key] ?? null])));
         services.push({ id: service, status, reason: status === 'blocked' ? evidence.reason || evidence.message || 'Existing state remains uncertain. Restart the console before another attempt.' : null });
-        if (status === 'blocked') blockers.push(`${service}: ${services.at(-1).reason}`);
+        if (status === 'blocked' && !isolatedService(service)) blockers.push(`${service}: ${services.at(-1).reason}`);
       }
       // Inspection is read-only. Reconciliation and any new dispatch require confirmation.
       for (const job of state.jobs.filter(j => startupJob(j) && j.status === 'interrupted')) {
@@ -67,29 +69,61 @@ export class StartupRecovery {
   }
   startConfigured() {
     if (this.pending) return this.pending;
-    if (this.runtime.graph.safe) return Promise.resolve({ held: true });
-    return this.begin(false);
+    const r = this.runtime, state = r.store.snapshot(), probe = this.native.systemProbe();
+    const previousBoot = state.startup.native?.boot || state.jobs.findLast(j =>
+      ['component.start', 'deck.start'].includes(j.kind) && j.args?.boot)?.args.boot;
+    const freshBoot = !probe.busy && Boolean(probe.boot && previousBoot && probe.boot !== previousBoot);
+    // Reboot ends resident hooks. It does not prove a previous file operation
+    // succeeded, and a coordinator restart in the SAME boot must never retry it.
+    if (r.graph.safe && (!freshBoot || r.store.recovered)) return Promise.resolve({ held: true,
+      error: { code: 'STARTUP_HELD', message: state.startup.native?.error?.message || 'Startup needs review before another attempt.' } });
+    return this.begin(freshBoot, undefined, freshBoot);
   }
-  begin(recovery, reviewedRevision) {
+  begin(recovery, reviewedRevision, freshBoot = false) {
     if (this.pending) return this.pending;
     this.attempt = this.runtime.id();
-    this.pending = Promise.resolve().then(() => this.run(recovery, reviewedRevision)).finally(() => {
+    this.pending = Promise.resolve().then(() => this.run(recovery, reviewedRevision, freshBoot)).finally(() => {
       this.pending = null;this.target = null;this.runtime.sequence++;
+      if (!this.runtime.graph.safe && !this.runtime.jobs.snapshot().some(j=>unresolved(j)&&j.status!=='held'&&locksMenu(j))) this.runtime.startupPayloads?.run();
     });
     // Interactive launch has no request waiting for completion. Keep its error
     // recorded and observed rather than creating an unhandled rejection.
     this.pending.catch(() => {});return this.pending;
   }
-  async run(recovery, reviewedRevision) {
+  async run(recovery, reviewedRevision, freshBoot = false) {
     const r = this.runtime, candidate = clone(r.store.snapshot().settings), services = this.services(candidate);
-    let failure = null;
+    let failure = null, boot = null;const issues=[];
+    const isolate=(service,error)=>{
+      const issue={service,error:publicError(error)};issues.push(issue);
+      console.error('TacHen optional service unavailable:',service,issue.error.code,issue.error.message);
+      r.diagnostics?.record('startup',{status:'optional-unavailable',target:service,code:issue.error.code});
+    };
     try {
-      invariant(!r.jobs.halted && !r.jobs.stopped && !r.jobs.running.size && !r.graph.pending.size,
+      invariant(!r.jobs.halted && !r.jobs.stopped && ![...r.jobs.running.values()].some(active=>locksMenu(active.job)) && !r.graph.pending.size,
         'STARTUP_BUSY', 'Wait for active operations before starting components.');
-      invariant(!r.jobs.snapshot().some(j => unresolved(j) && !startupJob(j)), 'RECOVERY_BLOCKED', 'Review unfinished operations in Activity first.');
+      // Mount and game-input workers cannot survive a console boot. Settle
+      // their old intent through each handler's checked path, never replay it.
+      boot=this.native.systemProbe().boot;
+      for(const job of r.jobs.snapshot().filter(j=>{
+        const prior=j.kind==='library.mount'?j.args?.service?.boot:j.kind==='game.input.prepare'?j.args?.boot:null;
+        return j.status==='interrupted'&&prior&&boot&&prior!==boot;
+      }))
+        await r.jobs.reconcile(job.id);
+      // Read existing installer evidence, child first. This never resubmits an
+      // install; same-boot or already-submitted uncertainty remains blocking.
+      for(const kind of ['package.install','package.receive'])
+        for(const job of r.jobs.snapshot().filter(j=>j.kind===kind&&j.status==='interrupted')){
+          try { await r.jobs.reconcile(job.id); }
+          catch(error){if(error.code!=='OUTCOME_UNKNOWN')throw error;}
+        }
+      invariant(!r.jobs.snapshot().some(j => unresolved(j) && !startupJob(j) &&
+        // Held work has never begun. Unresolved disk work keeps its resource
+        // locks; only work sharing menu-injection resources can block the menu.
+        j.status !== 'held' && locksMenu(j)),
+        'RECOVERY_BLOCKED', 'Review unfinished operations in Activity first.');
       await r.store.transaction(state => {
         state.startup.pending = true;
-        state.startup.native = { id: this.attempt, status: 'starting', at: r.now(), service: null, error: null, services };
+        state.startup.native = { id: this.attempt, boot, status: 'starting', at: r.now(), service: null, error: null, services };
       }, reviewedRevision);
       if (recovery) {
         for (const job of r.jobs.snapshot().filter(j => startupJob(j) && unresolved(j))) {
@@ -102,14 +136,38 @@ export class StartupRecovery {
         this.target = service;
         await r.store.transaction(state => { state.startup.native.service = service; });
         r.diagnostics?.record('startup', { status: 'native-step', target: service });
-        const status = r.graph.states.get(service)?.status;
-        if (recovery && ['failed', 'uncertain', 'blocked', 'ready'].includes(status)) await r.graph.reconcile(service);
-        await r.graph.start(service);
+        try {
+          const status = r.graph.states.get(service)?.status;
+          if (recovery && ['failed', 'uncertain', 'blocked', 'ready'].includes(status)) await r.graph.reconcile(service);
+          // Keep an uncertain native dispatch locked, but allow adoption of a
+          // service that is already verified. Never queue a second injection.
+          if(r.jobs.snapshot().some(j=>unresolved(j)&&j.status!=='held'&&locksMenu(j))){
+            const evidence=await r.graph.definitions.get(service).inspect();
+            invariant(evidence.ready,'COMPONENT_DISPATCH_HELD','This component cannot be launched until the previous native dispatch is resolved. Existing menu and services remain available.');
+          }
+          await r.graph.start(service);
+        } catch(error){if(!isolatedService(service))throw error;isolate(service,error);}
       }
       // Verify the complete set again before promoting this startup configuration.
       for (const service of services) {
-        const definition = r.graph.definitions.get(service), evidence = await definition.inspect();
-        invariant(await definition.verify(evidence), 'STARTUP_READINESS_LOST', `${service} lost readiness before startup completed.`);
+        if(issues.some(issue=>issue.service===service))continue;
+        try{
+          const definition = r.graph.definitions.get(service), evidence = await definition.inspect();
+          invariant(await definition.verify(evidence),'STARTUP_READINESS_LOST',`${service} lost readiness before startup completed.`);
+        }catch(error){
+          if(!isolatedService(service))throw error;
+          r.graph.invalidate(service,error);isolate(service,error);
+        }
+      }
+      if(issues.length){
+        await r.store.transaction(state=>{
+          state.startup.pending=false;state.startup.safe=false;
+          Object.assign(state.startup.native,{status:'failed',degraded:true,service:issues[0].service,error:issues[0].error,issues});
+          this.history(state,'Optional features need attention',issues.map(issue=>`${issue.service}: ${issue.error.message}`).join(' '));
+        });
+        r.graph.safe=false;r.sequence++;r.notices?.observe();r.diagnostics?.observe();
+        // Do not mark an incomplete configuration or binary trial known-good.
+        return {completed:false,degraded:true,error:issues[0].error,issues};
       }
       await r.store.transaction(state => {
         state.startup.pending = false;state.startup.safe = false;
@@ -125,10 +183,11 @@ export class StartupRecovery {
       r.updates?.confirmStartup();
     } catch (error) {
       failure = publicError(error);r.graph.safe = true;
+      console.error('TacHen startup service failed:', this.target, failure.code, failure.message);
       try {
         await r.store.transaction(state => {
           state.startup.pending = false;state.startup.safe = true;
-          state.startup.native = { id: this.attempt, status: 'failed', at: r.now(), service: this.target, error: failure, services };
+          state.startup.native = { id: this.attempt, boot, status: 'failed', at: r.now(), service: this.target, error: failure, services };
           this.history(state, 'Native startup needs attention', failure.message);
         });
       } catch (saveError) {

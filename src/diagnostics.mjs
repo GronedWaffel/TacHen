@@ -8,7 +8,7 @@ const LIMIT = 512, RUNS = 3, MAX_BYTES = 2 * 1024 * 1024;
 const token = (v, pattern = /^[a-zA-Z0-9_.-]{1,80}$/) => typeof v === 'string' && pattern.test(v) ? v : null;
 const code = v => token(v, /^[A-Z][A-Z0-9_]{0,79}$/);
 const number = v => Number.isSafeInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER ? v : null;
-const numeric = ['pid', 'appId', 'errno', 'error', 'status', 'result', 'returnCode', 'code', 'stage', 'completed', 'total', 'completedBytes', 'totalBytes', 'bytes', 'count'];
+const numeric = ['pid', 'appId', 'errno', 'error', 'status', 'result', 'returnCode', 'handle', 'startResult', 'code', 'stage', 'completed', 'total', 'completedBytes', 'totalBytes', 'bytes', 'count'];
 const flags = ['ready', 'absent', 'busy', 'verified', 'completed', 'installed', 'initialized', 'adopted', 'injectionReady', 'noSideEffects', 'safe', 'halted', 'accepted', 'observed', 'mounted', 'sameBoot'];
 export function diagnosticEvidence(value, depth = 0) {
   const out = {};

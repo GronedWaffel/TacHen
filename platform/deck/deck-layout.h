@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "deck-core.h"
-#define TAC_DECK_LABELS 45
+#define TAC_DECK_LABELS 64
 #define TAC_DECK_STYLES 5
-#define TAC_DECK_INKS 7
-#define TAC_DECK_PANELS 12
+#define TAC_DECK_INKS 8
+#define TAC_DECK_PANELS 24
 #define TAC_DECK_BACKGROUNDS 11
 enum { TAC_INK_ACCENT, TAC_INK_TEXT, TAC_INK_MUTED, TAC_INK_QUIET, TAC_INK_ATTENTION };
 typedef struct { float x,y; unsigned font,ink; char text[256]; } TacDeckText;

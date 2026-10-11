@@ -12,45 +12,33 @@ const result=spawnSync(zig,['cc','-O1','-Wall','-Wextra','-Werror','-Iplatform/d
   'platform/deck/deck-layout.c','platform/deck/deck-core.c','-o',exe],{cwd:root,encoding:'utf8',
   env:{...process.env,ZIG_GLOBAL_CACHE_DIR:path.join(root,'build/zig-cache')}});
 if(result.status!==0)throw Error(result.stderr||result.error?.message);
-const labels=[['Session watcher','Start this plugin process before opening a game.',true,false],
-  ['Enable game autostart','Wait for PPSA00001 / 01.000.000. Disabling autostart does not unload code.',true,true],
-  ['Load into game','Startup recovery is holding native operations. Review Activity before continuing.',false,false],
-  ['FPS overlay','Show live FPS and resource use while this game runs.',true,true],
-  ['Background installs','Two pending jobs. Open Activity to follow their progress.',true,false],
-  ['Saved games','Export a decrypted archive to USB or the FTP share after closing this game.',true,false],
-  ['Session history','Review changes made during this session and supported undo actions.',true,false],
-  ['Back to payloads','Return to the payload inbox.',true,false]];
-const frame={ready:true,sequence:1,page:1,title:'TacHen / Plugins',subtitle:'Dashboard  /  Firmware 13.60  /  Local preview',
-  footer:'L1 / R1 sections    X select    Circle back    L3 + R3 close',ip:'192.168.1.10',ipVisible:true,
-  metrics:'60 FPS  |  CPU 18%  |  RAM 782 MB',metricsSequence:1,
-  notices:{sequence:1,current:{level:'attention',remainingMs:5000,count:1,title:'A job needs your attention',detail:'Open Activity to review the result before retrying.'}},
-  rows:labels.map(([label,detail,enabled,on],i)=>({label,detail,enabled,on,token:String(i).repeat(32)}))};
+const home=[['Packages','Install PKG files from USB or console storage.'],['Payloads','Browse and run ELF payloads.'],['Plugins','Add plugins and manage automatic loading.'],['Games','Browse and mount your ShadowMount library.'],['Saved games','Export decrypted saves to USB or FTP.'],['Cheats','Choose cheats for your game and version.'],['Transfers','See installation progress and completed jobs.'],['Settings','FPS, display options and services.']];
+const examples=[{name:'Home',grid:true,rows:home},{name:'Packages',rows:[['Install from storage','Choose a PKG from USB or console storage.'],['Example game.pkg','Verified package, ready to install.'],['Back','Return to Home.']]},{name:'Choose a file',rows:[['Refresh','Check connected drives again.'],['[Folder] Console storage','Open folder.'],['[Folder] USB 1','Open folder.'],['Back','Return to Packages.']]}];
+const base={ready:true,sequence:1,page:0,subtitle:'Firmware 13.60',footer:'X  Select     Circle  Back     L3 + R3  Close',ip:'192.168.1.10',ipVisible:true,metrics:'',metricsSequence:1};
 await fs.mkdir(path.join(root,'.local'),{recursive:true});
 const input=path.join(root,'.local/deck-preview-frame.bin');
-const views=[];
-for(const accent of ['mint','amber','ice']){
-await fs.writeFile(input,encodeDeck({...frame,accent}));
-for(let selected=0;selected<=labels.length;selected++){
-  const args=[input,selected===labels.length?'0':'1',String(selected%labels.length)];
-  const result=spawnSync(exe,args,{encoding:'utf8'}),panels=spawnSync(exe,[...args,'panels'],{encoding:'utf8'});
-  if(result.status!==0||panels.status!==0)throw Error(result.stderr||panels.stderr||'Native layout preview failed');
-  views.push({labels:JSON.parse(result.stdout),panels:JSON.parse(panels.stdout)});
-}
-}
 const escape=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 const color=item=>`rgb(${item.color.slice(0,3).map(x=>Math.round(x*255)).join(' ')})`;
-const svgs=views.map(view=>'<svg viewBox="0 0 1920 1080" role="img" aria-label="Native TacHen panel and text layout">'+
-  view.panels.filter(item=>item.visible).map(item=>`<rect x="${item.x}" y="${item.y}" width="${item.width}" height="${item.height}" fill="${color(item)}" fill-opacity="${item.color[3]}"/>`).join('')+
-  view.labels.filter(item=>item.text).map(item=>`<text x="${item.x}" y="${item.y+item.size}" font-size="${item.size}" fill="${color(item)}">${escape(item.text)}</text>`).join('')+'</svg>');
-const html=`<!doctype html><meta charset="utf-8"><title>TacHen native layout preview</title>
-<style>body{margin:0;background:#070e15;color:#c2d1da;font:14px system-ui}header{padding:15px 24px;display:flex;align-items:center;gap:20px}b{color:#75ffd0}select{font:inherit;background:#13202b;color:white;border:1px solid #405263;padding:8px}#screen{background:#101d29}svg{width:100%;display:block;font-family:Arial,sans-serif}svg text{white-space:pre}footer{padding:14px 24px;color:#95a6b5}</style>
-<header><b>Native layout · PC preview</b><label>Focus <select id="focus">${labels.map((row,i)=>`<option value="${i}">${escape(row[0])}</option>`).join('')}<option value="8">Deck closed</option></select></label><label>Accent <select id="accent"><option value="0">Mint</option><option value="1">Amber</option><option value="2">Ice</option></select></label></header>
-<main id="screen">${svgs[0]}</main><footer>Production C panel and text layout with example data. Browser fonts approximate native text; console compositing and input still need hardware acceptance. No PS5 connection.</footer>
-<script>const views=${JSON.stringify(svgs).replaceAll('<','\\u003c')};const redraw=()=>{document.querySelector('#screen').innerHTML=views[Number(document.querySelector('#accent').value)*9+Number(document.querySelector('#focus').value)]};for(const id of ['#focus','#accent'])document.querySelector(id).addEventListener('change',redraw);</script>`;
+const svg=view=>'<svg viewBox="0 0 1920 1080" role="img" aria-label="Native TacHen panel and text layout">'+
+ view.panels.filter(p=>p.visible).map(p=>`<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="${color(p)}" fill-opacity="${p.color[3]}"/>`).join('')+
+ view.labels.filter(p=>p.text).map(p=>`<text x="${p.x}" y="${p.y+p.size}" font-size="${p.size}" fill="${color(p)}">${escape(p.text)}</text>`).join('')+'</svg>';
+const views=[];
+for(const example of examples){
+ const frame={...base,title:'TacHen / '+example.name,grid:!!example.grid,rows:example.rows.map(([label,detail],i)=>({label,detail,enabled:true,token:String(i).repeat(32)}))};
+ await fs.writeFile(input,encodeDeck(frame));const frames=[];
+ for(let selected=0;selected<frame.rows.length;selected++){
+  const args=[input,'1',String(selected)];const a=spawnSync(exe,args,{encoding:'utf8'}),b=spawnSync(exe,[...args,'panels'],{encoding:'utf8'});
+  if(a.status||b.status)throw Error(a.stderr||b.stderr);frames.push(svg({labels:JSON.parse(a.stdout),panels:JSON.parse(b.stdout)}));
+ }
+ views.push(frames);
+}
+const html=`<!doctype html><meta charset="utf-8"><title>TacHen native preview</title><style>
+body{margin:0;background:#141414;color:#ddd;font:14px system-ui}header,footer{padding:18px 24px;display:flex;gap:24px;align-items:center}select{padding:8px;background:#222;border:1px solid #777;color:white;font:inherit}main{background:radial-gradient(ellipse at 30% 70%,#71818255,transparent 60%),linear-gradient(130deg,#19242d,#5a687b 60%,#172126)}svg{display:block;width:100%;max-height:calc(100vh - 150px);font-family:Arial,sans-serif}svg text{white-space:pre}footer{color:#aaa}</style>
+<header><b>TacHen · native layout preview</b><label>Screen <select id="screen">${examples.map((e,i)=>`<option value="${i}">${e.name}</option>`).join('')}</select></label><label>Selection <select id="focus"></select></label></header><main id="drawing">${views[0][0]}</main><footer>Actual C layout · Example files and data · Browser font approximation · Console transparency still needs hardware testing.</footer>
+<script>const examples=${JSON.stringify(examples)},views=${JSON.stringify(views).replaceAll('<','\\u003c')};const screen=document.querySelector('#screen'),focus=document.querySelector('#focus');function redraw(){document.querySelector('#drawing').innerHTML=views[+screen.value][+focus.value]}function selectScreen(){focus.replaceChildren(...examples[+screen.value].rows.map((r,i)=>new Option(r[0],i)));redraw()}screen.addEventListener('change',selectScreen);focus.addEventListener('change',redraw);selectScreen();</script>`;
 await fs.writeFile(path.join(root,'.local/native-deck-preview.html'),html);
 if(!process.argv.includes('--write-only')){
-  const server=http.createServer((req,res)=>{if(req.url!=='/'){res.writeHead(404);return res.end();}
-    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(html);});
-  server.listen(8797,'127.0.0.1',()=>console.log('Native layout preview at http://127.0.0.1:8797; no console connection.'));
-  const close=()=>{server.closeAllConnections();server.close();};process.on('SIGINT',close);process.on('SIGTERM',close);
+ const server=http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(html);});
+ server.listen(8797,'127.0.0.1',()=>console.log('Native layout preview at http://127.0.0.1:8797; no console connection.'));
+ const close=()=>{server.closeAllConnections();server.close();};process.on('SIGINT',close);process.on('SIGTERM',close);
 }

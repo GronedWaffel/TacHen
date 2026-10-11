@@ -61,7 +61,7 @@ test('loadouts bind exact versions and never partially autostart missing compone
   const missing = profiles.plan(game, { plugins: [], cheats: [] });
   assert.equal(missing.autostart, false); assert.equal(missing.issues[0].code, 'PLUGIN_MISSING');
   const ready = profiles.plan(game, { plugins: [{ sha256: hash, titleId: game.titleId, version: game.version, compatible: true }], cheats: [] });
-  assert.equal(ready.autostart, true); assert.equal(ready.actions[0].generation, game.generation);
+  assert.equal(ready.autostart, false); assert.equal(ready.actions[0].generation, game.generation);
   assert.equal(profiles.plan({ ...game, version: '01.002.000' }, { plugins: [], cheats: [] }).profile, null);
 });
 

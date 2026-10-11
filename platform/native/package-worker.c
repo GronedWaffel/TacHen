@@ -58,7 +58,8 @@ static int start(TacPackageRequest* input){
  TacPackageRequest prior;
  if(!tac_package_request_load(&prior)){
   if(tac_package_receipt_load(prior.request,&previous)||
-    !(previous.stage==TAC_PKG_COMPLETED||(previous.stage==TAC_PKG_REJECTED&&previous.clean))){pthread_mutex_unlock(&mutex);errno=EALREADY;return -1;}
+    !(previous.stage==TAC_PKG_COMPLETED||(previous.stage==TAC_PKG_REJECTED&&previous.clean)||
+      (previous.input.bootSec>0 && (previous.input.bootSec!=input->bootSec||previous.input.bootUsec!=input->bootUsec)))){pthread_mutex_unlock(&mutex);errno=EALREADY;return -1;}
  }else if(errno!=ENOENT){pthread_mutex_unlock(&mutex);return -1;}
  int lock=open(TAC_PACKAGE_ROOT "/active.lock",O_CREAT|O_RDWR|O_NOFOLLOW,0600);
  if(lock<0||flock(lock,LOCK_EX|LOCK_NB)){if(lock>=0)close(lock);pthread_mutex_unlock(&mutex);errno=EBUSY;return -1;}
@@ -80,9 +81,11 @@ static JSValue failure(JSContext* c,int clean){
  if(clean)JS_SetPropertyStr(c,error,"noSideEffects",JS_TRUE);return JS_Throw(c,error);
 }
 static JSValue start_js(JSContext* c,JSValueConst self,int argc,JSValueConst* argv){
- (void)self;if(argc!=9)return JS_ThrowTypeError(c,"Expected request, upload, SHA-256, content, type, platform, patch, bytes and name");
- const char* text[5]={JS_ToCString(c,argv[0]),JS_ToCString(c,argv[1]),JS_ToCString(c,argv[2]),JS_ToCString(c,argv[3]),JS_ToCString(c,argv[8])};
+ (void)self;if(argc!=9&&argc!=10)return JS_ThrowTypeError(c,"Expected package request and optional verification mode");
  TacPackageRequest request={.magic=TAC_PACKAGE_MAGIC,.version=1};int64_t size;int rc=-1;errno=EINVAL;
+ if(argc==10&&(JS_ToUint32(c,&request.reserved,argv[9])||request.reserved>1))return JS_ThrowTypeError(c,"Invalid package verification mode");
+ if(request.reserved)request.version=2;
+ const char* text[5]={JS_ToCString(c,argv[0]),JS_ToCString(c,argv[1]),JS_ToCString(c,argv[2]),JS_ToCString(c,argv[3]),JS_ToCString(c,argv[8])};
  if(text[0]&&text[1]&&text[2]&&text[3]&&text[4]&&strlen(text[0])==32&&strlen(text[1])==32&&strlen(text[2])==64&&strlen(text[3])==36&&strlen(text[4])<128&&
    !JS_ToUint32(c,&request.type,argv[4])&&!JS_ToUint32(c,&request.platform,argv[5])&&!JS_ToUint32(c,&request.patch,argv[6])&&!JS_ToInt64(c,&size,argv[7])&&size>0){
   strcpy(request.request,text[0]);strcpy(request.upload,text[1]);strcpy(request.sha256,text[2]);strcpy(request.content,text[3]);strcpy(request.name,text[4]);request.bytes=(uint64_t)size;rc=start(&request);
@@ -97,9 +100,11 @@ static JSValue poll_js(JSContext* c,JSValueConst self,int argc,JSValueConst* arg
 #define STR(key,value) JS_SetPropertyStr(c,out,key,JS_NewString(c,value))
 #define NUM(key,value) JS_SetPropertyStr(c,out,key,JS_NewFloat64(c,(double)(value)))
  STR("request",r.input.request);STR("upload",r.input.upload);STR("sha256",r.input.sha256);STR("contentId",r.input.content);STR("message",r.message);STR("state",r.state);
+ STR("verification",r.input.reserved==1?"header":"file");
  NUM("stage",r.stage);NUM("pid",r.pid);NUM("error",r.error);NUM("bytes",r.input.bytes);NUM("completedBytes",r.downloaded);NUM("totalBytes",r.total);
  uint64_t now=tac_package_millis();NUM("ageMs",now&&now>=r.updated?now-r.updated:UINT64_MAX);
- JS_SetPropertyStr(c,out,"sameBoot",JS_NewBool(c,!tac_package_boot(&r.input,1)));
+ TacPackageRequest boot={0};int bootKnown=!tac_package_boot(&boot,0);
+ JS_SetPropertyStr(c,out,"sameBoot",bootKnown?JS_NewBool(c,boot.bootSec==r.input.bootSec&&boot.bootUsec==r.input.bootUsec):JS_NULL);
  JS_SetPropertyStr(c,out,"noSideEffects",JS_NewBool(c,r.clean));JS_SetPropertyStr(c,out,"accepted",JS_NewBool(c,r.accepted));JS_SetPropertyStr(c,out,"observed",JS_NewBool(c,r.observed));
 #undef STR
 #undef NUM

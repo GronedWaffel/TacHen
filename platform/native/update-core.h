@@ -33,5 +33,8 @@ int tac_update_revert(TacUpdateState*,uint64_t);
 int tac_update_discard(TacUpdateState*,uint64_t);
 int tac_update_retirable(const TacUpdateState*,const uint8_t[32],uint64_t);
 int tac_update_plan(TacUpdateState*,int64_t,int64_t,const TacUpdateHeader*);
+// Explicit test launcher: use its embedded runtime, retaining the confirmed
+// build until acknowledgement. -2 means a different update is pending.
+int tac_update_plan_bundled(TacUpdateState*,int64_t,int64_t,const TacUpdateHeader*);
 int tac_update_fallback(TacUpdateState*,const TacUpdateHeader*);
 int tac_update_ack(TacUpdateState*,int64_t,int64_t,int32_t,const uint8_t[32]);

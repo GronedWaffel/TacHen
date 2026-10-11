@@ -112,17 +112,13 @@ test('changed game during a completed child stops remaining steps; queued contex
   f.runtime.jobs.pumping = false;f.runtime.jobs.kick();assert.equal((await f.settled(queued.id)).status, 'failed');
 });
 
-test('automatic loadouts own selected plugin startup, retry unavailable readiness and run once per game generation', async t => {
-  const f = await fixture(t);await f.save({ autostart: true });
-  for (const sha256 of [pluginHash, moduleHash]) await f.runtime.plugins.configure({ sha256, autostart: true, revision: f.runtime.store.snapshot().revision });
-  await f.runtime.plugins.refresh();assert.equal(f.calls.length, 0);
-  f.runtime.capability('fps', false, 'Renderer pending');await f.runtime.loadouts.refresh();assert.equal(f.calls.length, 0);
-  assert.equal(f.runtime.loadouts.observation.error.code, 'PROFILE_READINESS');
-  f.runtime.capability('fps', true);await f.runtime.loadouts.refresh();
-  const parent = f.runtime.jobs.snapshot().find(j => j.kind === 'loadout.apply');assert.equal((await f.settled(parent.id)).result.fullyApplied, true);
-  await f.runtime.loadouts.refresh();await f.runtime.plugins.refresh();assert.deepEqual(f.calls, ['plugin', 'module', 'cheat']);
-  f.runtime.graph.safe = true;f.runtime.game = { ...game, generation: boot + '/91/199:0' };await f.runtime.loadouts.refresh();
-  assert.equal(f.runtime.jobs.snapshot().filter(j => j.kind === 'loadout.apply').length, 1);
+test('loadouts containing plugins migrate to manual and cannot bypass manual-only loading',async t=>{
+ const f=await fixture(t);await f.save({autostart:true});
+ assert.equal(f.runtime.loadouts.profile().autostart,false);
+ await f.runtime.loadouts.refresh();await f.runtime.plugins.refresh();assert.deepEqual(f.calls,[]);
+ await assert.rejects(f.runtime.jobs.enqueue('loadout.apply',{source:'automatic'},'old-profile'),{code:'PROFILE_SOURCE'});
+ const parent=await f.apply();assert.equal((await f.settled(parent.id)).result.fullyApplied,true);
+ assert.deepEqual(f.calls,['plugin','module','cheat']);
 });
 
 test('recovery finds a child accepted between intent and receipt writes without enqueueing any replacement', async t => {

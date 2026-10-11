@@ -34,6 +34,7 @@ export class Loadouts {
     invariant(/^[a-f0-9]{64}$/.test(game.metadataHash || ''), 'PROFILE_GAME', 'Wait for verified running-game metadata.');
     const profileHash = hash(profile), source = input.source || 'manual';
     invariant(['manual', 'automatic'].includes(source) && (source !== 'automatic' || profile.autostart), 'PROFILE_SOURCE', 'Automatic loadout startup is disabled.');
+    invariant(source !== 'automatic' || !profile.plugins.length, 'PLUGIN_MANUAL_ONLY', 'Loadouts containing plugins must be applied manually once you are in game.');
     if (input.profileHash) invariant(input.profileHash === profileHash, 'PROFILE_CHANGED', 'This loadout changed after it was reviewed.');
     if (input.generation) invariant(same(input, game), 'PROFILE_GAME_CHANGED', 'The accepted loadout belongs to another game instance.');
     return { game, profile, accepted: { pid: game.pid, generation: game.generation, titleId: game.titleId, version: game.version,
@@ -178,6 +179,7 @@ export class Loadouts {
     if (!profile || !profile.autostart || r.graph.safe || r.recovery?.pending || r.jobs.running.size) return;
     const game = r.game, key = game.generation + ':' + hash(profile);
     if (this.attempts.has(key) || r.jobs.snapshot().some(j => j.kind === 'loadout.apply' && j.args.generation === game.generation && j.args.source === 'automatic')) return;
+    if(profile.plugins.length){this.observation={generation:game.generation,message:'This loadout contains plugins. Apply it manually once you are in game.'};return;}
     this.attempts.add(key);
     if (this.attempts.size > 256) this.attempts.delete(this.attempts.values().next().value);
     try {

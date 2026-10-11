@@ -39,9 +39,15 @@ test('package HTTP parser keeps 180 GiB ranges exact and emits correct HEAD/416 
 test('package HTTP parser refuses ambiguous framing and any other file route',()=>{
  for(const extra of ['Range: bytes=0-1\r\nRange: bytes=2-3\r\n','Content-Length: 1\r\n','Content-Length: 0\r\nContent-Length: 0\r\n',
   'Transfer-Encoding: chunked\r\n','Expect: 100-continue\r\n','Host: duplicate\r\n',' bad: value\r\n','Range : bytes=0-1\r\n','Bad: x\ny\r\n'])assert.equal(parse(extra).value.rc,-1,extra);
- for(const url of ['/','/../data/secret',target+'?other',target.replace('0123','abcd')])assert.equal(parse('', 'GET',url).value.status,404);
+ for(const url of ['/','/../data/secret',target+'/other?x=1',target.replace('0123','abcd')+'?r=0','/wrong?file='+target])assert.equal(parse('', 'GET',url).value.status,404);
  assert.equal(parse('','POST').value.status,405);
  for(const input of [Buffer.from('GET / HTTP/1.1\n\n'),Buffer.from(`GET ${target} HTTP/1.1\r\nX: a\0b\r\n\r\n`),Buffer.from('x'.repeat(4100)+'\r\n\r\n')])assert.equal(parse(input).value.rc,-1);
+});
+test('PlayGo query parameters preserve exact package path and byte ranges',()=>{
+ const url=target+'?product=0284&serverIpAddr=127.0.0.1&r=00000000';
+ assert.deepEqual(parse('','GET',url).value,{rc:0,status:200,head:0,start:0,length:size});
+ assert.deepEqual(parse('Range: bytes=4096-8191\r\n','GET',url).value,{rc:0,status:206,head:0,start:4096,length:4096});
+ assert.equal(parse('','HEAD',url).value.status,200);
 });
 async function launch(t){
  const dir=await fs.mkdtemp(path.join(root,'build/package-source-'));
@@ -61,6 +67,8 @@ function request(url,headers={},method='GET'){
 test('native loopback serves exact full and concurrent ranged bytes from its retained descriptor',async t=>{
  const server=await launch(t);assert.match(server.url,/^http:\/\/127\.0\.0\.1:\d+\//);assert.equal(await server.health(),'1');
  const full=await request(server.url);assert.equal(full.status,200);assert.deepEqual(full.body,server.bytes);
+ const playgo=await request(server.url+'?product=0284&serverIpAddr=127.0.0.1&r=00000000',{Range:'bytes=4096-8191'});
+ assert.equal(playgo.status,206);assert.deepEqual(playgo.body,server.bytes.subarray(4096,8192));
  const head=await request(server.url,{},'HEAD');assert.equal(head.status,200);assert.equal(head.body.length,0);assert.equal(Number(head.headers['content-length']),server.bytes.length);
  const ranges=[[0,65535],[123,33000],[65536,131071],[server.bytes.length-300,server.bytes.length-1]];
  const replies=await Promise.all(ranges.map(([a,b])=>request(server.url,{Range:`bytes=${a}-${b}`})));

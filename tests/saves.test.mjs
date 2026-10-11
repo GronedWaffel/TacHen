@@ -52,6 +52,21 @@ test('save exports refuse a stale choice, swapped USB volume or running game bef
   f.runtime.game = { titleId: selection.titleId };
   await assert.rejects(f.queue('save.export', f.exportInput), { code: 'SAVE_GAME_RUNNING' });assert.equal(f.starts(), 1);
 });
+
+test('save menu names games, explains blocked exports and distinguishes paused or uncertain backups',async t=>{
+ const f=await fixture();t.after(()=>f.runtime.close());await f.queue('save.refresh');
+ f.runtime.libraryState={games:[{titleId:selection.titleId,name:'Example game'}],available:true,error:null,updatedAt:1};
+ const deck=new ConsoleDeck(f.runtime);deck.saveView={offset:0,selected:null};
+ assert(deck.frame().rows.some(row=>row.label==='Example game'&&row.detail.includes(selection.titleId)));
+ deck.saveView.selected=selection;f.runtime.game={titleId:selection.titleId};
+ const blocked=deck.frame().rows.find(row=>row.label==='Back up to console');assert.equal(blocked.enabled,false);assert.match(blocked.detail,/Close this game/);
+ f.runtime.game=null;const backup=await f.queue('save.export',f.exportInput);deck.saveView={job:backup.id};
+ for(const [status,title] of [['cancelled','Backup cancelled'],['held','Backup paused'],['interrupted','Backup needs checking']]){
+  await f.runtime.store.transaction(state=>{const j=state.jobs.find(j=>j.id===backup.id);j.status=status;j.result=null;});
+  assert.equal(deck.frame().rows[0].label,title);
+  assert.equal(deck.frame().rows.some(row=>row.command==='job.reconcile'),status==='interrupted');
+ }
+});
 test('save timeout keeps its accepted request and reconciles later completion without replay', async t => {
   let stale = true;const f = await fixture({ mutate: r => { if (r.mode === 2 && stale) { r.stage = 5;r.mounted = true;r.noSideEffects = false;r.ageMs = 91000; } } });
   t.after(() => f.runtime.close());await f.queue('save.refresh');const job = await f.queue('save.export', f.exportInput);
@@ -79,14 +94,14 @@ test('save catalog validates nested identities rather than trusting helper JSON'
 });
 test('controller save export reviews its destination and uses the same job as the phone', async t => {
   const f = await fixture();t.after(() => f.runtime.close());await f.queue('save.refresh');
-  const deck = new ConsoleDeck(f.runtime);deck.page = 2;
+  const deck = new ConsoleDeck(f.runtime);
   const select = async label => {
     const frame = deck.frame(), index = frame.rows.findIndex(r => r.label === label);assert.ok(index >= 0, label);
     return deck.action({ kind: 'select', sequence: frame.sequence, row: index, request: f.runtime.id() });
   };
   await select('Saved games');await select(selection.titleId);assert.equal(f.starts(), 1);
-  await select('Export to FTP share');assert.equal(f.starts(), 1);
-  await select('Confirm: Export to FTP share');
+  await select('Back up to console');assert.equal(f.starts(), 1);
+  await select('Confirm: Back up to console');
   await until(() => f.runtime.jobs.snapshot().at(-1).status === 'completed');
   assert.equal(f.starts(), 2);assert.equal(f.runtime.jobs.snapshot().at(-1).args.stamp, selection.stamp);
   await deck.action({ kind: 'back', sequence: deck.frame().sequence, request: f.runtime.id() });
@@ -167,13 +182,16 @@ test('save recovery requires a receipt hash and does not replay busy native work
   assert.equal(f.starts(), 2);assert.deepEqual(f.runtime.saves.snapshot().recovering, []);
 });
 
-test('controller Activity starts the same recovery and disables its row while checking', async t => {
+test('controller Active transfers starts the same save recovery and disables its row while checking', async t => {
   const f = await recoveryFixture(t);const deck = new ConsoleDeck(f.runtime);deck.page = 3;
-  const frame = deck.frame(), row = frame.rows.findIndex(r => r.label === 'save.export');
+  const root=deck.frame();await deck.action({kind:'select',sequence:root.sequence,row:root.rows.findIndex(r=>r.label==='Active transfers'),request:f.runtime.id()});
+  const frame = deck.frame(), row = frame.rows.findIndex(r => r.label.startsWith('Save backup:'));
   assert.ok(row >= 0);assert.equal(frame.rows[row].enabled, true);
   await deck.action({ kind: 'select', sequence: frame.sequence, row, request: f.runtime.id() });
+  let detail=deck.frame();
+  await deck.action({kind:'select',sequence:detail.sequence,row:detail.rows.findIndex(r=>r.label==='Check result'),request:f.runtime.id()});
   assert.equal(f.control.starts, 1);
-  const checking = deck.frame().rows.find(r => r.label === 'save.export');
+  const checking = deck.frame().rows.find(r => r.label.startsWith('Save backup:'));
   assert.equal(checking.enabled, false);assert.match(checking.detail, /Checking export/);
   f.runtime.saves.stop();const polls = f.control.polls;
   await new Promise(resolve => setTimeout(resolve, 20));assert.equal(f.control.polls, polls);

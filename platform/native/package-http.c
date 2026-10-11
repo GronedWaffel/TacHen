@@ -23,7 +23,11 @@ int tac_package_http_parse(const char* h,size_t bytes,const char* target,uint64_
  else {r->status=405;return 0;}
  const char* second=memchr(first+1,' ',(size_t)(line-first-1));if(!second)return -1;
  if(line-second!=9||(memcmp(second+1,"HTTP/1.1",8)&&memcmp(second+1,"HTTP/1.0",8)))return -1;
- if((size_t)(second-first-1)!=strlen(target)||memcmp(first+1,target,strlen(target))){r->status=404;return 0;}
+ // PlayGo appends product/serverIpAddr/r query parameters to the supplied URL.
+ // Match the exact pathname; queries never select or open another file.
+ const char* query=memchr(first+1,'?',(size_t)(second-first-1));
+ size_t pathname=(size_t)((query?query:second)-first-1);
+ if(pathname!=strlen(target)||memcmp(first+1,target,pathname)){r->status=404;return 0;}
  unsigned range=0,length=0,host=0;const char* rangeStart=NULL;const char* rangeEnd=NULL;
  const char* p=line+2;
  while(p<end-2){

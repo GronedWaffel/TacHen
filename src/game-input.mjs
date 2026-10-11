@@ -4,8 +4,9 @@ import { invariant, TacError } from './errors.mjs';
 const same = (a, b) => b && ['pid', 'generation', 'titleId', 'version', 'metadataHash'].every(k => a[k] === b[k]);
 const clean = (code, message) => Object.assign(new TacError(code, message), { noSideEffects: true });
 export class GameInput {
-  constructor(runtime, native, { delay = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  constructor(runtime, native, { delay = ms => new Promise(resolve => setTimeout(resolve, ms)), automatic = true } = {}) {
     this.runtime = runtime;this.native = native;this.delay = delay;this.pending = null;this.stopped = true;this.timer = null;this.observation = null;
+    this.automatic = automatic;
     runtime.jobs.register('game.input.prepare', this.handler());
   }
   target(input) {
@@ -70,7 +71,16 @@ export class GameInput {
     };
   }
   async inspect() {
-    const runtime = this.runtime, game = runtime.game;
+    const runtime = this.runtime;
+    // An uncertain callback owns the shared native dispatch resource. Its
+    // ownership ends with the verified process, even while no game is open.
+    // Never require users to manually reconcile an exited game's operation.
+    for (const job of runtime.jobs.snapshot().filter(job => job.kind === 'game.input.prepare' && job.status === 'interrupted')) {
+      if (this.ended(job.args)) {
+        try { await runtime.jobs.reconcile(job.id); } catch { /* Keep ownership if its outcome is still ambiguous. */ }
+      }
+    }
+    const game = runtime.game;
     if (!game || runtime.graph.safe || runtime.recovery?.pending || !runtime.capabilities.get('deck').available) { this.observation = null;return; }
     const prior = runtime.jobs.snapshot().filter(job => job.kind === 'game.input.prepare' && job.args.generation === game.generation).at(-1);
     if (prior) {
@@ -79,6 +89,11 @@ export class GameInput {
       this.observation = { generation: game.generation, phase: prepared ? 'prepared' : receipt?.stage === 4 ? 'uncertain' : receipt?.stage === 3 ? 'rejected' : 'unavailable', captureAvailable: false,
         message: prior.error?.message || receipt?.message || 'Game input preparation is recorded in Activity.' };
       return; // Existing requests, including failures, are never automatically replayed.
+    }
+    if (!this.automatic) {
+      this.observation = { generation: game.generation, phase: 'not-prepared', captureAvailable: false,
+        message: 'Automatic in-game menu preparation is disabled in this loader test build. Plugins load independently.' };
+      return;
     }
     if (runtime.jobs.running.size) return;
     await runtime.jobs.enqueue('game.input.prepare', this.target(), runtime.id());
@@ -92,9 +107,13 @@ export class GameInput {
   }
   start() {
     if (!this.stopped) return;this.stopped = false;
+    this.unsubscribe = this.runtime.gameLifecycle?.subscribe(event => {
+      if (!['start','exit','available'].includes(event.type) || this.stopped) return;
+      return this.pending ? this.pending.then(() => { if (!this.stopped) return this.refresh(); }) : this.refresh();
+    });
     const run = async () => { if (this.stopped) return;await this.refresh();if (!this.stopped) this.timer = setTimeout(run, 2000); };run();
   }
-  stop() { this.stopped = true;clearTimeout(this.timer);this.timer = null; }
+  stop() { this.stopped = true;clearTimeout(this.timer);this.timer = null;this.unsubscribe?.();this.unsubscribe=null; }
 }
 export function installGameInput(runtime, native, options) {
   if (typeof native.gameInputStart !== 'function' || typeof native.gameInputPoll !== 'function') return null;
