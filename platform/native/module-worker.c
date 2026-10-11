@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include "module-thread.h"
 #include "module-storage.h"
+#include "goldhen-worker.h"
+#include "goldhen-compat.h"
 #include <sys/mman.h>
 #include <ps5/kernel.h>
 #include <sys/stat.h>
@@ -92,7 +94,7 @@ done:
   if(*attached&&!pt_detach(s->pid,0))*attached=0;
   return sdk;
 }
-static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,uint32_t sdk,char *reason){
+static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,uint32_t sdk,int *attached,char *reason){
   int inbox=open("/data/tachen/inbox",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);if(inbox<0){snprintf(reason,192,"Cannot open plugin storage (errno %d)",errno);return -1;}
   char name[64];snprintf(name,sizeof name,"%s.payload",r->upload);int fd=openat(inbox,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);close(inbox);
   if(fd<0){snprintf(reason,192,"Cannot open the registered plugin file (errno %d)",errno);return -1;}struct stat st;unsigned char *bytes=NULL;int bad=1;
@@ -106,12 +108,16 @@ static int sealed_file(TacModuleSession *s,TacModuleReceipt *r,int platform,uint
   if(actual&&actual!=platform){snprintf(reason,192,"Module container targets a different console platform than this game");goto done;}
   uint32_t originalSdk=0;int adapted=platform==5?tac_prx_match_host_sdk(bytes,size,sdk,kernel_get_fw_version(),&originalSdk):0;
   if(adapted<0){snprintf(reason,192,"Development module SDK metadata is malformed");goto done;}
+  if(tac_goldhen_supported(r->sha256)){
+    if(platform!=4){snprintf(reason,192,"This Havana file targets PS4 RDR2 1.32");goto done;}
+    if(tac_goldhen_prepare(s,bytes,size,attached,reason))goto done;
+  }
   char stagedHash[65];sha_hex(bytes,size,stagedHash);
   printf("TacHen game module SDK: host=0x%08x module=0x%08x adapted=%d source=%s staged=%s originalUploadPreserved=1\n",sdk,originalSdk,adapted,r->sha256,stagedHash);fflush(stdout);
   // The backing copy is isolated by SDK and never modifies the verified upload.
   // The console still checks imports and runs the module's normal initializer.
   int dir=tac_module_storage_open(s->pid,s->generation,s->title,platform,sdk,reason);if(dir<0)goto done;
-  char final[80],temp[80];snprintf(final,sizeof final,"%s.%s",r->sha256,r->extension);snprintf(temp,sizeof temp,"%s.part",r->request);
+  char final[80],temp[80],modulePath[256];tac_module_path(r,modulePath);snprintf(final,sizeof final,"%s",modulePath+strlen(TAC_GAME_MODULE_PREFIX));snprintf(temp,sizeof temp,"%s.part",r->request);
   int existing=openat(dir,final,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
   if(existing>=0){
     struct stat old;bad=fstat(existing,&old)||!S_ISREG(old.st_mode)||old.st_size!=st.st_size||(old.st_mode&0222);
@@ -143,7 +149,9 @@ static void *worker(void *ignored){
   int platform=!memcmp(s.title,"PPS",3)||!memcmp(s.title,"MOUU",4)?5:4;
   uint32_t sdk=platform==5?host_sdk(&s,&attached):0;
   if(attached){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed after SDK inspection";goto done;}
-  if(sealed_file(&s,r,platform,sdk,reason)||!metadata_matches(&s,reason))goto rejected;
+  int fileResult=sealed_file(&s,r,platform,sdk,&attached,reason);
+  if(attached){pendingStage=TAC_PRX_UNKNOWN;pendingMessage="Game resume was not confirmed after compatibility preparation";goto done;}
+  if(fileResult||!metadata_matches(&s,reason))goto rejected;
   const SnipersFirmwareProfile *profile=snipers_firmware_profile(kernel_get_fw_version());uint64_t base=KERNEL_ADDRESS_DATA_BASE;
   TacKstuffSnapshot a=tac_kstuff_read(base,profile),b=tac_kstuff_read(base,profile);
   if(!profile||!tac_kstuff_snapshot_equal(&a,&b)||!tac_kstuff_injection_ready(base,&b)){

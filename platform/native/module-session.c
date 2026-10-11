@@ -2,6 +2,7 @@
 #include "module-session.h"
 #include "game-info.h"
 #include "sha256.h"
+#include "goldhen-compat.h"
 #include <string.h>
 #include <stdio.h>
 int tac_hex_string(const char *s,size_t n){if(!s||strlen(s)!=n)return 0;for(size_t i=0;i<n;i++)if(!((s[i]>='0'&&s[i]<='9')||(s[i]>='a'&&s[i]<='f')))return 0;return 1;}
@@ -40,7 +41,12 @@ int tac_module_arena_claim(TacModuleSession *s,const char *request){
   if(tac_module_session_held(s))return -1;
   strcpy(s->arenaRequest,request);s->arenaStage=1;snprintf(s->arenaMessage,sizeof s->arenaMessage,"Game input preparation queued");return 0;
 }
-void tac_module_path(const TacModuleReceipt *r,char path[256]){snprintf(path,256,TAC_GAME_MODULE_PREFIX "%s.%s",r->sha256,r->extension);}
+void tac_module_path(const TacModuleReceipt *r,char path[256]){
+  // The private Havana copy contains per-process gate addresses. Never reuse
+  // it for another request/game generation or overwrite a mapped old inode.
+  if(tac_goldhen_supported(r->sha256))snprintf(path,256,TAC_GAME_MODULE_PREFIX "%s%s.%s",r->request,r->request,r->extension);
+  else snprintf(path,256,TAC_GAME_MODULE_PREFIX "%s.%s",r->sha256,r->extension);
+}
 void tac_module_failure_message(int32_t handle,int32_t startResult,char *message,size_t size){
   if((uint32_t)handle==UINT32_C(0x80020063)){
     snprintf(message,size,"Game loader rejected the module's SDK version (0x80020063). Check plugin/game compatibility. Close the game before retrying; other payloads remain available.");return;

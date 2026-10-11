@@ -167,3 +167,37 @@ arbitrary delay or unproven readiness heuristic. Controller and phone show:
 registrations and loadouts containing plugins migrate to manual loading. Old API
 requests cannot reenable automatic plugin loading; manual loadouts remain usable.
 No plugin instructions were modified as part of this black-screen investigation.
+
+## Havana 1.32 compatibility update (October 10)
+
+The official Havana 1.2 `rdr3Payload_132.sprx` (SHA-256
+`b465b1f7aaa7d4a523db3b00618613b1e1d3ab9984d59461710fc4749356e36b`)
+starts `rdr3_thread`, prints its Loaded notification, then calls GoldHEN SDK
+command 4 through syscall 500. Its game hook uses command 5. TacHen's ordinary
+module loader supplies neither service. The reported 13.42 / RDR2 1.32 crash
+fits this dependency gap, but the screenshot alone does not locate the fault RIP.
+
+This build recognizes that exact original hash and verifies both edited
+instruction sequences. It adapts only a per-request backing copy, redirecting
+the SDK command wrapper into a private game mailbox. The native service supplies
+the packed 202-byte process information using live process/module identity and
+the game's SFO, and bounded same-process memory reads/writes. Requests are
+serviced under a stopped-process lease with generation checks, write readback,
+permission restoration and resume checks. Unsupported commands return failure;
+there is no global syscall-500 hook or claim of full GoldHEN emulation.
+
+Havana originally installs its 14-byte jump in two calls: a jump to zero, then
+its actual destination. The adapted copy assembles the entire jump first and
+performs one write, avoiding a half-published hook between bridge requests.
+Original uploads and unrelated plugins remain unchanged. Distinct request paths
+prevent reusing an embedded game address after closing/relaunching the game.
+
+The executable gate, SDK argument shuffle and combined hook-write sequence are
+tested as machine code on the development host. These tests do not establish
+PS5 hardware compatibility. After receiving the test build, the community tester
+reported Havana working without errors on PS5 13.42 with RDR2 1.32. Beta 3
+publishes that exact ELF unchanged (SHA-256
+`54f0e98c3903086dc11c52609be7da1cf7024527aeaaf2162de49ec77049232f`).
+This is a tester-reported result for the identified game/plugin/firmware, not an
+independently captured trace or certification of other GoldHEN PRXs. All 560
+automated regression tests passed before the tester received the build.

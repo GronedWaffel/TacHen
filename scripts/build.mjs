@@ -20,6 +20,7 @@ await import('./build-download-ca.mjs');
 await import('./prepare-download.mjs');
 await import('./prepare-catalog.mjs');
 await import('./build-game-gate.mjs');
+await import('./build-goldhen-bridge.mjs');
 await import('./build-pad-bridge.mjs');
 const assets = {};
 for (const file of ['index.html', 'deck.css', 'deck.js']) assets[file] = await fs.readFile(path.join(root, 'ui', file), 'utf8');
@@ -52,7 +53,7 @@ const sources = ['platform/runtime/host.c', 'platform/runtime/hash-bindings.c', 
     'platform/native/update-core.c','platform/native/update-io.c','platform/native/update-bindings.c',
     ...['elf-image.c', 'elf-map.c', 'loader-worker.c', 'loader-bindings.c', 'system-probe.c', 'manager-config.c', 'native-operation.c', 'deck-inject.c', 'deck-launch.c', 'deck-worker.c', 'trace-wait.c',
       'package-core.c', 'package-io.c', 'package-worker.c', 'save-core.c', 'save-io.c', 'save-worker.c', 'save-recovery.c', 'save-recovery-io.c', 'game-info.c', 'game-source.c', 'game-metadata.c', 'plugin-image.c', 'dispatch-receipt.c', 'game-inject.c', 'game-imports.c', 'process-current.c', 'process-info.c',
-      'prx-image.c', 'module-session.c', 'module-storage.c', 'module-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
+      'prx-image.c', 'module-session.c', 'module-storage.c', 'module-worker.c', 'goldhen-compat.c', 'goldhen-worker.c', 'process-fresh.c', 'memory-map.c', 'cheat-transaction.c', 'cheat-worker.c', 'memory-inspect.c', 'fps-counters.c', 'telemetry-worker.c', 'user-read.c'].map(file => 'platform/native/' + file),
   'platform/native/fps-inject.c', 'platform/native/bc-fps-worker.c', 'platform/game/fps-trampoline.cpp',
   'platform/native/pad-worker.c', 'platform/native/pad-exchange.c', 'platform/native/user-write.c',
   'platform/game/game-trampoline.cpp', 'platform/game/pad-trampoline.cpp', 'vendor/deck/relocate.cpp', 'vendor/deck/hde64.cpp',
@@ -183,11 +184,13 @@ catch (error) { if (error.code !== 'ENOENT') throw error; }
 if (localOutput?.desktopDirectory) {
   const directory = path.resolve(localOutput.desktopDirectory);
   if (!(await fs.stat(directory)).isDirectory()) throw Error('Configured desktop output is not a directory');
-  const destination = path.join(directory, 'TacHen-compatibility.elf');
+  const outputName=process.env.TACHEN_TEST_NAME||'TacHen-compatibility';
+  if(!/^[A-Za-z0-9-]+$/.test(outputName))throw Error('Invalid local test filename');
+  const destination = path.join(directory, outputName+'.elf');
   await fs.writeFile(destination + '.tmp', bundledLauncher);
   await fs.rename(destination + '.tmp', destination);
-  await fs.writeFile(path.join(directory, 'TacHen-compatibility-build.json'), JSON.stringify({
-    source: buildIdentity.source, file: 'TacHen-compatibility.elf', selection: 'embedded-runtime-trial',
+  await fs.writeFile(path.join(directory, outputName+'-build.json'), JSON.stringify({
+    source: buildIdentity.source, file: outputName+'.elf', selection: 'embedded-runtime-trial',
     sha256: createHash('sha256').update(bundledLauncher).digest('hex'), bytes: bundledLauncher.length,
     hardwareVerified: false
   }, null, 2) + '\n');

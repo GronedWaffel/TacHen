@@ -263,4 +263,15 @@ and its example loader. This entry-point support does not implement GoldHEN's
 syscall-500 services or imply compatibility with every GoldHEN plugin. No private
 third-party game module is included in TacHen's source or release artifacts.
 
+The Havana compatibility adapter implements the packed process-info and
+process-RW command ABI documented in the GoldHEN Plugins SDK above (SiSTRo,
+ctn123, OSM, jocover, bucanero, OpenOrbis contributors and nik; MIT licensed SDK).
+Command behavior was also cross-checked against the reconstructed handlers in
+[OptiTronOffical/OpenGoldHEN](https://github.com/OptiTronOffical/OpenGoldHEN/blob/main/src/kpayload/handlers.c).
+No reconstructed handler implementation was copied. TacHen's mailbox service
+and per-process adapter are independent code. The recognized binary is
+[Havana by 0x199, GoldHEN port by illusion](https://github.com/illusionyy/PS4-RDR2-Havana-Mod-Menu-Releases/releases/tag/v1.20);
+that binary is not bundled or redistributed. The adapter only adapts the exact
+Havana 1.2 / RDR2 1.32 release identified in the compatibility documentation.
+
 SQLite 3.46.1 is by D. Richard Hipp and SQLite contributors, dedicated to the public domain. Its amalgamation and the PS5 package recipe are included in the third-party source bundle.
