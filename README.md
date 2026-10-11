@@ -2,14 +2,14 @@
 
 **Beta 1 — PS5 firmware 11.00–13.60, excluding 11.40.**
 
-TacHen brings a native controller menu and a console-hosted phone interface together for payloads, packages, games, plugins, cheats, saves and file transfers.
+TacHen brings a native controller menu and a console-hosted web interface with layouts for both phones and PCs together for payloads, packages, games, plugins, cheats, saves and file transfers.
 
 ## Download and start
 
 1. Download **TacHen.elf** from [Releases](https://github.com/GronedWaffel/TacHen/releases/latest).
 2. Reboot and jailbreak your PS5. Send the ELF with your payload sender or load it through your existing payload loader.
 3. Wait for the startup notification, then hold **L3 + R3** to open TacHen. **Circle** goes back; L3 + R3 closes the menu.
-4. For the phone interface, open **http://YOUR-PS5-IP:8780** from a device on the same network.
+4. For the web interface, open **http://YOUR-PS5-IP:8780** in your phone or PC browser on the same network. The layout automatically adapts to the screen: a mobile layout on phones and a desktop layout on PCs.
 
 TacHen is a post-jailbreak payload, not an exploit. Use a fresh boot when replacing an already-running TacHen build. This release ELF selects its bundled runtime so an older saved update cannot replace the build you just downloaded.
 
@@ -23,7 +23,7 @@ TacHen is a post-jailbreak payload, not an exploit. Use a fresh boot when replac
 - **Saved games:** browse saves and export backups to USB or the FTP share.
 - **Transfers:** view progress and use a two-pane file browser to copy files and folders between console storage and USB.
 - **Display:** FPS and other game telemetry, optional IP display, dashboard title IDs and game versions, plus the dashboard Cheats action.
-- **Phone and tools:** console-hosted controls, FTP share, and the MCP interface for compatible tools.
+- **Phone, PC and tools:** a console-hosted website with mobile and desktop layouts, FTP share, and the MCP interface for compatible tools.
 
 The built-in FTP share is on **port 2122**, rooted at `/data/tachen/share`; use `tachen` or `anonymous` with any password on your trusted local network. DPI v2 uses **port 12800** when enabled in Packages.
 
